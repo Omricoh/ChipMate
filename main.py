@@ -889,6 +889,9 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Auto-approve since host is creating it
     transaction_dal.update_status(ObjectId(tx_id), True, False)
 
+    # Remove the player from the game after cashout
+    player_dal.remove_player(game_id, player_id)
+
     # Check if this is admin override
     is_admin = context.user_data.get("admin_override", False)
 
@@ -910,6 +913,8 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         summary += f"**Total cashout: {chip_count}**\n"
         summary += f"💵 Pay {player_name}: **{chip_count} in cash**"
+
+    summary += f"\n\n🚪 {player_name} has been removed from the game."
 
     if is_admin:
         # Return to admin game management menu
@@ -937,6 +942,7 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
             player_msg += f"Net amount: {net_cashout}"
         else:
             player_msg += f"Cash amount: {chip_count}"
+        player_msg += f"\n\nYou have been removed from the game. Thank you for playing!"
 
         try:
             await context.bot.send_message(
@@ -963,6 +969,7 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
             player_msg += f"Net amount: {net_cashout}"
         else:
             player_msg += f"Cash amount: {chip_count}"
+        player_msg += f"\n\nYou have been removed from the game. Thank you for playing!"
 
         try:
             await context.bot.send_message(
@@ -1560,10 +1567,70 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not tx:
         await query.edit_message_text("⚠️ Transaction not found")
         return
+
     if action == "approve":
         transaction_dal.update_status(ObjectId(tx_id), True, False)
-        await query.edit_message_text(f"✅ Approved {tx['type']} {tx['amount']}")
-        await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
+
+        # If this is a cashout, remove the player from the game
+        if tx["type"] == "cashout":
+            # Calculate the player's net position
+            game_id = tx["game_id"]
+            user_id = tx["user_id"]
+
+            # Get player info before removing
+            player = player_dal.get_player(game_id, user_id)
+            player_name = player.name if player else "Player"
+
+            # Calculate cash and credit buyins
+            transactions = db.transactions.find({
+                "game_id": game_id,
+                "user_id": user_id,
+                "confirmed": True,
+                "rejected": False,
+                "type": {"$in": ["buyin_cash", "buyin_register"]}
+            })
+
+            credit_buyins = 0
+            for t in transactions:
+                if t["type"] == "buyin_register":
+                    credit_buyins += t["amount"]
+
+            # Calculate net cashout
+            chip_count = tx["amount"]
+            net_cashout = chip_count - credit_buyins
+
+            # Remove player from the game
+            player_dal.remove_player(game_id, user_id)
+
+            # Update the message with cashout details
+            cashout_msg = f"✅ Approved cashout: {chip_count} chips\n"
+            if credit_buyins > 0:
+                cashout_msg += f"Credit settled: {credit_buyins}\n"
+                if net_cashout > 0:
+                    cashout_msg += f"💵 Pay {player_name}: {net_cashout} cash"
+                elif net_cashout < 0:
+                    cashout_msg += f"💳 Collect from {player_name}: {abs(net_cashout)}"
+                else:
+                    cashout_msg += f"✅ No cash exchange (credit settled)"
+            else:
+                cashout_msg += f"💵 Pay {player_name}: {chip_count} cash"
+
+            cashout_msg += f"\n\n🚪 {player_name} has been removed from the game."
+
+            await query.edit_message_text(cashout_msg)
+
+            # Notify the player they've been cashed out and removed
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"✅ Cashout approved: {chip_count} chips\n"
+                     f"{'Credit settled: ' + str(credit_buyins) if credit_buyins > 0 else ''}\n"
+                     f"Net amount: {net_cashout if credit_buyins > 0 else chip_count}\n\n"
+                     f"You have been removed from the game. Thank you for playing!"
+            )
+        else:
+            # Regular buy-in approval
+            await query.edit_message_text(f"✅ Approved {tx['type']} {tx['amount']}")
+            await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
     else:
         transaction_dal.update_status(ObjectId(tx_id), False, True)
         await query.edit_message_text(f"❌ Rejected {tx['type']} {tx['amount']}")
