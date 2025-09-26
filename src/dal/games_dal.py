@@ -96,22 +96,14 @@ class GamesDAL:
         if not game_doc:
             return None
 
-        try:
-            # Add code if missing
-            if 'code' not in game_doc or not game_doc['code']:
-                game_doc['code'] = f"LEGACY_{str(game_doc['_id'])[:5].upper()}"
+        # Get all players
+        players = list(self.col.database.players.find({"game_id": str(game_id)}))
 
-            # Get all players
-            players = list(self.col.database.players.find({"game_id": str(game_id)}))
+        # Get all transactions
+        transactions = list(self.col.database.transactions.find({"game_id": str(game_id)}))
 
-            # Get all transactions
-            transactions = list(self.col.database.transactions.find({"game_id": str(game_id)}))
-
-            return {
-                "game": Game(**game_doc),
-                "players": players,
-                "transactions": transactions
-            }
-        except Exception as e:
-            print(f"Error generating report for game {game_id}: {e}")
-            return None
+        return {
+            "game": Game(**game_doc),
+            "players": players,
+            "transactions": transactions
+        }
