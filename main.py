@@ -63,9 +63,9 @@ HOST_MENU = ReplyKeyboardMarkup(
 
 ADMIN_MENU = ReplyKeyboardMarkup(
     [
-        ["📋 List All Games", "⏰ Expire Old Games"],
-        ["📊 Game Report", "🔍 Find Game"],
-        ["🚪 Exit Admin"]
+        ["🎮 Manage Active Games", "📋 List All Games"],
+        ["⏰ Expire Old Games", "📊 Game Report"],
+        ["🔍 Find Game", "🚪 Exit Admin"]
     ],
     resize_keyboard=True,
 )
@@ -78,7 +78,7 @@ ASK_QUIT_CONFIRM = range(1)
 ASK_END_GAME_CONFIRM = range(1)
 ASK_HOST_BUYIN_PLAYER, ASK_HOST_BUYIN_TYPE, ASK_HOST_BUYIN_AMOUNT = range(3)
 ASK_HOST_CASHOUT_PLAYER, ASK_HOST_CASHOUT_AMOUNT = range(2)
-ADMIN_MODE, ASK_GAME_CODE_REPORT = range(2)
+ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME = range(4)
 
 # -------- Helpers --------
 def get_active_game(user_id: int):
@@ -586,8 +586,14 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin login command"""
     if not context.args or len(context.args) != 2:
-        await update.message.reply_text("Usage: /admin <username> <password>")
-        return ConversationHandler.END
+        await update.message.reply_text(
+            "🔐 **Admin Login Required**\n\n"
+            "Usage: `/admin <username> <password>`\n\n"
+            "Example: `/admin admin secret123`\n\n"
+            "Note: Admin credentials must be set in environment variables.",
+            parse_mode="Markdown"
+        )
+        return
 
     username, password = context.args[0], context.args[1]
 
@@ -598,7 +604,13 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if admin_user and admin_pass:
         if username != admin_user or password != admin_pass:
             await update.message.reply_text("❌ Invalid admin credentials")
-            return ConversationHandler.END
+            return
+    else:
+        # If no credentials are set in environment, allow any login (for testing)
+        await update.message.reply_text(
+            "⚠️ Warning: No admin credentials set in environment.\n"
+            "Allowing access for testing purposes."
+        )
 
     # Store admin auth in context
     context.user_data["admin_auth"] = True
@@ -817,11 +829,279 @@ async def admin_exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
+async def admin_manage_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show active games for admin to manage"""
+    if not context.user_data.get("admin_auth"):
+        await update.message.reply_text("⚠️ Admin authentication required")
+        return ADMIN_MODE
+
+    try:
+        games = game_dal.list_games(
+            user=context.user_data.get("admin_user"),
+            password=context.user_data.get("admin_pass")
+        )
+
+        active_games = [g for g in games if g.status == "active"]
+
+        if not active_games:
+            await update.message.reply_text("No active games to manage.", reply_markup=ADMIN_MENU)
+            return ADMIN_MODE
+
+        # Create buttons for each active game
+        buttons = []
+        context.user_data["admin_active_games"] = {}
+
+        for game in active_games:
+            game_id = str(game_dal.col.find_one({"code": game.code})["_id"])
+            context.user_data["admin_active_games"][game.code] = game_id
+
+            # Get player count
+            player_count = len(player_dal.get_players(game_id))
+
+            button_text = f"{game.code} - {game.host_name} ({player_count} players)"
+            buttons.append([button_text])
+
+        buttons.append(["🔙 Back to Admin Menu"])
+
+        markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+        await update.message.reply_text(
+            "🎮 **Select a game to manage:**\n\n"
+            "You can manage any active game as if you were the host.",
+            reply_markup=markup
+        )
+
+        return ADMIN_SELECT_GAME
+
+    except Exception as e:
+        await update.message.reply_text(f"Error: {str(e)}", reply_markup=ADMIN_MENU)
+        return ADMIN_MODE
+
+async def admin_select_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle game selection for admin management"""
+    text = update.message.text
+
+    if "Back to Admin Menu" in text:
+        await update.message.reply_text("Returning to admin menu...", reply_markup=ADMIN_MENU)
+        return ADMIN_MODE
+
+    # Extract game code from button text
+    code = text.split(" - ")[0] if " - " in text else None
+
+    if not code or code not in context.user_data.get("admin_active_games", {}):
+        await update.message.reply_text("Invalid selection. Please try again.")
+        return ADMIN_SELECT_GAME
+
+    game_id = context.user_data["admin_active_games"][code]
+    context.user_data["admin_managing_game"] = game_id
+    context.user_data["admin_managing_code"] = code
+
+    # Create admin game management menu
+    ADMIN_GAME_MENU = ReplyKeyboardMarkup(
+        [
+            ["👤 View Players", "💰 Add Buy-in"],
+            ["💸 Add Cashout", "📊 Game Status"],
+            ["⚖️ Settle Game", "🔚 End Game"],
+            ["🔙 Back to Games List"]
+        ],
+        resize_keyboard=True
+    )
+
+    await update.message.reply_text(
+        f"📌 **Managing Game: {code}**\n\n"
+        f"Select an action:",
+        reply_markup=ADMIN_GAME_MENU
+    )
+
+    return ADMIN_MANAGE_GAME
+
+async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle admin game management actions"""
+    text = update.message.text
+    game_id = context.user_data.get("admin_managing_game")
+    code = context.user_data.get("admin_managing_code")
+
+    if not game_id:
+        await update.message.reply_text("No game selected.", reply_markup=ADMIN_MENU)
+        return ADMIN_MODE
+
+    if "Back to Games List" in text:
+        return await admin_manage_games(update, context)
+
+    elif "View Players" in text:
+        players = player_dal.get_players(game_id)
+        if not players:
+            await update.message.reply_text("No players in this game.")
+            return ADMIN_MANAGE_GAME
+
+        msg = f"👥 **Players in {code}:**\n\n"
+        for p in players:
+            status = "🚪 Quit" if p.quit else "✅ Active"
+            chips = f"Chips: {p.final_chips}" if p.final_chips else "Chips: Not submitted"
+            buyins = f"Buy-ins: {sum(p.buyins)}" if p.buyins else "Buy-ins: 0"
+            msg += f"• {p.name} (ID: {p.user_id}) {status}\n"
+            msg += f"  {buyins}, {chips}\n\n"
+
+        await update.message.reply_text(msg)
+        return ADMIN_MANAGE_GAME
+
+    elif "Add Buy-in" in text:
+        # Temporarily set admin as host for this game in context
+        context.user_data["admin_override"] = True
+        context.user_data["game_id"] = game_id
+        return await admin_buyin_for_player(update, context)
+
+    elif "Add Cashout" in text:
+        context.user_data["admin_override"] = True
+        context.user_data["game_id"] = game_id
+        return await admin_cashout_for_player(update, context)
+
+    elif "Game Status" in text:
+        game = game_dal.get_game(game_id)
+        players = player_dal.get_players(game_id)
+
+        active_players = sum(1 for p in players if p.active and not p.quit)
+        total_buyins = sum(sum(p.buyins) if p.buyins else 0 for p in players)
+
+        msg = f"📊 **Game Status: {code}**\n\n"
+        msg += f"Host: {game.host_name}\n"
+        msg += f"Status: {game.status}\n"
+        msg += f"Players: {active_players} active\n"
+        msg += f"Total buy-ins: {total_buyins}\n"
+        msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
+
+        await update.message.reply_text(msg)
+        return ADMIN_MANAGE_GAME
+
+    elif "Settle Game" in text:
+        return await admin_settle_game(update, context, game_id)
+
+    elif "End Game" in text:
+        game_dal.update_status(game_id, "ended")
+
+        # Notify all players
+        players = player_dal.get_players(game_id)
+        for p in players:
+            try:
+                await context.bot.send_message(
+                    chat_id=p.user_id,
+                    text=f"🔚 Game {code} has been ended by an administrator."
+                )
+            except:
+                pass
+
+        await update.message.reply_text(f"✅ Game {code} has been ended.", reply_markup=ADMIN_MENU)
+        return ADMIN_MODE
+
+    else:
+        await update.message.reply_text("Unknown action.")
+        return ADMIN_MANAGE_GAME
+
+async def admin_buyin_for_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin adds buy-in for any player"""
+    game_id = context.user_data.get("game_id")
+    players = player_dal.get_players(game_id)
+
+    if not players:
+        await update.message.reply_text("No players in the game.")
+        return ADMIN_MANAGE_GAME
+
+    buttons = []
+    for p in players:
+        if p.active and not p.quit:
+            buttons.append([f"{p.name} (ID: {p.user_id})"])
+
+    buttons.append(["❌ Cancel"])
+    markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+
+    await update.message.reply_text("Select player to add buy-in:", reply_markup=markup)
+    context.user_data["admin_action"] = "buyin"
+    return ASK_HOST_BUYIN_PLAYER
+
+async def admin_cashout_for_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin adds cashout for any player"""
+    game_id = context.user_data.get("game_id")
+    players = player_dal.get_players(game_id)
+
+    if not players:
+        await update.message.reply_text("No players in the game.")
+        return ADMIN_MANAGE_GAME
+
+    buttons = []
+    for p in players:
+        if p.active and not p.quit:
+            buttons.append([f"{p.name} (ID: {p.user_id})"])
+
+    buttons.append(["❌ Cancel"])
+    markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+
+    await update.message.reply_text("Select player to add cashout:", reply_markup=markup)
+    context.user_data["admin_action"] = "cashout"
+    return ASK_HOST_CASHOUT_PLAYER
+
+async def admin_settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
+    """Admin settles the game"""
+    players = player_dal.get_players(game_id)
+
+    # Calculate net position for each player
+    settlements = []
+    for p in players:
+        if p.quit or not p.active:
+            continue
+
+        total_buyins = sum(p.buyins) if p.buyins else 0
+        final_chips = p.final_chips if p.final_chips is not None else 0
+        net = final_chips - total_buyins
+
+        settlements.append({
+            "name": p.name,
+            "buyins": total_buyins,
+            "chips": final_chips,
+            "net": net
+        })
+
+    if not settlements:
+        await update.message.reply_text("No active players to settle.")
+        return ADMIN_MANAGE_GAME
+
+    # Sort by net position
+    settlements.sort(key=lambda x: x["net"], reverse=True)
+
+    msg = f"💰 **Settlement for {context.user_data.get('admin_managing_code')}:**\n\n"
+    for s in settlements:
+        symbol = "🟢" if s["net"] > 0 else "🔴" if s["net"] < 0 else "⚪"
+        msg += f"{symbol} {s['name']}\n"
+        msg += f"  Buy-ins: {s['buyins']}\n"
+        msg += f"  Final: {s['chips']}\n"
+        msg += f"  Net: {'+' if s['net'] > 0 else ''}{s['net']}\n\n"
+
+    # Calculate who owes whom
+    msg += "**Payments:**\n"
+    winners = [s for s in settlements if s["net"] > 0]
+    losers = [s for s in settlements if s["net"] < 0]
+
+    for loser in losers:
+        debt = abs(loser["net"])
+        for winner in winners:
+            if debt <= 0:
+                break
+            if winner["net"] <= 0:
+                continue
+
+            payment = min(debt, winner["net"])
+            msg += f"• {loser['name']} → {winner['name']}: {payment}\n"
+            debt -= payment
+            winner["net"] -= payment
+
+    await update.message.reply_text(msg)
+    return ADMIN_MANAGE_GAME
+
 async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin menu selections"""
     text = update.message.text
 
-    if "List All Games" in text:
+    if "Manage Active Games" in text:
+        return await admin_manage_games(update, context)
+    elif "List All Games" in text:
         return await admin_list_all_games(update, context)
     elif "Expire Old Games" in text:
         return await admin_expire_games(update, context)
@@ -902,7 +1182,9 @@ def main():
         entry_points=[CommandHandler("admin", admin_login)],
         states={
             ADMIN_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_mode_handler)],
-            ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)]
+            ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)],
+            ADMIN_SELECT_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_select_game)],
+            ADMIN_MANAGE_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_game_handler)]
         },
         fallbacks=[MessageHandler(filters.Regex("^🚪 Exit Admin$"), admin_exit)]
     ))
