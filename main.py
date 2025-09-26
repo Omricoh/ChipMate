@@ -513,10 +513,35 @@ async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "👥 **Players in game:**\n\n"
     for p in players:
         status = "🚪 Quit" if p.quit else "✅ Active"
-        buyins = f"Buy-ins: {sum(p.buyins)}" if p.buyins else "Buy-ins: 0"
-        msg += f"• {p.name} ({status})\n  {buyins}\n"
 
-    await update.message.reply_text(msg, reply_markup=HOST_MENU)
+        # Calculate buyins from transactions
+        transactions = db.transactions.find({
+            "game_id": game_id,
+            "user_id": p.user_id,
+            "type": {"$in": ["buyin_cash", "buyin_register"]},
+            "confirmed": True,
+            "rejected": False
+        })
+
+        cash_buyins = 0
+        credit_buyins = 0
+        for tx in transactions:
+            if tx["type"] == "buyin_cash":
+                cash_buyins += tx["amount"]
+            elif tx["type"] == "buyin_register":
+                credit_buyins += tx["amount"]
+
+        total_buyins = cash_buyins + credit_buyins
+
+        if total_buyins > 0:
+            msg += f"• {p.name} ({status})\n"
+            msg += f"  Cash: {cash_buyins}, Credit: {credit_buyins}\n"
+            msg += f"  Total: {total_buyins}\n\n"
+        else:
+            msg += f"• {p.name} ({status})\n"
+            msg += f"  No buy-ins yet\n\n"
+
+    await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
 
 async def end_game_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start end game process"""
@@ -1560,9 +1585,31 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
         msg = f"👥 **Players in {code}:**\n\n"
         for p in players:
             status = "🚪 Quit" if p.quit else "✅ Active"
-            buyins = f"Buy-ins: {sum(p.buyins)}" if p.buyins else "Buy-ins: 0"
+
+            # Calculate buyins from transactions
+            transactions = db.transactions.find({
+                "game_id": game_id,
+                "user_id": p.user_id,
+                "type": {"$in": ["buyin_cash", "buyin_register"]},
+                "confirmed": True,
+                "rejected": False
+            })
+
+            cash_buyins = 0
+            credit_buyins = 0
+            for tx in transactions:
+                if tx["type"] == "buyin_cash":
+                    cash_buyins += tx["amount"]
+                elif tx["type"] == "buyin_register":
+                    credit_buyins += tx["amount"]
+
+            total_buyins = cash_buyins + credit_buyins
+
             msg += f"• {p.name} (ID: {p.user_id}) {status}\n"
-            msg += f"  {buyins}\n\n"
+            if total_buyins > 0:
+                msg += f"  Cash: {cash_buyins}, Credit: {credit_buyins}, Total: {total_buyins}\n\n"
+            else:
+                msg += f"  No buy-ins\n\n"
 
         await update.message.reply_text(msg)
         return ADMIN_MANAGE_GAME
@@ -1583,13 +1630,32 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
         players = player_dal.get_players(game_id)
 
         active_players = sum(1 for p in players if p.active and not p.quit)
-        total_buyins = sum(sum(p.buyins) if p.buyins else 0 for p in players)
+
+        # Calculate total buyins from transactions
+        all_buyins = db.transactions.find({
+            "game_id": game_id,
+            "type": {"$in": ["buyin_cash", "buyin_register"]},
+            "confirmed": True,
+            "rejected": False
+        })
+
+        total_cash = 0
+        total_credit = 0
+        for tx in all_buyins:
+            if tx["type"] == "buyin_cash":
+                total_cash += tx["amount"]
+            elif tx["type"] == "buyin_register":
+                total_credit += tx["amount"]
+
+        total_buyins = total_cash + total_credit
 
         msg = f"📊 **Game Status: {code}**\n\n"
         msg += f"Host: {game.host_name}\n"
         msg += f"Status: {game.status}\n"
         msg += f"Players: {active_players} active\n"
-        msg += f"Total buy-ins: {total_buyins}\n"
+        msg += f"Cash buy-ins: {total_cash}\n"
+        msg += f"Credit buy-ins: {total_credit}\n"
+        msg += f"Total in play: {total_buyins}\n"
         msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
         await update.message.reply_text(msg)
@@ -1671,7 +1737,19 @@ async def admin_settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if p.quit or not p.active:
             continue
 
-        total_buyins = sum(p.buyins) if p.buyins else 0
+        # Calculate buyins from transactions
+        transactions = db.transactions.find({
+            "game_id": game_id,
+            "user_id": p.user_id,
+            "type": {"$in": ["buyin_cash", "buyin_register"]},
+            "confirmed": True,
+            "rejected": False
+        })
+
+        total_buyins = 0
+        for tx in transactions:
+            total_buyins += tx["amount"]
+
         final_chips = p.final_chips if p.final_chips is not None else 0
         net = final_chips - total_buyins
 
@@ -1752,15 +1830,34 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         players = player_dal.get_players(game_id)
 
         active_players = sum(1 for p in players if p.active and not p.quit)
-        total_buyins = sum(sum(p.buyins) if p.buyins else 0 for p in players)
+
+        # Calculate total buyins from transactions
+        all_buyins = db.transactions.find({
+            "game_id": game_id,
+            "type": {"$in": ["buyin_cash", "buyin_register"]},
+            "confirmed": True,
+            "rejected": False
+        })
+
+        total_cash = 0
+        total_credit = 0
+        for tx in all_buyins:
+            if tx["type"] == "buyin_cash":
+                total_cash += tx["amount"]
+            elif tx["type"] == "buyin_register":
+                total_credit += tx["amount"]
+
+        total_buyins = total_cash + total_credit
 
         msg = f"📊 **Game Status**\n\n"
-        msg += f"Code: {game.code}\n"
+        msg += f"Code: **{game.code}**\n"
         msg += f"Status: {game.status}\n"
         msg += f"Players: {active_players} active\n"
-        msg += f"Total buy-ins: {total_buyins}\n"
+        msg += f"Cash buy-ins: {total_cash}\n"
+        msg += f"Credit buy-ins: {total_credit}\n"
+        msg += f"Total in play: {total_buyins}\n"
 
-        await update.message.reply_text(msg, reply_markup=HOST_MENU)
+        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
     else:
         # Regular player status
         await status(update, context)
