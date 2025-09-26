@@ -324,11 +324,31 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_host = pdoc.get("is_host", False)
     menu = HOST_MENU if is_host else PLAYER_MENU
 
+    # Calculate cash and credit buyins separately from transactions
+    cash_buyins = 0
+    credit_buyins = 0
+
+    # Get all confirmed buyin transactions for this player in this game
+    from src.dal.transactions_dal import TransactionsDAL
+    transaction_dal_temp = TransactionsDAL(db)
+    transactions = transaction_dal_temp.col.find({
+        "game_id": str(game._id),
+        "user_id": user.id,
+        "confirmed": True,
+        "rejected": False,
+        "type": {"$in": ["buyin_cash", "buyin_register"]}
+    })
+
+    for tx in transactions:
+        if tx["type"] == "buyin_cash":
+            cash_buyins += tx["amount"]
+        elif tx["type"] == "buyin_register":
+            credit_buyins += tx["amount"]
+
     msg = f"📊 **Your Game Status**\n\n"
     msg += f"Game Code: **{game.code}**\n"
-    msg += f"Role: {'🎩 Host' if is_host else '🎮 Player'}\n"
-    msg += f"Buy-ins: {sum(pdoc.get('buyins', []))}\n"
-    msg += f"Final Chips: {pdoc.get('final_chips', 'Not submitted')}\n"
+    msg += f"Cash Buy-ins: {cash_buyins}\n"
+    msg += f"Credit Buy-ins: {credit_buyins}\n"
     msg += f"Status: {'🚪 Quit' if pdoc.get('quit') else '✅ Active'}"
 
     await update.message.reply_text(msg, reply_markup=menu, parse_mode="Markdown")
