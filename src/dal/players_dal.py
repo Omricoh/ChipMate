@@ -6,6 +6,7 @@ class PlayersDAL:
         self.col = db.players
 
     def upsert(self, player: Player):
+        # Players are unique per game - each game has separate player data
         self.col.update_one(
             {"game_id": player.game_id, "user_id": player.user_id},
             {"$set": player.model_dump()},

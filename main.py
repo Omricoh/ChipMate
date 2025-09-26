@@ -98,10 +98,54 @@ def get_host_id(game_id: str):
 
 # -------- Commands --------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎲 ChipBot ready! Use /newgame to start.")
+    await update.message.reply_text(
+        "🎲 **ChipBot Ready!**\n\n"
+        "Commands:\n"
+        "• /newgame - Create a new game\n"
+        "• /join <code> - Join a game\n"
+        "• /status - Check your current game\n"
+        "• /mygame - Quick game info\n"
+        "• /admin - Admin access",
+        parse_mode="Markdown"
+    )
+
+async def mygame(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Quick command to show current game info"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+
+    if not pdoc:
+        await update.message.reply_text("❌ You are not in any active game.\n\n• /newgame - Create game\n• /join <code> - Join game")
+        return
+
+    game = game_dal.get_game(pdoc["game_id"])
+    if not game:
+        await update.message.reply_text("⚠️ Game data not found.")
+        return
+
+    is_host = pdoc.get("is_host", False)
+    menu = HOST_MENU if is_host else PLAYER_MENU
+
+    msg = f"🎮 **Your Current Game**\n\n"
+    msg += f"Code: **{game.code}**\n"
+    msg += f"You are: {'🎩 Host' if is_host else '🎮 Player'}"
+
+    await update.message.reply_text(msg, reply_markup=menu, parse_mode="Markdown")
 
 async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     host = update.effective_user
+
+    # Check if user is already in an active game
+    existing = player_dal.get_active(host.id)
+    if existing:
+        existing_game = game_dal.get_game(existing["game_id"])
+        if existing_game:
+            await update.message.reply_text(
+                f"❌ You are already in an active game (Code: {existing_game.code})\n\n"
+                f"You must quit your current game before creating a new one."
+            )
+            return
+
     game, host_player = create_game(host.id, host.first_name)
     gid = game_dal.create(game)
     host_player.game_id = gid
@@ -112,27 +156,85 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /join <game_code>")
         return
+
+    user = update.effective_user
+
+    # Check if user is already in an active game
+    existing = player_dal.get_active(user.id)
+    if existing:
+        existing_game = game_dal.get_game(existing["game_id"])
+        if existing_game:
+            await update.message.reply_text(
+                f"❌ You are already in an active game (Code: {existing_game.code})\n\n"
+                f"You must quit your current game before joining another one.\n"
+                f"Use the '🚪 Quit' button in your current game menu."
+            )
+            # Show their current game menu based on role
+            if existing.get("is_host"):
+                await update.message.reply_text("Returning to your host menu...", reply_markup=HOST_MENU)
+            else:
+                await update.message.reply_text("Returning to your player menu...", reply_markup=PLAYER_MENU)
+            return
+
     code = context.args[0].upper()
-    game = game_dal.get_by_code(code)
-    if not game:
+    game_doc = db.games.find_one({"code": code, "status": "active"})
+    if not game_doc:
         await update.message.reply_text("⚠️ Game not found or inactive.")
         return
-    gid = str(game["_id"])
-    user = update.effective_user
+
+    # Check if game has expired
+    game = Game(**game_doc)
+    from datetime import datetime, timedelta
+    if (datetime.utcnow() - game.created_at) > timedelta(hours=12):
+        await update.message.reply_text("⚠️ This game has expired (older than 12 hours).")
+        return
+
+    gid = str(game_doc["_id"])
+
+    # Check if user is the host trying to rejoin their own game
+    if user.id == game.host_id:
+        await update.message.reply_text(
+            f"✅ Welcome back to your game, {user.first_name}!",
+            reply_markup=HOST_MENU
+        )
+        # Make sure they're marked as active
+        player_dal.col.update_one(
+            {"game_id": gid, "user_id": user.id},
+            {"$set": {"active": True, "quit": False}}
+        )
+        return
+
+    # Create new player
     player = join_game(gid, user.id, user.first_name)
     player_dal.upsert(player)
-    game_dal.add_player(game["_id"], user.id)
+    game_dal.add_player(game_doc["_id"], user.id)
+
     await update.message.reply_text(f"{user.first_name} joined game {code} ✅", reply_markup=PLAYER_MENU)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
     if not pdoc:
-        await update.message.reply_text("⚠️ You are not in an active game.")
+        await update.message.reply_text("⚠️ You are not in an active game.\n\nUse /newgame to create or /join <code> to join.")
         return
-    await update.message.reply_text(
-        f"📊 Game status\nBuyins: {pdoc.get('buyins', [])}\nFinal Chips: {pdoc.get('final_chips')}\nQuit: {pdoc.get('quit')}"
-    )
+
+    game = game_dal.get_game(pdoc["game_id"])
+    if not game:
+        await update.message.reply_text("⚠️ Game data not found.")
+        return
+
+    # Show appropriate menu based on role
+    is_host = pdoc.get("is_host", False)
+    menu = HOST_MENU if is_host else PLAYER_MENU
+
+    msg = f"📊 **Your Game Status**\n\n"
+    msg += f"Game Code: **{game.code}**\n"
+    msg += f"Role: {'🎩 Host' if is_host else '🎮 Player'}\n"
+    msg += f"Buy-ins: {sum(pdoc.get('buyins', []))}\n"
+    msg += f"Final Chips: {pdoc.get('final_chips', 'Not submitted')}\n"
+    msg += f"Status: {'🚪 Quit' if pdoc.get('quit') else '✅ Active'}"
+
+    await update.message.reply_text(msg, reply_markup=menu, parse_mode="Markdown")
 
 # -------- Buy-in conversation --------
 async def buyin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1262,6 +1364,7 @@ def main():
     app.add_handler(CommandHandler("newgame", newgame))
     app.add_handler(CommandHandler("join", join))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("mygame", mygame))
 
     # Admin conversation handler
     app.add_handler(ConversationHandler(
