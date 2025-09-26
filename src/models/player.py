@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 
 class Player(BaseModel):
     game_id: str
@@ -10,3 +11,5 @@ class Player(BaseModel):
     quit: bool = False
     is_host: bool = False
     active: bool = True
+    cashed_out: bool = False
+    cashout_time: Optional[datetime] = None

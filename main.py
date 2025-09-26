@@ -68,7 +68,8 @@ HOST_MENU = ReplyKeyboardMarkup(
         ["👤 Player List", "🔚 End Game"],
         ["💰 Host Buy-in", "💸 Host Cashout"],
         ["⚖️ Settle", "📈 View Settlement"],
-        ["📊 Status", "❓ Help"]
+        ["📊 Status", "📋 Game Report"],
+        ["❓ Help"]
     ],
     resize_keyboard=True,
 )
@@ -571,7 +572,7 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get active players who haven't cashed out yet
         active_players = []
         for p in players:
-            if p.quit or not p.active:
+            if p.quit or not p.active or p.cashed_out:
                 continue
 
             # Check if player already has a pending cashout
@@ -648,7 +649,7 @@ async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get active players who haven't cashed out yet
     active_players = []
     for p in players:
-        if p.quit or not p.active:
+        if p.quit or not p.active or p.cashed_out:
             continue
 
         # Check if player already has a pending cashout
@@ -708,6 +709,115 @@ async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     host_msg += "\n💡 Once all players submit cashouts, the final settlement will be calculated."
 
     await update.message.reply_text(host_msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+
+
+async def show_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id, code):
+    """Show comprehensive game report with all transactions"""
+    game = game_dal.get_game(game_id)
+    if not game:
+        await update.message.reply_text("Game not found.")
+        return
+
+    # Get ALL players (including cashed out)
+    all_players = player_dal.get_players(game_id)
+
+    msg = f"📊 **GAME REPORT - {code}**\n"
+    msg += f"Status: {game.status}\n"
+    msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+
+    # Process each player
+    for p in all_players:
+        msg += f"👤 **{p.name}**\n"
+
+        # Player status
+        if p.cashed_out:
+            msg += f"Status: Cashed out at {p.cashout_time.strftime('%H:%M') if p.cashout_time else 'unknown'}\n"
+        elif p.quit:
+            msg += f"Status: Quit\n"
+        elif p.active:
+            msg += f"Status: Active\n"
+        else:
+            msg += f"Status: Inactive\n"
+
+        # Get all transactions for this player
+        transactions = list(db.transactions.find({
+            "game_id": game_id,
+            "user_id": p.user_id,
+            "confirmed": True
+        }).sort("at", 1))
+
+        if transactions:
+            msg += "Transactions:\n"
+            cash_total = 0
+            credit_total = 0
+            cashout_amount = 0
+
+            for tx in transactions:
+                time_str = tx["at"].strftime("%H:%M") if "at" in tx else ""
+                if tx["type"] == "buyin_cash":
+                    msg += f"  • {time_str} Buy-in (Cash): +{tx['amount']}\n"
+                    cash_total += tx["amount"]
+                elif tx["type"] == "buyin_register":
+                    msg += f"  • {time_str} Buy-in (Credit): +{tx['amount']}\n"
+                    credit_total += tx["amount"]
+                elif tx["type"] == "cashout":
+                    msg += f"  • {time_str} Cashout: {tx['amount']} chips\n"
+                    cashout_amount = tx["amount"]
+
+            # Calculate net position
+            total_buyins = cash_total + credit_total
+            if cashout_amount > 0:
+                net_chips = cashout_amount - total_buyins
+                credit_settled = min(credit_total, cashout_amount)
+                cash_received = max(0, cashout_amount - credit_total)
+
+                msg += f"\nSummary:\n"
+                msg += f"  Total buy-ins: {total_buyins} (Cash: {cash_total}, Credit: {credit_total})\n"
+                msg += f"  Final chips: {cashout_amount}\n"
+                msg += f"  Net: {'+' if net_chips >= 0 else ''}{net_chips}\n"
+
+                if credit_total > 0:
+                    msg += f"  Credit settled: {credit_settled}\n"
+                    msg += f"  Cash received: {cash_received}\n"
+            else:
+                msg += f"\nTotal buy-ins: {total_buyins} (Cash: {cash_total}, Credit: {credit_total})\n"
+                msg += f"No cashout yet\n"
+        else:
+            msg += "No transactions\n"
+
+        msg += "\n"
+
+    # Game totals
+    all_transactions = db.transactions.find({
+        "game_id": game_id,
+        "confirmed": True
+    })
+
+    total_cash_buyins = 0
+    total_credit_buyins = 0
+    total_cashouts = 0
+
+    for tx in all_transactions:
+        if tx["type"] == "buyin_cash":
+            total_cash_buyins += tx["amount"]
+        elif tx["type"] == "buyin_register":
+            total_credit_buyins += tx["amount"]
+        elif tx["type"] == "cashout":
+            total_cashouts += tx["amount"]
+
+    msg += "**GAME TOTALS:**\n"
+    msg += f"Total cash buy-ins: {total_cash_buyins}\n"
+    msg += f"Total credit buy-ins: {total_credit_buyins}\n"
+    msg += f"Total chips in play: {total_cash_buyins + total_credit_buyins}\n"
+    msg += f"Total cashed out: {total_cashouts}\n"
+
+    # Send in chunks if message is too long
+    if len(msg) > 4000:
+        chunks = [msg[i:i+4000] for i in range(0, len(msg), 4000)]
+        for chunk in chunks:
+            await update.message.reply_text(chunk, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
@@ -1121,8 +1231,17 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Auto-approve since host is creating it
     transaction_dal.update_status(ObjectId(tx_id), True, False)
 
-    # Remove the player from the game after cashout
-    player_dal.remove_player(game_id, player_id)
+    # Mark the player as cashed out instead of removing
+    from datetime import datetime
+    db.players.update_one(
+        {"game_id": game_id, "user_id": player_id},
+        {"$set": {
+            "cashed_out": True,
+            "cashout_time": datetime.utcnow(),
+            "active": False,
+            "final_chips": chip_count
+        }}
+    )
 
     # Check if this is admin override
     is_admin = context.user_data.get("admin_override", False)
@@ -1807,6 +1926,11 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif "Expire Old Games" in text:
         return await admin_expire_games(update, context)
     elif "Game Report" in text:
+        # Generate comprehensive game report with all transactions
+        await show_game_report(update, context, game_id, code)
+        return ADMIN_MANAGE_GAME
+
+    elif "Game Report OLD" in text:
         return await admin_game_report_ask(update, context)
     elif "Find Game" in text:
         return await admin_find_game(update, context)
@@ -1818,6 +1942,21 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text("Unknown command", reply_markup=ADMIN_MENU)
         return ADMIN_MODE
+
+async def host_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show comprehensive game report for host"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can view game report.")
+        return
+
+    game_id = pdoc["game_id"]
+    game = game_dal.get_game(game_id)
+    if game:
+        await show_game_report(update, context, str(game._id), game.code)
+
 
 async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show comprehensive game status for hosts"""
@@ -1906,8 +2045,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Check if this player is the host
             was_host = player.is_host if player else False
 
-            # Remove player from the game
-            player_dal.remove_player(game_id, user_id)
+            # Mark player as cashed out instead of removing
+            from datetime import datetime
+            db.players.update_one(
+                {"game_id": game_id, "user_id": user_id},
+                {"$set": {
+                    "cashed_out": True,
+                    "cashout_time": datetime.utcnow(),
+                    "active": False,
+                    "final_chips": chip_count
+                }}
+            )
 
             # If the player was host, assign a new host
             new_host_assigned = False
@@ -2072,6 +2220,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
     app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
     app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
+    app.add_handler(MessageHandler(filters.Regex("^📋 Game Report$"), host_game_report))
 
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔚 End Game$"), end_game_start)],
