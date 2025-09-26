@@ -332,7 +332,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from src.dal.transactions_dal import TransactionsDAL
     transaction_dal_temp = TransactionsDAL(db)
     transactions = transaction_dal_temp.col.find({
-        "game_id": str(game._id),
+        "game_id": pdoc["game_id"],
         "user_id": user.id,
         "confirmed": True,
         "rejected": False,
