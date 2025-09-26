@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime
 from telegram import Update
@@ -74,6 +75,7 @@ async def buyin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- Run ----------------
 
 def main():
+    logging.INFO(f'token: {TOKEN}')
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
