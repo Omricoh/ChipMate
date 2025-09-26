@@ -8,4 +8,4 @@ class Game(BaseModel):
     status: str = "active"   # active | ending | settled | expired
     created_at: datetime = Field(default_factory=datetime.utcnow)
     players: List[int] = []
-    code: str
+    code: str  # Required field - no legacy support

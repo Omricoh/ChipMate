@@ -21,7 +21,6 @@ class GamesDAL:
         if doc:
             # Check if game should be expired
             game = Game(**doc)
-            from datetime import datetime, timedelta
             if (datetime.utcnow() - game.created_at) > timedelta(hours=12):
                 # Auto-expire the game
                 self.update_status(doc["_id"], "expired")
@@ -93,18 +92,26 @@ class GamesDAL:
         if isinstance(game_id, str):
             game_id = ObjectId(game_id)
 
-        game = self.col.find_one({"_id": game_id})
-        if not game:
+        game_doc = self.col.find_one({"_id": game_id})
+        if not game_doc:
             return None
 
-        # Get all players
-        players = list(self.col.database.players.find({"game_id": str(game_id)}))
+        try:
+            # Add code if missing
+            if 'code' not in game_doc or not game_doc['code']:
+                game_doc['code'] = f"LEGACY_{str(game_doc['_id'])[:5].upper()}"
 
-        # Get all transactions
-        transactions = list(self.col.database.transactions.find({"game_id": str(game_id)}))
+            # Get all players
+            players = list(self.col.database.players.find({"game_id": str(game_id)}))
 
-        return {
-            "game": Game(**game),
-            "players": players,
-            "transactions": transactions
-        }
+            # Get all transactions
+            transactions = list(self.col.database.transactions.find({"game_id": str(game_id)}))
+
+            return {
+                "game": Game(**game_doc),
+                "players": players,
+                "transactions": transactions
+            }
+        except Exception as e:
+            print(f"Error generating report for game {game_id}: {e}")
+            return None
