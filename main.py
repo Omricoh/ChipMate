@@ -376,13 +376,13 @@ async def buyin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pdoc = player_dal.get_active(user.id)
     gid = pdoc["game_id"]
     tx = create_buyin(gid, user.id, context.user_data["buy_type"], amount)
-    res = transaction_dal.create(tx)
+    tx_id = transaction_dal.create(tx)
     await update.message.reply_text(f"✅ Buy-in {context.user_data['buy_type']} {amount} submitted.", reply_markup=PLAYER_MENU)
     host_id = get_host_id(gid)
     if host_id:
         buttons = [[
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{res.inserted_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{res.inserted_id}")
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{tx_id}")
         ]]
         await context.bot.send_message(chat_id=host_id, text=f"📢 {user.first_name} requests {context.user_data['buy_type']} {amount}", reply_markup=InlineKeyboardMarkup(buttons))
     return ConversationHandler.END
@@ -402,13 +402,13 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pdoc = player_dal.get_active(user.id)
     gid = pdoc["game_id"]
     tx = create_cashout(gid, user.id, amount)
-    res = transaction_dal.create(tx)
+    tx_id = transaction_dal.create(tx)
     await update.message.reply_text(f"✅ Cashout {amount} submitted.", reply_markup=PLAYER_MENU)
     host_id = get_host_id(gid)
     if host_id:
         buttons = [[
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{res.inserted_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{res.inserted_id}")
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{tx_id}")
         ]]
         await context.bot.send_message(chat_id=host_id, text=f"📢 {user.first_name} requests cashout {amount}", reply_markup=InlineKeyboardMarkup(buttons))
     return ConversationHandler.END
