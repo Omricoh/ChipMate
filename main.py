@@ -23,6 +23,9 @@ from telegram.ext import (
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
+from src.models.game import Game
+from src.models.player import Player
+from src.models.transaction import Transaction
 from src.bl.game_bl import create_game
 from src.bl.player_bl import join_game
 from src.bl.transaction_bl import create_buyin, create_cashout
@@ -184,7 +187,6 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check if game has expired
     game = Game(**game_doc)
-    from datetime import datetime, timedelta
     if (datetime.utcnow() - game.created_at) > timedelta(hours=12):
         await update.message.reply_text("⚠️ This game has expired (older than 12 hours).")
         return
@@ -833,7 +835,6 @@ async def admin_list_all_games(update: Update, context: ContextTypes.DEFAULT_TYP
             msg += f"  Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
             # Check if expired
-            from datetime import datetime, timedelta
             if (datetime.utcnow() - game.created_at) > timedelta(hours=12) and game.status == "active":
                 msg += f"  ⚠️ Should be expired!\n"
 
@@ -920,7 +921,6 @@ async def admin_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += f"Status: {game.status}\n"
     msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
-    from datetime import datetime
     duration = datetime.utcnow() - game.created_at
     hours = int(duration.total_seconds() // 3600)
     minutes = int((duration.total_seconds() % 3600) // 60)
