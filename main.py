@@ -1489,30 +1489,30 @@ def main():
         logger.warning("Games will not automatically expire. Use admin menu to manually expire.")
     # Command handlers - accept both /command and plain text
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex(r"^start$", re.IGNORECASE), start))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^start$"), start))
 
     app.add_handler(CommandHandler("newgame", newgame))
-    app.add_handler(MessageHandler(filters.Regex(r"^newgame$", re.IGNORECASE), newgame))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^newgame$"), newgame))
 
     app.add_handler(CommandHandler("join", join))
-    app.add_handler(MessageHandler(filters.Regex(r"^join\s+\w+$", re.IGNORECASE), join_text))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^join\s+\w+$"), join_text))
 
     app.add_handler(CommandHandler("status", status))
-    app.add_handler(MessageHandler(filters.Regex(r"^status$", re.IGNORECASE), status))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^status$"), status))
 
     app.add_handler(CommandHandler("mygame", mygame))
-    app.add_handler(MessageHandler(filters.Regex(r"^mygame$", re.IGNORECASE), mygame))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^mygame$"), mygame))
 
     # Help handlers
     app.add_handler(CommandHandler("help", help_handler))
-    app.add_handler(MessageHandler(filters.Regex(r"^help$", re.IGNORECASE), help_handler))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)^help$"), help_handler))
     app.add_handler(MessageHandler(filters.Regex("^❓ Help$"), help_handler))
 
     # Admin conversation handler
     app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("admin", admin_login),
-            MessageHandler(filters.Regex(r"^admin\s+\w+\s+\w+$", re.IGNORECASE), admin_text_login)
+            MessageHandler(filters.Regex(r"(?i)^admin\s+\w+\s+\w+$"), admin_text_login)
         ],
         states={
             ADMIN_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_mode_handler)],
