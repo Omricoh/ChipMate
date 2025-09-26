@@ -1238,9 +1238,18 @@ async def expire_games_task(context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(TOKEN).build()
 
-    # Schedule background task to run every hour
-    job_queue = app.job_queue
-    job_queue.run_repeating(expire_games_task, interval=3600, first=10)
+    # Schedule background task to run every hour (if job queue is available)
+    try:
+        job_queue = app.job_queue
+        if job_queue:
+            job_queue.run_repeating(expire_games_task, interval=3600, first=10)
+            logger.info("Background task scheduled to expire games every hour")
+        else:
+            logger.warning("JobQueue not available. Install with: pip install 'python-telegram-bot[job-queue]'")
+            logger.warning("Games will not automatically expire after 12 hours. Use admin menu to manually expire.")
+    except Exception as e:
+        logger.warning(f"Could not set up job queue: {e}")
+        logger.warning("Games will not automatically expire. Use admin menu to manually expire.")
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("newgame", newgame))
     app.add_handler(CommandHandler("join", join))
