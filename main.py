@@ -1,4 +1,4 @@
-import os, logging, asyncio
+import os, logging, asyncio, re
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
@@ -58,7 +58,7 @@ PLAYER_MENU = ReplyKeyboardMarkup(
     [
         ["💰 Buy-in", "💸 Cashout"],
         ["🎲 Chips", "🚪 Quit"],
-        ["📊 Status"]
+        ["📊 Status", "❓ Help"]
     ],
     resize_keyboard=True,
 )
@@ -67,7 +67,8 @@ HOST_MENU = ReplyKeyboardMarkup(
     [
         ["👤 Player List", "🔚 End Game"],
         ["💰 Host Buy-in", "💸 Host Cashout"],
-        ["⚖️ Settle", "📊 Status"]
+        ["⚖️ Settle", "📊 Status"],
+        ["❓ Help"]
     ],
     resize_keyboard=True,
 )
@@ -76,7 +77,8 @@ ADMIN_MENU = ReplyKeyboardMarkup(
     [
         ["🎮 Manage Active Games", "📋 List All Games"],
         ["⏰ Expire Old Games", "📊 Game Report"],
-        ["🔍 Find Game", "🚪 Exit Admin"]
+        ["🔍 Find Game", "❓ Help"],
+        ["🚪 Exit Admin"]
     ],
     resize_keyboard=True,
 )
@@ -103,12 +105,12 @@ def get_host_id(game_id: str):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎲 **ChipBot Ready!**\n\n"
-        "Commands:\n"
-        "• /newgame - Create a new game\n"
-        "• /join <code> - Join a game\n"
-        "• /status - Check your current game\n"
-        "• /mygame - Quick game info\n"
-        "• /admin - Admin access",
+        "Commands (no / needed):\n"
+        "• `newgame` - Create a new game\n"
+        "• `join ABC12` - Join a game\n"
+        "• `status` - Check your current game\n"
+        "• `mygame` - Quick game info\n"
+        "• `/admin user pass` - Admin access",
         parse_mode="Markdown"
     )
 
@@ -134,6 +136,84 @@ async def mygame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += f"You are: {'🎩 Host' if is_host else '🎮 Player'}"
 
     await update.message.reply_text(msg, reply_markup=menu, parse_mode="Markdown")
+
+# -------- Help functions --------
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show context-sensitive help"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+
+    if not pdoc:
+        # No active game - show general help
+        await update.message.reply_text(
+            "❓ **ChipBot Help**\n\n"
+            "**Getting Started:**\n"
+            "• `newgame` - Create a new poker game\n"
+            "• `join ABC12` - Join a game with code\n"
+            "• `status` - Check your current game\n"
+            "• `mygame` - Quick game overview\n\n"
+            "**Note:** No forward slashes (/) needed!",
+            parse_mode="Markdown"
+        )
+        return
+
+    is_host = pdoc.get("is_host", False)
+
+    if is_host:
+        # Host help
+        await update.message.reply_text(
+            "❓ **Host Menu Help**\n\n"
+            "**Player Management:**\n"
+            "• `👤 Player List` - View all players and their status\n\n"
+            "**Transactions:**\n"
+            "• `💰 Host Buy-in` - Add buy-in for any player\n"
+            "• `💸 Host Cashout` - Add cashout for any player\n\n"
+            "**Game Control:**\n"
+            "• `⚖️ Settle` - Calculate final settlements\n"
+            "• `🔚 End Game` - End the game permanently\n"
+            "• `📊 Status` - View comprehensive game status\n\n"
+            "**Commands:**\n"
+            "• `status` - Quick status check\n"
+            "• `mygame` - Game overview",
+            reply_markup=HOST_MENU,
+            parse_mode="Markdown"
+        )
+    else:
+        # Player help
+        await update.message.reply_text(
+            "❓ **Player Menu Help**\n\n"
+            "**Money Management:**\n"
+            "• `💰 Buy-in` - Request buy-in (cash/register)\n"
+            "• `💸 Cashout` - Request cashout\n\n"
+            "**Game Actions:**\n"
+            "• `🎲 Chips` - Submit your final chip count\n"
+            "• `🚪 Quit` - Leave the game\n"
+            "• `📊 Status` - View your game status\n\n"
+            "**Commands:**\n"
+            "• `status` - Quick status check\n"
+            "• `mygame` - Game overview\n\n"
+            "**Note:** Host must approve buy-ins/cashouts!",
+            reply_markup=PLAYER_MENU,
+            parse_mode="Markdown"
+        )
+
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin help"""
+    await update.message.reply_text(
+        "❓ **Admin Menu Help**\n\n"
+        "**Game Management:**\n"
+        "• `🎮 Manage Active Games` - Take control of any game\n"
+        "• `📋 List All Games` - View all games with status\n"
+        "• `⏰ Expire Old Games` - Expire games older than 12h\n\n"
+        "**Reporting:**\n"
+        "• `📊 Game Report` - Detailed game analysis\n"
+        "• `🔍 Find Game` - Search for games\n\n"
+        "**Access:**\n"
+        "• `admin username password` - Login to admin\n"
+        "• `🚪 Exit Admin` - Leave admin mode",
+        reply_markup=ADMIN_MENU,
+        parse_mode="Markdown"
+    )
 
 async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     host = update.effective_user
@@ -212,6 +292,21 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game_dal.add_player(game_doc["_id"], user.id)
 
     await update.message.reply_text(f"{user.first_name} joined game {code} ✅", reply_markup=PLAYER_MENU)
+
+async def join_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'join CODE' text command"""
+    text = update.message.text.strip()
+    parts = text.split()
+
+    if len(parts) != 2:
+        await update.message.reply_text("Usage: `join CODE`\nExample: `join ABC12`", parse_mode="Markdown")
+        return
+
+    # Set up context like CommandHandler does
+    context.args = [parts[1]]
+
+    # Call the regular join function
+    await join(update, context)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -805,6 +900,26 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ADMIN_MODE
 
+async def admin_text_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'admin user pass' text command"""
+    text = update.message.text.strip()
+    parts = text.split()
+
+    if len(parts) != 3:
+        await update.message.reply_text(
+            "🔐 **Admin Login Required**\n\n"
+            "Usage: `admin <username> <password>`\n\n"
+            "Example: `admin admin secret123`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Set up context like CommandHandler does
+    context.args = [parts[1], parts[2]]
+
+    # Call the regular admin_login function
+    return await admin_login(update, context)
+
 async def admin_list_all_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List all games in the system"""
     if not context.user_data.get("admin_auth"):
@@ -1288,6 +1403,9 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_game_report_ask(update, context)
     elif "Find Game" in text:
         return await admin_find_game(update, context)
+    elif "Help" in text:
+        await admin_help(update, context)
+        return ADMIN_MODE
     elif "Exit Admin" in text:
         return await admin_exit(update, context)
     else:
@@ -1346,6 +1464,15 @@ async def expire_games_task(context: ContextTypes.DEFAULT_TYPE):
 
 # -------- Main --------
 def main():
+    # Check for required token
+    if not TOKEN:
+        logger.error("TELEGRAM_TOKEN environment variable not set!")
+        return
+
+    logger.info(f"Starting ChipBot...")
+    logger.info(f"MongoDB: {MONGO_URL}")
+
+    # Build application
     app = Application.builder().token(TOKEN).build()
 
     # Schedule background task to run every hour (if job queue is available)
@@ -1360,15 +1487,33 @@ def main():
     except Exception as e:
         logger.warning(f"Could not set up job queue: {e}")
         logger.warning("Games will not automatically expire. Use admin menu to manually expire.")
+    # Command handlers - accept both /command and plain text
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Regex(r"^start$", re.IGNORECASE), start))
+
     app.add_handler(CommandHandler("newgame", newgame))
+    app.add_handler(MessageHandler(filters.Regex(r"^newgame$", re.IGNORECASE), newgame))
+
     app.add_handler(CommandHandler("join", join))
+    app.add_handler(MessageHandler(filters.Regex(r"^join\s+\w+$", re.IGNORECASE), join_text))
+
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(MessageHandler(filters.Regex(r"^status$", re.IGNORECASE), status))
+
     app.add_handler(CommandHandler("mygame", mygame))
+    app.add_handler(MessageHandler(filters.Regex(r"^mygame$", re.IGNORECASE), mygame))
+
+    # Help handlers
+    app.add_handler(CommandHandler("help", help_handler))
+    app.add_handler(MessageHandler(filters.Regex(r"^help$", re.IGNORECASE), help_handler))
+    app.add_handler(MessageHandler(filters.Regex("^❓ Help$"), help_handler))
 
     # Admin conversation handler
     app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("admin", admin_login)],
+        entry_points=[
+            CommandHandler("admin", admin_login),
+            MessageHandler(filters.Regex(r"^admin\s+\w+\s+\w+$", re.IGNORECASE), admin_text_login)
+        ],
         states={
             ADMIN_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_mode_handler)],
             ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)],
@@ -1431,8 +1576,25 @@ def main():
     ))
 
     app.add_handler(CallbackQueryHandler(handle_callback))
-    logger.info("ChipBot started polling")
-    app.run_polling()
+
+    # Start the bot
+    logger.info("ChipBot starting polling...")
+    try:
+        app.run_polling(drop_pending_updates=True, close_loop=False)
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+    finally:
+        logger.info("ChipBot shutting down...")
 
 if __name__ == "__main__":
+    import signal
+    import sys
+
+    def signal_handler(sig, frame):
+        logger.info("Received interrupt signal, shutting down...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     main()
