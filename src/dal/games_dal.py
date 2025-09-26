@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
 from src.models.game import Game
@@ -18,7 +19,14 @@ class GamesDAL:
     def get_by_code(self, code: str):
         doc = self.col.find_one({"code": code, "status": "active"})
         if doc:
-            return Game(**doc)
+            # Check if game should be expired
+            game = Game(**doc)
+            from datetime import datetime, timedelta
+            if (datetime.utcnow() - game.created_at) > timedelta(hours=12):
+                # Auto-expire the game
+                self.update_status(doc["_id"], "expired")
+                return None
+            return game
         return None
 
     def get_game(self, game_id):
@@ -60,3 +68,43 @@ class GamesDAL:
         if isinstance(game_id, str):
             game_id = ObjectId(game_id)
         self.col.update_one({"_id": game_id}, {"$set": {"status": status}})
+
+    def expire_old_games(self):
+        """Mark games older than 12 hours as expired"""
+        cutoff_time = datetime.utcnow() - timedelta(hours=12)
+        result = self.col.update_many(
+            {
+                "created_at": {"$lt": cutoff_time},
+                "status": "active"
+            },
+            {"$set": {"status": "expired"}}
+        )
+        return result.modified_count
+
+    def get_expired_games(self):
+        """Get all expired games"""
+        games = []
+        for doc in self.col.find({"status": "expired"}):
+            games.append(Game(**doc))
+        return games
+
+    def get_game_report(self, game_id):
+        """Generate comprehensive game report"""
+        if isinstance(game_id, str):
+            game_id = ObjectId(game_id)
+
+        game = self.col.find_one({"_id": game_id})
+        if not game:
+            return None
+
+        # Get all players
+        players = list(self.col.database.players.find({"game_id": str(game_id)}))
+
+        # Get all transactions
+        transactions = list(self.col.database.transactions.find({"game_id": str(game_id)}))
+
+        return {
+            "game": Game(**game),
+            "players": players,
+            "transactions": transactions
+        }
