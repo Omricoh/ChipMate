@@ -465,24 +465,59 @@ async def host_buyin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pdoc.buyins.append(amount)
         player_dal.upsert(pdoc)
 
-    await update.message.reply_text(
-        f"✅ Buy-in recorded:\n"
-        f"Player: {player_name}\n"
-        f"Type: {buy_type}\n"
-        f"Amount: {amount} chips",
-        reply_markup=HOST_MENU
-    )
+    # Check if this is admin override
+    is_admin = context.user_data.get("admin_override", False)
 
-    # Notify the player
-    try:
-        await context.bot.send_message(
-            chat_id=player_id,
-            text=f"✅ Host recorded a {buy_type} buy-in of {amount} chips for you."
+    if is_admin:
+        # Return to admin game management menu
+        ADMIN_GAME_MENU = ReplyKeyboardMarkup(
+            [
+                ["👤 View Players", "💰 Add Buy-in"],
+                ["💸 Add Cashout", "📊 Game Status"],
+                ["⚖️ Settle Game", "🔚 End Game"],
+                ["🔙 Back to Games List"]
+            ],
+            resize_keyboard=True
         )
-    except:
-        pass  # Player might have blocked the bot
 
-    return ConversationHandler.END
+        await update.message.reply_text(
+            f"✅ Admin added buy-in:\n"
+            f"Player: {player_name}\n"
+            f"Type: {buy_type}\n"
+            f"Amount: {amount} chips",
+            reply_markup=ADMIN_GAME_MENU
+        )
+
+        # Notify the player
+        try:
+            await context.bot.send_message(
+                chat_id=player_id,
+                text=f"✅ Administrator recorded a {buy_type} buy-in of {amount} chips for you."
+            )
+        except:
+            pass
+
+        context.user_data["admin_override"] = False
+        return ADMIN_MANAGE_GAME
+    else:
+        await update.message.reply_text(
+            f"✅ Buy-in recorded:\n"
+            f"Player: {player_name}\n"
+            f"Type: {buy_type}\n"
+            f"Amount: {amount} chips",
+            reply_markup=HOST_MENU
+        )
+
+        # Notify the player
+        try:
+            await context.bot.send_message(
+                chat_id=player_id,
+                text=f"✅ Host recorded a {buy_type} buy-in of {amount} chips for you."
+            )
+        except:
+            pass
+
+        return ConversationHandler.END
 
 # -------- Host Cashout conversation --------
 async def host_cashout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -564,23 +599,57 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Auto-approve since host is creating it
     transaction_dal.update_status(ObjectId(tx_id), True, False)
 
-    await update.message.reply_text(
-        f"✅ Cashout recorded:\n"
-        f"Player: {player_name}\n"
-        f"Amount: {amount} chips",
-        reply_markup=HOST_MENU
-    )
+    # Check if this is admin override
+    is_admin = context.user_data.get("admin_override", False)
 
-    # Notify the player
-    try:
-        await context.bot.send_message(
-            chat_id=player_id,
-            text=f"✅ Host recorded a cashout of {amount} chips for you."
+    if is_admin:
+        # Return to admin game management menu
+        ADMIN_GAME_MENU = ReplyKeyboardMarkup(
+            [
+                ["👤 View Players", "💰 Add Buy-in"],
+                ["💸 Add Cashout", "📊 Game Status"],
+                ["⚖️ Settle Game", "🔚 End Game"],
+                ["🔙 Back to Games List"]
+            ],
+            resize_keyboard=True
         )
-    except:
-        pass  # Player might have blocked the bot
 
-    return ConversationHandler.END
+        await update.message.reply_text(
+            f"✅ Admin added cashout:\n"
+            f"Player: {player_name}\n"
+            f"Amount: {amount} chips",
+            reply_markup=ADMIN_GAME_MENU
+        )
+
+        # Notify the player
+        try:
+            await context.bot.send_message(
+                chat_id=player_id,
+                text=f"✅ Administrator recorded a cashout of {amount} chips for you."
+            )
+        except:
+            pass
+
+        context.user_data["admin_override"] = False
+        return ADMIN_MANAGE_GAME
+    else:
+        await update.message.reply_text(
+            f"✅ Cashout recorded:\n"
+            f"Player: {player_name}\n"
+            f"Amount: {amount} chips",
+            reply_markup=HOST_MENU
+        )
+
+        # Notify the player
+        try:
+            await context.bot.send_message(
+                chat_id=player_id,
+                text=f"✅ Host recorded a cashout of {amount} chips for you."
+            )
+        except:
+            pass
+
+        return ConversationHandler.END
 
 # -------- Admin functions --------
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
