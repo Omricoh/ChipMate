@@ -67,8 +67,8 @@ HOST_MENU = ReplyKeyboardMarkup(
     [
         ["👤 Player List", "🔚 End Game"],
         ["💰 Host Buy-in", "💸 Host Cashout"],
-        ["⚖️ Settle", "📊 Status"],
-        ["❓ Help"]
+        ["⚖️ Settle", "📈 View Settlement"],
+        ["📊 Status", "❓ Help"]
     ],
     resize_keyboard=True,
 )
@@ -534,35 +534,83 @@ async def end_game_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_END_GAME_CONFIRM
 
 async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Confirm ending the game"""
+    """Confirm ending the game - settle and close"""
     text = update.message.text
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
 
     if "Yes" in text:
         game_id = pdoc["game_id"]
-        game_dal.update_status(ObjectId(game_id), "ended")
-
-        # Notify all players
         players = player_dal.get_players(game_id)
+
+        # Get active players who haven't cashed out yet
+        active_players = []
         for p in players:
-            if p.user_id != user.id:
+            if p.quit or not p.active:
+                continue
+
+            # Check if player already has a pending cashout
+            existing_cashout = db.transactions.find_one({
+                "game_id": game_id,
+                "user_id": p.user_id,
+                "type": "cashout",
+                "rejected": False
+            })
+
+            if not existing_cashout:
+                active_players.append(p)
+
+        # Send cashout request to all active players
+        if active_players:
+            cashout_msg = (
+                "🔚 **GAME ENDING NOW**\n\n"
+                "The host is ending the game.\n"
+                "Please submit your final chip count IMMEDIATELY.\n\n"
+                "Tap 💸 Cashout to submit your chips NOW."
+            )
+
+            for p in active_players:
                 try:
                     await context.bot.send_message(
                         chat_id=p.user_id,
-                        text="🔚 The game has been ended by the host. Please submit your final chip count if you haven't."
+                        text=cashout_msg,
+                        reply_markup=ReplyKeyboardMarkup(
+                            [["💸 Cashout"], ["📊 Status"]],
+                            resize_keyboard=True
+                        )
                     )
                 except:
                     pass
 
-        await update.message.reply_text("✅ Game ended. You can now settle accounts.", reply_markup=HOST_MENU)
+        # Update game status to ended
+        game_dal.update_status(ObjectId(game_id), "ended")
+
+        # Show message to host
+        msg = "🔚 **Game Ended**\n\n"
+
+        if active_players:
+            msg += f"Cashout requests sent to {len(active_players)} players.\n\n"
+            msg += "**Waiting for final chips from:**\n"
+            for p in active_players:
+                msg += f"• {p.name}\n"
+            msg += "\n💡 Once all players submit, settlement will be shown.\n"
+            msg += "Use '📈 View Settlement' to check status."
+        else:
+            msg += "All players have already cashed out.\n"
+            msg += "Showing final settlement...\n"
+
+        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+
+        # If everyone has cashed out, show settlement immediately
+        if not active_players:
+            await show_final_settlement(update, context, game_id)
     else:
         await update.message.reply_text("❌ Game continues.", reply_markup=HOST_MENU)
 
     return ConversationHandler.END
 
 async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Calculate and show settlement"""
+    """Initiate settlement - request cashout from all players"""
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
     if not pdoc or not pdoc.get("is_host"):
@@ -572,21 +620,118 @@ async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game_id = pdoc["game_id"]
     players = player_dal.get_players(game_id)
 
-    # Calculate net position for each player
-    settlements = []
+    # Get active players who haven't cashed out yet
+    active_players = []
     for p in players:
         if p.quit or not p.active:
             continue
 
-        # Get all confirmed transactions
-        total_buyins = sum(p.buyins) if p.buyins else 0
-        final_chips = p.final_chips if p.final_chips is not None else 0
-        net = final_chips - total_buyins
+        # Check if player already has a pending cashout
+        existing_cashout = db.transactions.find_one({
+            "game_id": game_id,
+            "user_id": p.user_id,
+            "type": "cashout",
+            "rejected": False
+        })
+
+        if not existing_cashout:
+            active_players.append(p)
+
+    if not active_players:
+        # All players have cashed out or quit, show final settlement
+        await show_final_settlement(update, context, game_id)
+        return
+
+    # Send cashout request to all active players
+    cashout_msg = (
+        "🏁 **GAME ENDING - CASHOUT REQUIRED**\n\n"
+        "The host is settling the game.\n"
+        "Please submit your chip count immediately.\n\n"
+        "Tap 💸 Cashout to submit your final chips."
+    )
+
+    notified_count = 0
+    failed_notifications = []
+
+    for p in active_players:
+        try:
+            # Send urgent cashout request to each player
+            await context.bot.send_message(
+                chat_id=p.user_id,
+                text=cashout_msg,
+                reply_markup=ReplyKeyboardMarkup(
+                    [["💸 Cashout"], ["📊 Status"]],
+                    resize_keyboard=True
+                )
+            )
+            notified_count += 1
+        except Exception as e:
+            failed_notifications.append(p.name)
+
+    # Inform host about the settlement initiation
+    host_msg = f"⚖️ **Settlement Initiated**\n\n"
+    host_msg += f"Cashout requests sent to {notified_count} active players.\n\n"
+
+    if active_players:
+        host_msg += "**Waiting for cashouts from:**\n"
+        for p in active_players:
+            host_msg += f"• {p.name}\n"
+
+    if failed_notifications:
+        host_msg += f"\n⚠️ Failed to notify: {', '.join(failed_notifications)}\n"
+
+    host_msg += "\n💡 Once all players submit cashouts, the final settlement will be calculated."
+
+    await update.message.reply_text(host_msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+
+
+async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
+    """Show final settlement after all cashouts"""
+    # Get all cashout transactions
+    cashouts = db.transactions.find({
+        "game_id": game_id,
+        "type": "cashout",
+        "confirmed": True,
+        "rejected": False
+    })
+
+    # Calculate net position for each player from their cashout
+    settlements = []
+    for cashout in cashouts:
+        player_id = cashout["user_id"]
+        chip_count = cashout["amount"]
+
+        # Get player info
+        player = player_dal.get_player(game_id, player_id)
+        if not player:
+            continue
+
+        # Calculate total buyins
+        buyins = db.transactions.find({
+            "game_id": game_id,
+            "user_id": player_id,
+            "type": {"$in": ["buyin_cash", "buyin_register"]},
+            "confirmed": True,
+            "rejected": False
+        })
+
+        cash_total = 0
+        credit_total = 0
+        for b in buyins:
+            if b["type"] == "buyin_cash":
+                cash_total += b["amount"]
+            else:
+                credit_total += b["amount"]
+
+        total_buyins = cash_total + credit_total
+        net = chip_count - total_buyins
 
         settlements.append({
-            "name": p.name,
+            "name": player.name,
             "buyins": total_buyins,
-            "chips": final_chips,
+            "cash_buyins": cash_total,
+            "credit_buyins": credit_total,
+            "chips": chip_count,
             "net": net
         })
 
@@ -623,7 +768,69 @@ async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             debt -= payment
             winner["net"] -= payment
 
-    await update.message.reply_text(msg, reply_markup=HOST_MENU)
+    await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+
+
+async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """View current settlement status"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can view settlement.")
+        return
+
+    game_id = pdoc["game_id"]
+    players = player_dal.get_players(game_id)
+
+    # Check who has cashed out
+    cashed_out = []
+    pending = []
+
+    for p in players:
+        if p.quit or not p.active:
+            continue
+
+        cashout = db.transactions.find_one({
+            "game_id": game_id,
+            "user_id": p.user_id,
+            "type": "cashout",
+            "rejected": False
+        })
+
+        if cashout:
+            if cashout.get("confirmed"):
+                cashed_out.append({"name": p.name, "chips": cashout["amount"]})
+            else:
+                pending.append({"name": p.name, "status": "Awaiting approval"})
+        else:
+            pending.append({"name": p.name, "status": "No cashout yet"})
+
+    msg = "📈 **Settlement Status**\n\n"
+
+    if cashed_out:
+        msg += "✅ **Cashed out:**\n"
+        for co in cashed_out:
+            msg += f"• {co['name']}: {co['chips']} chips\n"
+        msg += "\n"
+
+    if pending:
+        msg += "⏳ **Pending:**\n"
+        for p in pending:
+            msg += f"• {p['name']}: {p['status']}\n"
+        msg += "\n"
+
+    if not pending and cashed_out:
+        msg += "💡 All players have cashed out!\n"
+        msg += "Showing final settlement...\n\n"
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        await show_final_settlement(update, context, game_id)
+    elif not pending and not cashed_out:
+        msg += "No active players in the game."
+        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+    else:
+        msg += "💡 Use '⚖️ Settle' to request cashouts from remaining players."
+        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+
 
 # -------- Host Buy-in conversation --------
 async def host_buyin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1599,8 +1806,46 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chip_count = tx["amount"]
             net_cashout = chip_count - credit_buyins
 
+            # Check if this player is the host
+            was_host = player.is_host if player else False
+
             # Remove player from the game
             player_dal.remove_player(game_id, user_id)
+
+            # If the player was host, assign a new host
+            new_host_assigned = False
+            if was_host:
+                # Get remaining active players
+                remaining_players = player_dal.get_players(game_id)
+                active_remaining = [p for p in remaining_players if p.active and not p.quit]
+
+                if active_remaining:
+                    # Assign the first active player as new host
+                    new_host = active_remaining[0]
+                    db.players.update_one(
+                        {"game_id": game_id, "user_id": new_host.user_id},
+                        {"$set": {"is_host": True}}
+                    )
+                    # Update game with new host
+                    db.games.update_one(
+                        {"_id": ObjectId(game_id)},
+                        {"$set": {"host_id": new_host.user_id, "host_name": new_host.name}}
+                    )
+                    new_host_assigned = True
+
+                    # Notify new host
+                    try:
+                        await context.bot.send_message(
+                            chat_id=new_host.user_id,
+                            text=f"🎩 You are now the host of the game!\n\n"
+                                 f"You have host privileges including:\n"
+                                 f"• Settling the game\n"
+                                 f"• Managing buy-ins/cashouts\n"
+                                 f"• Ending the game",
+                            reply_markup=HOST_MENU
+                        )
+                    except:
+                        pass
 
             # Update the message with cashout details
             cashout_msg = f"✅ Approved cashout: {chip_count} chips\n"
@@ -1616,6 +1861,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cashout_msg += f"💵 Pay {player_name}: {chip_count} cash"
 
             cashout_msg += f"\n\n🚪 {player_name} has been removed from the game."
+
+            if was_host and new_host_assigned:
+                cashout_msg += f"\n🎩 {active_remaining[0].name} is now the host."
 
             await query.edit_message_text(cashout_msg)
 
@@ -1725,6 +1973,7 @@ def main():
     # Host menu handlers
     app.add_handler(MessageHandler(filters.Regex("^👤 Player List$"), player_list))
     app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
+    app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
     app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
 
     app.add_handler(ConversationHandler(
