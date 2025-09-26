@@ -57,8 +57,8 @@ transaction_dal = TransactionsDAL(db)
 PLAYER_MENU = ReplyKeyboardMarkup(
     [
         ["💰 Buy-in", "💸 Cashout"],
-        ["🎲 Chips", "🚪 Quit"],
-        ["📊 Status", "❓ Help"]
+        ["🚪 Quit", "📊 Status"],
+        ["❓ Help"]
     ],
     resize_keyboard=True,
 )
@@ -86,7 +86,6 @@ ADMIN_MENU = ReplyKeyboardMarkup(
 # Conversations states
 ASK_BUYIN_TYPE, ASK_BUYIN_AMOUNT = range(2)
 ASK_CASHOUT = range(1)
-ASK_CHIPS = range(1)
 ASK_QUIT_CONFIRM = range(1)
 ASK_END_GAME_CONFIRM = range(1)
 ASK_HOST_BUYIN_PLAYER, ASK_HOST_BUYIN_TYPE, ASK_HOST_BUYIN_AMOUNT = range(3)
@@ -186,7 +185,6 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `💰 Buy-in` - Request buy-in (cash/register)\n"
             "• `💸 Cashout` - Request cashout\n\n"
             "**Game Actions:**\n"
-            "• `🎲 Chips` - Submit your final chip count\n"
             "• `🚪 Quit` - Leave the game\n"
             "• `📊 Status` - View your game status\n\n"
             "**Commands:**\n"
@@ -394,44 +392,88 @@ async def cashout_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = int(update.message.text)
+        chip_count = int(update.message.text)
     except ValueError:
         await update.message.reply_text("Enter a valid number.")
         return ASK_CASHOUT
+
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
     gid = pdoc["game_id"]
-    tx = create_cashout(gid, user.id, amount)
+
+    # Calculate cash and credit buyins from transactions
+    from src.dal.transactions_dal import TransactionsDAL
+    transaction_dal_temp = TransactionsDAL(db)
+    transactions = transaction_dal_temp.col.find({
+        "game_id": gid,
+        "user_id": user.id,
+        "confirmed": True,
+        "rejected": False,
+        "type": {"$in": ["buyin_cash", "buyin_register"]}
+    })
+
+    cash_buyins = 0
+    credit_buyins = 0
+    for tx in transactions:
+        if tx["type"] == "buyin_cash":
+            cash_buyins += tx["amount"]
+        elif tx["type"] == "buyin_register":
+            credit_buyins += tx["amount"]
+
+    # Calculate net cashout (chips minus credit debt)
+    net_cashout = chip_count - credit_buyins
+
+    # Create summary message
+    summary = f"💸 **Cashout Summary**\n\n"
+    summary += f"Your chip count: {chip_count}\n"
+    summary += f"Cash buy-ins: {cash_buyins}\n"
+    summary += f"Credit buy-ins: {credit_buyins}\n\n"
+
+    if credit_buyins > 0:
+        summary += f"Credit to settle: {credit_buyins}\n"
+        summary += f"**Net cashout: {net_cashout}**\n\n"
+        if net_cashout > 0:
+            summary += f"✅ After settling {credit_buyins} credit, you'll receive {net_cashout} in cash."
+        elif net_cashout < 0:
+            summary += f"⚠️ After settling {credit_buyins} credit, you still owe {abs(net_cashout)}."
+        else:
+            summary += f"✅ Your {credit_buyins} credit debt is exactly settled. No cash exchange needed."
+    else:
+        summary += f"**Total cashout: {chip_count}**\n\n"
+        summary += f"✅ You'll receive {chip_count} in cash."
+
+    # Store the cashout transaction
+    tx = create_cashout(gid, user.id, chip_count)
     tx_id = transaction_dal.create(tx)
-    await update.message.reply_text(f"✅ Cashout {amount} submitted.", reply_markup=PLAYER_MENU)
+
+    await update.message.reply_text(summary, reply_markup=PLAYER_MENU, parse_mode="Markdown")
+
+    # Notify host with clear cashout instructions
     host_id = get_host_id(gid)
     if host_id:
+        host_msg = f"📢 **Cashout Request from {user.first_name}**\n\n"
+        host_msg += f"Chip count: {chip_count}\n"
+        host_msg += f"Credit debt: {credit_buyins}\n\n"
+
+        if net_cashout > 0:
+            host_msg += f"💵 **Pay {user.first_name}: {net_cashout} in cash**"
+        elif net_cashout < 0:
+            host_msg += f"💳 **Collect from {user.first_name}: {abs(net_cashout)} (remaining debt)**"
+        else:
+            host_msg += f"✅ **No cash exchange needed** (credit exactly settled)"
+
         buttons = [[
             InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
             InlineKeyboardButton("❌ Reject", callback_data=f"reject:{tx_id}")
         ]]
-        await context.bot.send_message(chat_id=host_id, text=f"📢 {user.first_name} requests cashout {amount}", reply_markup=InlineKeyboardMarkup(buttons))
+        await context.bot.send_message(
+            chat_id=host_id,
+            text=host_msg,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="Markdown"
+        )
     return ConversationHandler.END
 
-# -------- Chips conversation --------
-async def chips_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎲 Enter your final chip count:")
-    return ASK_CHIPS
-
-async def chips_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        chips = int(update.message.text)
-    except ValueError:
-        await update.message.reply_text("Enter a valid number.")
-        return ASK_CHIPS
-    user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
-    db.players.update_one({"game_id": pdoc["game_id"], "user_id": user.id}, {"$set": {"final_chips": chips}})
-    await update.message.reply_text(f"✅ Final chip count = {chips}", reply_markup=PLAYER_MENU)
-    host_id = get_host_id(pdoc["game_id"])
-    if host_id:
-        await context.bot.send_message(chat_id=host_id, text=f"📢 {user.first_name} submitted final chips = {chips}")
-    return ConversationHandler.END
 
 # -------- Quit conversation --------
 async def quit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -471,9 +513,8 @@ async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "👥 **Players in game:**\n\n"
     for p in players:
         status = "🚪 Quit" if p.quit else "✅ Active"
-        chips = f"Chips: {p.final_chips}" if p.final_chips else "Chips: Not submitted"
         buyins = f"Buy-ins: {sum(p.buyins)}" if p.buyins else "Buy-ins: 0"
-        msg += f"• {p.name} ({status})\n  {buyins}, {chips}\n"
+        msg += f"• {p.name} ({status})\n  {buyins}\n"
 
     await update.message.reply_text(msg, reply_markup=HOST_MENU)
 
@@ -809,18 +850,40 @@ async def host_cashout_player(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enter cashout amount and process"""
     try:
-        amount = int(update.message.text)
+        chip_count = int(update.message.text)
     except ValueError:
         await update.message.reply_text("Enter a valid number:")
         return ASK_HOST_CASHOUT_AMOUNT
 
-    # Create the transaction
+    # Get player info
     game_id = context.user_data["game_id"]
     player_id = context.user_data["target_player_id"]
     player_name = context.user_data["target_player_name"]
 
+    # Calculate cash and credit buyins for the player
+    from src.dal.transactions_dal import TransactionsDAL
+    transaction_dal_temp = TransactionsDAL(db)
+    transactions = transaction_dal_temp.col.find({
+        "game_id": game_id,
+        "user_id": player_id,
+        "confirmed": True,
+        "rejected": False,
+        "type": {"$in": ["buyin_cash", "buyin_register"]}
+    })
+
+    cash_buyins = 0
+    credit_buyins = 0
+    for tx in transactions:
+        if tx["type"] == "buyin_cash":
+            cash_buyins += tx["amount"]
+        elif tx["type"] == "buyin_register":
+            credit_buyins += tx["amount"]
+
+    # Calculate net cashout
+    net_cashout = chip_count - credit_buyins
+
     # Create cashout transaction
-    tx = create_cashout(game_id, player_id, amount)
+    tx = create_cashout(game_id, player_id, chip_count)
     tx_id = transaction_dal.create(tx)
 
     # Auto-approve since host is creating it
@@ -828,6 +891,25 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Check if this is admin override
     is_admin = context.user_data.get("admin_override", False)
+
+    # Create summary message
+    summary = f"💸 **Cashout for {player_name}**\n\n"
+    summary += f"Chip count: {chip_count}\n"
+    summary += f"Cash buy-ins: {cash_buyins}\n"
+    summary += f"Credit buy-ins: {credit_buyins}\n\n"
+
+    if credit_buyins > 0:
+        summary += f"Credit to settle: {credit_buyins}\n"
+        summary += f"**Net cashout: {net_cashout}**\n\n"
+        if net_cashout > 0:
+            summary += f"💵 Pay {player_name}: **{net_cashout} in cash**"
+        elif net_cashout < 0:
+            summary += f"💳 Collect from {player_name}: **{abs(net_cashout)}** (remaining debt)"
+        else:
+            summary += f"✅ No cash exchange needed (credit exactly settled)"
+    else:
+        summary += f"**Total cashout: {chip_count}**\n"
+        summary += f"💵 Pay {player_name}: **{chip_count} in cash**"
 
     if is_admin:
         # Return to admin game management menu
@@ -842,17 +924,24 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
         await update.message.reply_text(
-            f"✅ Admin added cashout:\n"
-            f"Player: {player_name}\n"
-            f"Amount: {amount} chips",
-            reply_markup=ADMIN_GAME_MENU
+            summary,
+            reply_markup=ADMIN_GAME_MENU,
+            parse_mode="Markdown"
         )
 
-        # Notify the player
+        # Notify the player with their summary
+        player_msg = f"✅ Administrator recorded your cashout:\n\n"
+        player_msg += f"Chips: {chip_count}\n"
+        if credit_buyins > 0:
+            player_msg += f"Credit settled: {credit_buyins}\n"
+            player_msg += f"Net amount: {net_cashout}"
+        else:
+            player_msg += f"Cash amount: {chip_count}"
+
         try:
             await context.bot.send_message(
                 chat_id=player_id,
-                text=f"✅ Administrator recorded a cashout of {amount} chips for you."
+                text=player_msg
             )
         except:
             pass
@@ -861,17 +950,24 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ADMIN_MANAGE_GAME
     else:
         await update.message.reply_text(
-            f"✅ Cashout recorded:\n"
-            f"Player: {player_name}\n"
-            f"Amount: {amount} chips",
-            reply_markup=HOST_MENU
+            summary,
+            reply_markup=HOST_MENU,
+            parse_mode="Markdown"
         )
 
-        # Notify the player
+        # Notify the player with their summary
+        player_msg = f"✅ Host recorded your cashout:\n\n"
+        player_msg += f"Chips: {chip_count}\n"
+        if credit_buyins > 0:
+            player_msg += f"Credit settled: {credit_buyins}\n"
+            player_msg += f"Net amount: {net_cashout}"
+        else:
+            player_msg += f"Cash amount: {chip_count}"
+
         try:
             await context.bot.send_message(
                 chat_id=player_id,
-                text=f"✅ Host recorded a cashout of {amount} chips for you."
+                text=player_msg
             )
         except:
             pass
@@ -1250,10 +1346,9 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
         msg = f"👥 **Players in {code}:**\n\n"
         for p in players:
             status = "🚪 Quit" if p.quit else "✅ Active"
-            chips = f"Chips: {p.final_chips}" if p.final_chips else "Chips: Not submitted"
             buyins = f"Buy-ins: {sum(p.buyins)}" if p.buyins else "Buy-ins: 0"
             msg += f"• {p.name} (ID: {p.user_id}) {status}\n"
-            msg += f"  {buyins}, {chips}\n\n"
+            msg += f"  {buyins}\n\n"
 
         await update.message.reply_text(msg)
         return ADMIN_MANAGE_GAME
@@ -1552,11 +1647,6 @@ def main():
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💸 Cashout$"), cashout_start)],
         states={ASK_CASHOUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, cashout_amount)]},
-        fallbacks=[]
-    ))
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🎲 Chips$"), chips_start)],
-        states={ASK_CHIPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, chips_amount)]},
         fallbacks=[]
     ))
     app.add_handler(ConversationHandler(
