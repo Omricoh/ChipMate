@@ -18,9 +18,9 @@ from telegram.ext import (
     filters,
 )
 
-from src.dal.game_dal import GameDAL
-from src.dal.player_dal import PlayerDAL
-from src.dal.transaction_dal import TransactionDAL
+from src.dal.games_dal import GamesDAL
+from src.dal.players_dal import PlayersDAL
+from src.dal.transactions_dal import TransactionsDAL
 from src.bl.game_bl import create_game
 from src.bl.player_bl import join_game
 from src.bl.transaction_bl import create_buyin, create_cashout
@@ -36,9 +36,9 @@ logger = logging.getLogger("chipbot")
 # DB + DAL
 client = MongoClient(MONGO_URL)
 db = client["chipbot"]
-game_dal = GameDAL(db)
-player_dal = PlayerDAL(db)
-transaction_dal = TransactionDAL(db)
+game_dal = GamesDAL(db)
+player_dal = PlayersDAL(db)
+transaction_dal = TransactionsDAL(db)
 
 # Keyboards
 PLAYER_MENU = ReplyKeyboardMarkup(
@@ -63,6 +63,7 @@ ASK_BUYIN_TYPE, ASK_BUYIN_AMOUNT = range(2)
 ASK_CASHOUT = range(1)
 ASK_CHIPS = range(1)
 ASK_QUIT_CONFIRM = range(1)
+ASK_END_GAME_CONFIRM = range(1)
 
 # -------- Helpers --------
 def get_active_game(user_id: int):
@@ -210,6 +211,161 @@ async def quit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Still in game.", reply_markup=PLAYER_MENU)
     return ConversationHandler.END
 
+# -------- Host menu functions --------
+async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show list of players in the game"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can view player list.")
+        return
+
+    game_id = pdoc["game_id"]
+    players = player_dal.get_players(game_id)
+    if not players:
+        await update.message.reply_text("No players in the game yet.")
+        return
+
+    msg = "👥 **Players in game:**\n\n"
+    for p in players:
+        status = "🚪 Quit" if p.quit else "✅ Active"
+        chips = f"Chips: {p.final_chips}" if p.final_chips else "Chips: Not submitted"
+        buyins = f"Buy-ins: {sum(p.buyins)}" if p.buyins else "Buy-ins: 0"
+        msg += f"• {p.name} ({status})\n  {buyins}, {chips}\n"
+
+    await update.message.reply_text(msg, reply_markup=HOST_MENU)
+
+async def end_game_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start end game process"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can end the game.")
+        return
+
+    buttons = [["✅ Yes, End Game", "❌ Cancel"]]
+    await update.message.reply_text(
+        "🔚 Are you sure you want to end the game? Players won't be able to submit more transactions.",
+        reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+    )
+    return ASK_END_GAME_CONFIRM
+
+async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Confirm ending the game"""
+    text = update.message.text
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+
+    if "Yes" in text:
+        game_id = pdoc["game_id"]
+        game_dal.update_status(ObjectId(game_id), "ended")
+
+        # Notify all players
+        players = player_dal.get_players(game_id)
+        for p in players:
+            if p.user_id != user.id:
+                try:
+                    await context.bot.send_message(
+                        chat_id=p.user_id,
+                        text="🔚 The game has been ended by the host. Please submit your final chip count if you haven't."
+                    )
+                except:
+                    pass
+
+        await update.message.reply_text("✅ Game ended. You can now settle accounts.", reply_markup=HOST_MENU)
+    else:
+        await update.message.reply_text("❌ Game continues.", reply_markup=HOST_MENU)
+
+    return ConversationHandler.END
+
+async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Calculate and show settlement"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can settle the game.")
+        return
+
+    game_id = pdoc["game_id"]
+    players = player_dal.get_players(game_id)
+
+    # Calculate net position for each player
+    settlements = []
+    for p in players:
+        if p.quit or not p.active:
+            continue
+
+        # Get all confirmed transactions
+        total_buyins = sum(p.buyins) if p.buyins else 0
+        final_chips = p.final_chips if p.final_chips is not None else 0
+        net = final_chips - total_buyins
+
+        settlements.append({
+            "name": p.name,
+            "buyins": total_buyins,
+            "chips": final_chips,
+            "net": net
+        })
+
+    if not settlements:
+        await update.message.reply_text("No active players to settle.")
+        return
+
+    # Sort by net position
+    settlements.sort(key=lambda x: x["net"], reverse=True)
+
+    msg = "💰 **Settlement Summary:**\n\n"
+    for s in settlements:
+        symbol = "🟢" if s["net"] > 0 else "🔴" if s["net"] < 0 else "⚪"
+        msg += f"{symbol} {s['name']}\n"
+        msg += f"  Buy-ins: {s['buyins']}\n"
+        msg += f"  Final: {s['chips']}\n"
+        msg += f"  Net: {'+' if s['net'] > 0 else ''}{s['net']}\n\n"
+
+    # Calculate who owes whom
+    msg += "**Payments:**\n"
+    winners = [s for s in settlements if s["net"] > 0]
+    losers = [s for s in settlements if s["net"] < 0]
+
+    for loser in losers:
+        debt = abs(loser["net"])
+        for winner in winners:
+            if debt <= 0:
+                break
+            if winner["net"] <= 0:
+                continue
+
+            payment = min(debt, winner["net"])
+            msg += f"• {loser['name']} → {winner['name']}: {payment}\n"
+            debt -= payment
+            winner["net"] -= payment
+
+    await update.message.reply_text(msg, reply_markup=HOST_MENU)
+
+async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show comprehensive game status for hosts"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+
+    if pdoc and pdoc.get("is_host"):
+        game_id = pdoc["game_id"]
+        game = game_dal.get_game(game_id)
+        players = player_dal.get_players(game_id)
+
+        active_players = sum(1 for p in players if p.active and not p.quit)
+        total_buyins = sum(sum(p.buyins) if p.buyins else 0 for p in players)
+
+        msg = f"📊 **Game Status**\n\n"
+        msg += f"Code: {game.code}\n"
+        msg += f"Status: {game.status}\n"
+        msg += f"Players: {active_players} active\n"
+        msg += f"Total buy-ins: {total_buyins}\n"
+
+        await update.message.reply_text(msg, reply_markup=HOST_MENU)
+    else:
+        # Regular player status
+        await status(update, context)
+
 # -------- Inline approvals --------
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -255,6 +411,17 @@ def main():
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🚪 Quit$"), quit_start)],
         states={ASK_QUIT_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, quit_confirm)]},
+        fallbacks=[]
+    ))
+
+    # Host menu handlers
+    app.add_handler(MessageHandler(filters.Regex("^👤 Player List$"), player_list))
+    app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🔚 End Game$"), end_game_start)],
+        states={ASK_END_GAME_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, end_game_confirm)]},
         fallbacks=[]
     ))
 
