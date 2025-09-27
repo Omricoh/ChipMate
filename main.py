@@ -664,6 +664,12 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx = create_cashout(gid, user.id, chip_count)
     tx_id = transaction_dal.create(tx)
 
+    # Mark this as a former host cashout so approval doesn't deactivate them
+    db.transactions.update_one(
+        {"_id": ObjectId(tx_id)},
+        {"$set": {"former_host_cashout": True}}
+    )
+
     await update.message.reply_text(summary, reply_markup=PLAYER_MENU, parse_mode="Markdown")
 
     # Notify new host
@@ -2205,39 +2211,8 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
         return await admin_cashout_for_player(update, context)
 
     elif "Game Status" in text:
-        game = game_dal.get_game(game_id)
-        players = player_dal.get_players(game_id)
-
-        active_players = sum(1 for p in players if p.active and not p.quit)
-
-        # Calculate total buyins from transactions
-        all_buyins = db.transactions.find({
-            "game_id": game_id,
-            "type": {"$in": ["buyin_cash", "buyin_register"]},
-            "confirmed": True,
-            "rejected": False
-        })
-
-        total_cash = 0
-        total_credit = 0
-        for tx in all_buyins:
-            if tx["type"] == "buyin_cash":
-                total_cash += tx["amount"]
-            elif tx["type"] == "buyin_register":
-                total_credit += tx["amount"]
-
-        total_buyins = total_cash + total_credit
-
-        msg = f"📊 **Game Status: {code}**\n\n"
-        msg += f"Host: {game.host_name}\n"
-        msg += f"Status: {game.status}\n"
-        msg += f"Players: {active_players} active\n"
-        msg += f"Cash buy-ins: {total_cash}\n"
-        msg += f"Credit buy-ins: {total_credit}\n"
-        msg += f"Total in play: {total_buyins}\n"
-        msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
-
-        await update.message.reply_text(msg)
+        # Show comprehensive game report like hosts get
+        await show_game_report(update, context, game_id, code)
         return ADMIN_MANAGE_GAME
 
     elif "Settle Game" in text:
@@ -2645,17 +2620,34 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Check if this player is the host
             was_host = player.is_host if player else False
 
-            # Mark player as cashed out instead of removing
+            # Check if this is a former host cashout (host already transferred role)
+            is_former_host_cashout = tx.get("former_host_cashout", False)
+
+            # Mark player as cashed out
             from datetime import datetime
-            db.players.update_one(
-                {"game_id": game_id, "user_id": user_id},
-                {"$set": {
-                    "cashed_out": True,
-                    "cashout_time": datetime.now(timezone.utc),
-                    "active": False,
-                    "final_chips": chip_count
-                }}
-            )
+            if is_former_host_cashout:
+                # Former host stays active in the game as regular player
+                db.players.update_one(
+                    {"game_id": game_id, "user_id": user_id},
+                    {"$set": {
+                        "cashed_out": True,
+                        "cashout_time": datetime.now(timezone.utc),
+                        "active": True,  # Keep active as regular player
+                        "is_host": False,  # Ensure not host anymore
+                        "final_chips": chip_count
+                    }}
+                )
+            else:
+                # Regular player or host without transfer - deactivate normally
+                db.players.update_one(
+                    {"game_id": game_id, "user_id": user_id},
+                    {"$set": {
+                        "cashed_out": True,
+                        "cashout_time": datetime.now(timezone.utc),
+                        "active": False,
+                        "final_chips": chip_count
+                    }}
+                )
 
             # If the player was host, assign a new host
             new_host_assigned = False
@@ -2687,7 +2679,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                  f"• Settling the game\n"
                                  f"• Managing buy-ins/cashouts\n"
                                  f"• Ending the game",
-                            reply_markup=get_host_menu(pdoc["game_id"])
+                            reply_markup=get_host_menu(game_id)
                         )
                     except:
                         pass
@@ -2705,20 +2697,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 cashout_msg += f"💵 Pay {player_name}: {chip_count} cash"
 
-            cashout_msg += f"\n\n🚪 {player_name} has been removed from the game."
+            # Different messages for former hosts vs regular players
+            if is_former_host_cashout:
+                cashout_msg += f"\n\n👤 {player_name} (former host) remains in the game as a regular player."
+            else:
+                cashout_msg += f"\n\n🚪 {player_name} has been removed from the game."
 
-            if was_host and new_host_assigned:
+            if was_host and new_host_assigned and not is_former_host_cashout:
                 cashout_msg += f"\n🎩 {active_remaining[0].name} is now the host."
 
             await query.edit_message_text(cashout_msg)
 
-            # Notify the player they've been cashed out and removed
+            # Notify the player they've been cashed out
+            if is_former_host_cashout:
+                player_notification = f"✅ Cashout approved: {chip_count} chips\n" \
+                                    f"{'Credit settled: ' + str(credit_buyins) if credit_buyins > 0 else ''}\n" \
+                                    f"Net amount: {net_cashout if credit_buyins > 0 else chip_count}\n\n" \
+                                    f"👤 You remain in the game as a regular player. You can continue playing!"
+            else:
+                player_notification = f"✅ Cashout approved: {chip_count} chips\n" \
+                                    f"{'Credit settled: ' + str(credit_buyins) if credit_buyins > 0 else ''}\n" \
+                                    f"Net amount: {net_cashout if credit_buyins > 0 else chip_count}\n\n" \
+                                    f"You have been removed from the game. Thank you for playing!"
+
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"✅ Cashout approved: {chip_count} chips\n"
-                     f"{'Credit settled: ' + str(credit_buyins) if credit_buyins > 0 else ''}\n"
-                     f"Net amount: {net_cashout if credit_buyins > 0 else chip_count}\n\n"
-                     f"You have been removed from the game. Thank you for playing!"
+                text=player_notification
             )
         else:
             # Regular buy-in approval
