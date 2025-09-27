@@ -1,5 +1,5 @@
 import os, logging, asyncio, re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pymongo import MongoClient
 from bson import ObjectId
 
@@ -267,7 +267,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check if game has expired
     game = Game(**game_doc)
-    if (datetime.utcnow() - game.created_at) > timedelta(hours=12):
+    if (datetime.now(timezone.utc) - game.created_at) > timedelta(hours=12):
         await update.message.reply_text("⚠️ This game has expired (older than 12 hours).")
         return
 
@@ -1311,7 +1311,7 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         {"game_id": game_id, "user_id": player_id},
         {"$set": {
             "cashed_out": True,
-            "cashout_time": datetime.utcnow(),
+            "cashout_time": datetime.now(timezone.utc),
             "active": False,
             "final_chips": chip_count
         }}
@@ -1498,7 +1498,7 @@ async def admin_list_all_games(update: Update, context: ContextTypes.DEFAULT_TYP
             msg += f"  Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
             # Check if expired
-            if (datetime.utcnow() - game.created_at) > timedelta(hours=12) and game.status == "active":
+            if (datetime.now(timezone.utc) - game.created_at) > timedelta(hours=12) and game.status == "active":
                 msg += f"  ⚠️ Should be expired!\n"
 
             msg += "\n"
@@ -1584,7 +1584,7 @@ async def admin_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += f"Status: {game.status}\n"
     msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
-    duration = datetime.utcnow() - game.created_at
+    duration = datetime.now(timezone.utc) - game.created_at
     hours = int(duration.total_seconds() // 3600)
     minutes = int((duration.total_seconds() % 3600) // 60)
     msg += f"Duration: {hours}h {minutes}m\n\n"
@@ -1874,6 +1874,11 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text(f"✅ Game {code} has been ended.")
         return ADMIN_MANAGE_GAME
 
+    elif "Game Report" in text:
+        # Generate comprehensive game report with all transactions
+        await show_game_report(update, context, game_id, code)
+        return ADMIN_MANAGE_GAME
+
     elif "Destroy Game" in text:
         # Confirm destruction
         buttons = [["✅ Yes, DESTROY", "❌ Cancel"]]
@@ -2070,11 +2075,6 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_list_all_games(update, context)
     elif "Expire Old Games" in text:
         return await admin_expire_games(update, context)
-    elif "Game Report" in text:
-        # Generate comprehensive game report with all transactions
-        await show_game_report(update, context, game_id, code)
-        return ADMIN_MANAGE_GAME
-
     elif "Game Report OLD" in text:
         return await admin_game_report_ask(update, context)
     elif "Find Game" in text:
@@ -2196,7 +2196,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"game_id": game_id, "user_id": user_id},
                 {"$set": {
                     "cashed_out": True,
-                    "cashout_time": datetime.utcnow(),
+                    "cashout_time": datetime.now(timezone.utc),
                     "active": False,
                     "final_chips": chip_count
                 }}
