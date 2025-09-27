@@ -1513,7 +1513,7 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(
             summary,
-            reply_markup=get_host_menu(pdoc["game_id"]),
+            reply_markup=get_host_menu(game_id),
             parse_mode="Markdown"
         )
 
