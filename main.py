@@ -81,7 +81,7 @@ ASK_END_GAME_CONFIRM = range(1)
 ASK_HOST_BUYIN_PLAYER, ASK_HOST_BUYIN_TYPE, ASK_HOST_BUYIN_AMOUNT = range(3)
 ASK_HOST_CASHOUT_PLAYER, ASK_HOST_CASHOUT_AMOUNT = range(2)
 ASK_PLAYER_NAME = 0
-ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME, CONFIRM_DESTROY_GAME = range(5)
+ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME, CONFIRM_DESTROY_GAME, CONFIRM_DELETE_EXPIRED = range(6)
 
 # -------- Helpers --------
 def get_active_game(user_id: int):
@@ -1654,19 +1654,60 @@ async def admin_list_all_games(update: Update, context: ContextTypes.DEFAULT_TYP
     return ADMIN_MODE
 
 async def admin_expire_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Expire games older than 12 hours"""
+    """Show expired games and offer to delete them"""
     if not context.user_data.get("admin_auth"):
         await update.message.reply_text("⚠️ Admin authentication required")
         return ADMIN_MODE
 
-    expired_count = game_dal.expire_old_games()
+    # Find all expired games (older than 12 hours)
+    all_games = list(db.games.find())
+    expired_games = []
 
-    await update.message.reply_text(
-        f"⏰ **Game Expiration Complete**\n\n"
-        f"Expired {expired_count} games older than 12 hours.",
-        reply_markup=ADMIN_MENU
-    )
-    return ADMIN_MODE
+    for game_doc in all_games:
+        game = Game(**game_doc)
+        created_at = game.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+
+        if (datetime.now(timezone.utc) - created_at) > timedelta(hours=12):
+            expired_games.append({
+                "_id": game_doc["_id"],
+                "code": game.code,
+                "status": game.status,
+                "created_at": game.created_at,
+                "host_name": game.host_name
+            })
+
+    if not expired_games:
+        await update.message.reply_text(
+            "✅ No expired games found (older than 12 hours).",
+            reply_markup=ADMIN_MENU
+        )
+        return ADMIN_MODE
+
+    # Show expired games
+    msg = f"⏰ **Found {len(expired_games)} Expired Games:**\n\n"
+
+    for g in expired_games[:10]:  # Show first 10
+        msg += f"• {g['code']} - {g['host_name']}\n"
+        msg += f"  Created: {g['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+        msg += f"  Status: {g['status']}\n\n"
+
+    if len(expired_games) > 10:
+        msg += f"... and {len(expired_games) - 10} more\n\n"
+
+    msg += "Would you like to delete ALL expired games?"
+
+    # Store expired game IDs for deletion
+    context.user_data["expired_game_ids"] = [str(g["_id"]) for g in expired_games]
+
+    buttons = [
+        ["🗑️ Delete All Expired", "❌ Cancel"]
+    ]
+    markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+
+    await update.message.reply_text(msg, reply_markup=markup, parse_mode="Markdown")
+    return CONFIRM_DELETE_EXPIRED
 
 async def admin_game_report_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ask for game code to generate report"""
@@ -1723,10 +1764,36 @@ async def admin_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
 
-    duration = datetime.now(timezone.utc) - created_at
+    # Calculate duration based on game status
+    if game.status == "ended":
+        # For ended games, find the last cashout time or use current time if no cashouts
+        last_cashout = None
+        for p in players:
+            if p.cashed_out and p.cashout_time:
+                cashout_time = p.cashout_time
+                if cashout_time.tzinfo is None:
+                    cashout_time = cashout_time.replace(tzinfo=timezone.utc)
+
+                if last_cashout is None or cashout_time > last_cashout:
+                    last_cashout = cashout_time
+
+        if last_cashout:
+            # Game duration is from creation to last cashout
+            duration = last_cashout - created_at
+        else:
+            # If no cashouts but game ended, use current time (game just ended)
+            duration = datetime.now(timezone.utc) - created_at
+    else:
+        # For active games, show time elapsed so far
+        duration = datetime.now(timezone.utc) - created_at
+
     hours = int(duration.total_seconds() // 3600)
     minutes = int((duration.total_seconds() % 3600) // 60)
-    msg += f"Duration: {hours}h {minutes}m\n\n"
+
+    if game.status == "ended":
+        msg += f"Duration: {hours}h {minutes}m (ended)\n\n"
+    else:
+        msg += f"Duration: {hours}h {minutes}m (ongoing)\n\n"
 
     # Players summary
     msg += f"**Players ({len(players)}):**\n"
@@ -2145,6 +2212,54 @@ async def confirm_destroy_game(update: Update, context: ContextTypes.DEFAULT_TYP
         return ADMIN_MANAGE_GAME
 
 
+async def confirm_delete_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle confirmation of deleting expired games"""
+    text = update.message.text
+
+    if "Delete All Expired" in text:
+        expired_game_ids = context.user_data.get("expired_game_ids", [])
+
+        if not expired_game_ids:
+            await update.message.reply_text("No expired games to delete.", reply_markup=ADMIN_MENU)
+            return ADMIN_MODE
+
+        # Delete all expired games and their related data
+        deleted_count = 0
+        total_players_deleted = 0
+        total_transactions_deleted = 0
+
+        for game_id in expired_game_ids:
+            # Count and delete related data
+            player_count = db.players.count_documents({"game_id": game_id})
+            tx_count = db.transactions.count_documents({"game_id": game_id})
+
+            # Delete all related data
+            db.players.delete_many({"game_id": game_id})
+            db.transactions.delete_many({"game_id": game_id})
+            result = db.games.delete_one({"_id": ObjectId(game_id)})
+
+            if result.deleted_count > 0:
+                deleted_count += 1
+                total_players_deleted += player_count
+                total_transactions_deleted += tx_count
+
+        msg = f"🗑️ **Deletion Complete**\n\n"
+        msg += f"Deleted {deleted_count} expired games\n"
+        msg += f"Deleted {total_players_deleted} player records\n"
+        msg += f"Deleted {total_transactions_deleted} transactions\n\n"
+        msg += "All expired game data has been permanently removed."
+
+        await update.message.reply_text(msg, reply_markup=ADMIN_MENU, parse_mode="Markdown")
+
+        # Clear the stored game IDs
+        context.user_data.pop("expired_game_ids", None)
+
+    else:
+        await update.message.reply_text("Deletion cancelled.", reply_markup=ADMIN_MENU)
+
+    return ADMIN_MODE
+
+
 async def admin_settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     """Admin settles the game"""
     players = player_dal.get_players(game_id)
@@ -2524,7 +2639,8 @@ def main():
             ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)],
             ADMIN_SELECT_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_select_game)],
             ADMIN_MANAGE_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_game_handler)],
-            CONFIRM_DESTROY_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_destroy_game)]
+            CONFIRM_DESTROY_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_destroy_game)],
+            CONFIRM_DELETE_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_expired)]
         },
         fallbacks=[MessageHandler(filters.Regex("^🚪 Exit Admin$"), admin_exit)]
     ))
