@@ -1,7 +1,9 @@
-import os, logging, asyncio, re
+import os, logging, asyncio, re, io
 from datetime import datetime, timedelta, timezone
 from pymongo import MongoClient
 from bson import ObjectId
+import qrcode
+from PIL import Image
 
 from telegram import (
     Update,
@@ -54,6 +56,32 @@ game_dal = GamesDAL(db)
 player_dal = PlayersDAL(db)
 transaction_dal = TransactionsDAL(db)
 debt_dal = DebtDAL(db)
+
+# QR Code generation function
+def generate_game_qr(game_code, bot_username):
+    """Generate QR code for joining a game"""
+    # Create Telegram bot link that auto-joins the game
+    join_url = f"https://t.me/{bot_username}?start=join_{game_code}"
+
+    # Generate QR code
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(join_url)
+    qr.make(fit=True)
+
+    # Create QR code image
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+
+    # Convert to BytesIO for sending
+    bio = io.BytesIO()
+    qr_img.save(bio, format='PNG')
+    bio.seek(0)
+
+    return bio, join_url
 
 # Keyboards
 PLAYER_MENU = ReplyKeyboardMarkup(
@@ -111,7 +139,7 @@ def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
         ["💰 Host Buy-in", "💸 Host Cashout"],
         ["⚖️ Settle", "📈 View Settlement"],
         ["📊 Status", "📋 Game Report"],
-        ["❓ Help"]
+        ["📱 Share QR", "❓ Help"]
     ]
 
     # Only add End Game if no active players left (all cashed out)
@@ -122,6 +150,19 @@ def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
 
 # -------- Commands --------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check if this is a QR code join attempt
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+        if arg.startswith("join_"):
+            # Extract game code from QR code parameter
+            game_code = arg[5:]  # Remove "join_" prefix
+            await update.message.reply_text(f"🎯 Joining game {game_code}...")
+
+            # Set up context for join function
+            context.args = [game_code]
+            await join(update, context)
+            return
+
     await update.message.reply_text(
         "🎲 **ChipBot Ready!**\n\n"
         "Commands (no / needed):\n"
@@ -129,7 +170,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `join ABC12` - Join a game\n"
         "• `status` - Check your current game\n"
         "• `mygame` - Quick game info\n"
-        "• `/admin user pass` - Admin access",
+        "• `/admin user pass` - Admin access\n\n"
+        "💡 **Tip:** Scan QR codes to join games instantly!",
         parse_mode="Markdown"
     )
 
@@ -252,7 +294,40 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gid = game_dal.create(game)
     host_player.game_id = gid
     player_dal.upsert(host_player)
-    await update.message.reply_text(f"🎮 Game created with code {game.code}", reply_markup=get_host_menu(gid))
+
+    # Generate QR code for easy joining
+    try:
+        # Get bot username from context (we'll need to pass it)
+        bot_info = await context.bot.get_me()
+        bot_username = bot_info.username
+
+        qr_image, join_url = generate_game_qr(game.code, bot_username)
+
+        # Send game creation message with QR code
+        caption = (
+            f"🎮 **Game Created Successfully!**\n\n"
+            f"🔑 **Game Code:** `{game.code}`\n"
+            f"👑 **Host:** {host.first_name}\n\n"
+            f"📱 **Ways to Join:**\n"
+            f"1. Scan this QR code\n"
+            f"2. Use command: `/join {game.code}`\n"
+            f"3. Click: {join_url}\n\n"
+            f"🎯 Share this QR code with players to join instantly!"
+        )
+
+        await update.message.reply_photo(
+            photo=qr_image,
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=get_host_menu(gid)
+        )
+    except Exception as e:
+        # Fallback if QR generation fails
+        await update.message.reply_text(
+            f"🎮 Game created with code {game.code}\n"
+            f"Players can join using: `/join {game.code}`",
+            reply_markup=get_host_menu(gid)
+        )
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -787,6 +862,58 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     return ConversationHandler.END
+
+async def share_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate and share QR code for the current game"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can share QR codes.")
+        return
+
+    game_id = pdoc["game_id"]
+    game = game_dal.get_game(game_id)
+    if not game:
+        await update.message.reply_text("⚠️ Game not found.")
+        return
+
+    try:
+        # Get bot username
+        bot_info = await context.bot.get_me()
+        bot_username = bot_info.username
+
+        qr_image, join_url = generate_game_qr(game.code, bot_username)
+
+        # Count current players
+        players = player_dal.get_players(game_id)
+        active_players = [p for p in players if p.active and not p.quit]
+
+        caption = (
+            f"📱 **Share this QR Code to invite players!**\n\n"
+            f"🎮 **Game:** `{game.code}`\n"
+            f"👑 **Host:** {user.first_name}\n"
+            f"👥 **Players:** {len(active_players)} active\n"
+            f"📅 **Status:** {game.status}\n\n"
+            f"**How to join:**\n"
+            f"1. 📱 Scan this QR code\n"
+            f"2. 💬 Send: `/join {game.code}`\n"
+            f"3. 🔗 Click: {join_url}\n\n"
+            f"🎯 Forward this message to invite others!"
+        )
+
+        await update.message.reply_photo(
+            photo=qr_image,
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=get_host_menu(game_id)
+        )
+
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ Failed to generate QR code: {str(e)}\n\n"
+            f"Players can still join using: `/join {game.code}`",
+            reply_markup=get_host_menu(game_id)
+        )
 
 # -------- Host menu functions --------
 async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3126,6 +3253,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
     app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
     app.add_handler(MessageHandler(filters.Regex("^📋 Game Report$"), host_game_report))
+    app.add_handler(MessageHandler(filters.Regex("^📱 Share QR$"), share_qr))
 
     # Player/Host conversation handlers
     app.add_handler(ConversationHandler(
