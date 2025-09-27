@@ -23,6 +23,7 @@ from telegram.ext import (
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
+from src.dal.debt_dal import DebtDAL
 from src.models.game import Game
 from src.models.player import Player
 from src.models.transaction import Transaction
@@ -52,6 +53,7 @@ db = client["chipbot"]
 game_dal = GamesDAL(db)
 player_dal = PlayersDAL(db)
 transaction_dal = TransactionsDAL(db)
+debt_dal = DebtDAL(db)
 
 # Keyboards
 PLAYER_MENU = ReplyKeyboardMarkup(
@@ -469,66 +471,98 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-    # Calculate cash and credit buyins from transactions
-    from src.dal.transactions_dal import TransactionsDAL
-    transaction_dal_temp = TransactionsDAL(db)
-    transactions = transaction_dal_temp.col.find({
+    # Get player's own debt (they owe) and pending debts in game (others owe)
+    player_debts = debt_dal.get_player_debts(gid, user.id)  # What this player owes
+    pending_debts = debt_dal.get_pending_debts(gid)  # What others owe (available for transfer)
+
+    # Calculate this player's own outstanding debt
+    player_debt_amount = sum(debt["amount"] for debt in player_debts if debt["status"] == "pending")
+
+    # Calculate available debt to transfer (from other players)
+    available_debt_transfer = sum(debt["amount"] for debt in pending_debts if debt["debtor_user_id"] != user.id)
+
+    # Calculate cash buyins for this player
+    transactions = transaction_dal.col.find({
         "game_id": gid,
         "user_id": user.id,
         "confirmed": True,
         "rejected": False,
-        "type": {"$in": ["buyin_cash", "buyin_register"]}
+        "type": "buyin_cash"
     })
-
-    cash_buyins = 0
-    credit_buyins = 0
-    for tx in transactions:
-        if tx["type"] == "buyin_cash":
-            cash_buyins += tx["amount"]
-        elif tx["type"] == "buyin_register":
-            credit_buyins += tx["amount"]
-
-    # Calculate net cashout (chips minus credit debt)
-    net_cashout = chip_count - credit_buyins
+    cash_buyins = sum(tx["amount"] for tx in transactions)
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
     summary += f"Your chip count: {chip_count}\n"
-    summary += f"Cash buy-ins: {cash_buyins}\n"
-    summary += f"Credit buy-ins: {credit_buyins}\n\n"
+    summary += f"Your cash buy-ins: {cash_buyins}\n"
 
-    if credit_buyins > 0:
-        summary += f"Credit to settle: {credit_buyins}\n"
-        summary += f"**Net cashout: {net_cashout}**\n\n"
-        if net_cashout > 0:
-            summary += f"✅ After settling {credit_buyins} credit, you'll receive {net_cashout} in cash."
-        elif net_cashout < 0:
-            summary += f"⚠️ After settling {credit_buyins} credit, you still owe {abs(net_cashout)}."
+    if player_debt_amount > 0:
+        summary += f"Your outstanding debt: {player_debt_amount}\n"
+
+    # Show debt transfer opportunity
+    if available_debt_transfer > 0:
+        transfer_amount = min(chip_count, available_debt_transfer)
+        summary += f"\n💳 **Debt Transfer Available**\n"
+        summary += f"Other players owe a total of {available_debt_transfer} in debt.\n"
+        if transfer_amount > 0:
+            summary += f"You can take over {transfer_amount} of this debt.\n"
+            remaining_cash = chip_count - transfer_amount
+            summary += f"\n**After debt transfer:**\n"
+            summary += f"• Debt transferred to you: {transfer_amount}\n"
+            summary += f"• Cash you receive: {remaining_cash}\n"
         else:
-            summary += f"✅ Your {credit_buyins} credit debt is exactly settled. No cash exchange needed."
+            summary += f"Your cashout amount covers no debt transfer.\n"
     else:
-        summary += f"**Total cashout: {chip_count}**\n\n"
-        summary += f"✅ You'll receive {chip_count} in cash."
+        summary += f"\nNo debt available for transfer.\n"
+        summary += f"**Total cash you receive: {chip_count}**\n"
 
-    # Store the cashout transaction
+    # Store the cashout transaction with debt transfer info
     tx = create_cashout(gid, user.id, chip_count)
     tx_id = transaction_dal.create(tx)
 
+    # Store debt transfer information in the transaction for later processing
+    if available_debt_transfer > 0:
+        transfer_amount = min(chip_count, available_debt_transfer)
+        if transfer_amount > 0:
+            # Store which debts should be transferred upon approval
+            debts_to_transfer = []
+            remaining_transfer = transfer_amount
+            for debt in pending_debts:
+                if debt["debtor_user_id"] != user.id and remaining_transfer > 0:
+                    debt_amount = min(debt["amount"], remaining_transfer)
+                    debts_to_transfer.append({
+                        "debt_id": str(debt["_id"]),
+                        "amount": debt_amount,
+                        "debtor_name": debt["debtor_name"]
+                    })
+                    remaining_transfer -= debt_amount
+
+            # Store in transaction for processing during approval
+            db.transactions.update_one(
+                {"_id": ObjectId(tx_id)},
+                {"$set": {"debt_transfers": debts_to_transfer}}
+            )
+
     await update.message.reply_text(summary, reply_markup=PLAYER_MENU, parse_mode="Markdown")
 
-    # Notify host with clear cashout instructions
+    # Notify host with debt transfer details
     host_id = get_host_id(gid)
     if host_id:
         host_msg = f"📢 **Cashout Request from {user.first_name}**\n\n"
         host_msg += f"Chip count: {chip_count}\n"
-        host_msg += f"Credit debt: {credit_buyins}\n\n"
+        host_msg += f"Player's outstanding debt: {player_debt_amount}\n\n"
 
-        if net_cashout > 0:
-            host_msg += f"💵 **Pay {user.first_name}: {net_cashout} in cash**"
-        elif net_cashout < 0:
-            host_msg += f"💳 **Collect from {user.first_name}: {abs(net_cashout)} (remaining debt)**"
+        if available_debt_transfer > 0:
+            transfer_amount = min(chip_count, available_debt_transfer)
+            if transfer_amount > 0:
+                cash_to_pay = chip_count - transfer_amount
+                host_msg += f"💳 **Debt Transfer: {transfer_amount}**\n"
+                host_msg += f"💵 **Cash to Pay: {cash_to_pay}**\n\n"
+                host_msg += f"Upon approval, {user.first_name} will take over {transfer_amount} in debt from other players."
+            else:
+                host_msg += f"💵 **Pay {user.first_name}: {chip_count} in cash**"
         else:
-            host_msg += f"✅ **No cash exchange needed** (credit exactly settled)"
+            host_msg += f"💵 **Pay {user.first_name}: {chip_count} in cash**"
 
         buttons = [[
             InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
@@ -2589,39 +2623,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         transaction_dal.update_status(ObjectId(tx_id), True, False)
 
-        # If this is a cashout, remove the player from the game
+        # If this is a cashout, process debt transfers and handle player status
         if tx["type"] == "cashout":
-            # Calculate the player's net position
             game_id = tx["game_id"]
             user_id = tx["user_id"]
+            chip_count = tx["amount"]
 
-            # Get player info before removing
+            # Get player info
             player = player_dal.get_player(game_id, user_id)
             player_name = player.name if player else "Player"
-
-            # Calculate cash and credit buyins
-            transactions = db.transactions.find({
-                "game_id": game_id,
-                "user_id": user_id,
-                "confirmed": True,
-                "rejected": False,
-                "type": {"$in": ["buyin_cash", "buyin_register"]}
-            })
-
-            credit_buyins = 0
-            for t in transactions:
-                if t["type"] == "buyin_register":
-                    credit_buyins += t["amount"]
-
-            # Calculate net cashout
-            chip_count = tx["amount"]
-            net_cashout = chip_count - credit_buyins
-
-            # Check if this player is the host
             was_host = player.is_host if player else False
-
-            # Check if this is a former host cashout (host already transferred role)
             is_former_host_cashout = tx.get("former_host_cashout", False)
+
+            # Process debt transfers if any
+            debt_transfers = tx.get("debt_transfers", [])
+            total_debt_transferred = 0
+            transfer_notifications = []
+
+            for transfer in debt_transfers:
+                debt_id = transfer["debt_id"]
+                transfer_amount = transfer["amount"]
+                debtor_name = transfer["debtor_name"]
+
+                # Assign the debt to the cashing out player
+                success = debt_dal.assign_debt_to_creditor(debt_id, user_id, player_name)
+                if success:
+                    total_debt_transferred += transfer_amount
+                    transfer_notifications.append({
+                        "debtor_name": debtor_name,
+                        "amount": transfer_amount,
+                        "debt_id": debt_id
+                    })
+
+            # Calculate cash payment
+            cash_payment = chip_count - total_debt_transferred
 
             # Mark player as cashed out
             from datetime import datetime
@@ -2638,7 +2673,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
             else:
-                # Regular player or host without transfer - deactivate normally
+                # Regular player - deactivate normally
                 db.players.update_one(
                     {"game_id": game_id, "user_id": user_id},
                     {"$set": {
@@ -2649,85 +2684,113 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
 
-            # If the player was host, assign a new host
+            # Handle host succession for non-former-host cashouts
             new_host_assigned = False
-            if was_host:
-                # Get remaining active players
+            if was_host and not is_former_host_cashout:
+                # Auto-assign new host if needed
                 remaining_players = player_dal.get_players(game_id)
-                active_remaining = [p for p in remaining_players if p.active and not p.quit]
+                active_remaining = [p for p in remaining_players if p.active and not p.quit and not p.cashed_out]
 
                 if active_remaining:
-                    # Assign the first active player as new host
                     new_host = active_remaining[0]
                     db.players.update_one(
                         {"game_id": game_id, "user_id": new_host.user_id},
                         {"$set": {"is_host": True}}
                     )
-                    # Update game with new host
                     db.games.update_one(
                         {"_id": ObjectId(game_id)},
                         {"$set": {"host_id": new_host.user_id, "host_name": new_host.name}}
                     )
                     new_host_assigned = True
 
-                    # Notify new host
                     try:
                         await context.bot.send_message(
                             chat_id=new_host.user_id,
-                            text=f"🎩 You are now the host of the game!\n\n"
-                                 f"You have host privileges including:\n"
-                                 f"• Settling the game\n"
-                                 f"• Managing buy-ins/cashouts\n"
-                                 f"• Ending the game",
+                            text=f"🎩 You are now the host of the game!",
                             reply_markup=get_host_menu(game_id)
                         )
                     except:
                         pass
 
-            # Update the message with cashout details
+            # Create approval message
             cashout_msg = f"✅ Approved cashout: {chip_count} chips\n"
-            if credit_buyins > 0:
-                cashout_msg += f"Credit settled: {credit_buyins}\n"
-                if net_cashout > 0:
-                    cashout_msg += f"💵 Pay {player_name}: {net_cashout} cash"
-                elif net_cashout < 0:
-                    cashout_msg += f"💳 Collect from {player_name}: {abs(net_cashout)}"
-                else:
-                    cashout_msg += f"✅ No cash exchange (credit settled)"
+            if total_debt_transferred > 0:
+                cashout_msg += f"💳 Debt transferred: {total_debt_transferred}\n"
+                cashout_msg += f"💵 Cash to pay: {cash_payment}\n\n"
+                cashout_msg += f"Debts transferred to {player_name}:\n"
+                for notif in transfer_notifications:
+                    cashout_msg += f"• {notif['debtor_name']}: {notif['amount']}\n"
             else:
-                cashout_msg += f"💵 Pay {player_name}: {chip_count} cash"
+                cashout_msg += f"💵 Pay {player_name}: {chip_count} cash\n"
 
-            # Different messages for former hosts vs regular players
             if is_former_host_cashout:
-                cashout_msg += f"\n\n👤 {player_name} (former host) remains in the game as a regular player."
+                cashout_msg += f"\n👤 {player_name} (former host) remains in the game as a regular player."
             else:
-                cashout_msg += f"\n\n🚪 {player_name} has been removed from the game."
+                cashout_msg += f"\n🚪 {player_name} has been removed from the game."
 
             if was_host and new_host_assigned and not is_former_host_cashout:
-                cashout_msg += f"\n🎩 {active_remaining[0].name} is now the host."
+                cashout_msg += f"\n🎩 New host assigned automatically."
 
             await query.edit_message_text(cashout_msg)
 
-            # Notify the player they've been cashed out
+            # Notify the cashing out player
             if is_former_host_cashout:
-                player_notification = f"✅ Cashout approved: {chip_count} chips\n" \
-                                    f"{'Credit settled: ' + str(credit_buyins) if credit_buyins > 0 else ''}\n" \
-                                    f"Net amount: {net_cashout if credit_buyins > 0 else chip_count}\n\n" \
-                                    f"👤 You remain in the game as a regular player. You can continue playing!"
+                player_notification = f"✅ Cashout approved: {chip_count} chips\n"
+                if total_debt_transferred > 0:
+                    player_notification += f"💳 Debt transferred to you: {total_debt_transferred}\n"
+                    player_notification += f"💵 Cash you receive: {cash_payment}\n\n"
+                    player_notification += "📋 Players now owe you:\n"
+                    for notif in transfer_notifications:
+                        player_notification += f"• {notif['debtor_name']}: {notif['amount']}\n"
+                    player_notification += "\n👤 You remain in the game as a regular player."
+                else:
+                    player_notification += f"💵 Cash you receive: {chip_count}\n\n👤 You remain in the game as a regular player."
             else:
-                player_notification = f"✅ Cashout approved: {chip_count} chips\n" \
-                                    f"{'Credit settled: ' + str(credit_buyins) if credit_buyins > 0 else ''}\n" \
-                                    f"Net amount: {net_cashout if credit_buyins > 0 else chip_count}\n\n" \
-                                    f"You have been removed from the game. Thank you for playing!"
+                player_notification = f"✅ Cashout approved: {chip_count} chips\n"
+                if total_debt_transferred > 0:
+                    player_notification += f"💳 Debt transferred to you: {total_debt_transferred}\n"
+                    player_notification += f"💵 Cash you receive: {cash_payment}\n\n"
+                    player_notification += "📋 Players now owe you:\n"
+                    for notif in transfer_notifications:
+                        player_notification += f"• {notif['debtor_name']}: {notif['amount']}\n"
+                    player_notification += "\nYou have been removed from the game. Thank you for playing!"
+                else:
+                    player_notification += f"💵 Cash you receive: {chip_count}\n\nYou have been removed from the game. Thank you for playing!"
 
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=player_notification
-            )
+            await context.bot.send_message(chat_id=user_id, text=player_notification)
+
+            # Notify debtors about the transfer
+            for notif in transfer_notifications:
+                debtor_debt = db.debts.find_one({"_id": ObjectId(notif['debt_id'])})
+                if debtor_debt:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=debtor_debt['debtor_user_id'],
+                            text=f"💳 **Debt Transfer Notice**\n\n"
+                                 f"Your debt of {notif['amount']} has been transferred to {player_name}.\n"
+                                 f"You now owe {player_name} this amount instead of the game."
+                        )
+                    except:
+                        pass  # Player might not have started bot
         else:
             # Regular buy-in approval
             await query.edit_message_text(f"✅ Approved {tx['type']} {tx['amount']}")
             await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
+
+            # If this is a register buyin, create a debt record
+            if tx["type"] == "buyin_register":
+                # Get player name
+                player = player_dal.get_player(tx["game_id"], tx["user_id"])
+                player_name = player.name if player else "Unknown"
+
+                # Create debt record
+                debt_dal.create_debt(
+                    game_id=tx["game_id"],
+                    debtor_user_id=tx["user_id"],
+                    debtor_name=player_name,
+                    amount=tx["amount"],
+                    transaction_id=tx_id
+                )
     else:
         transaction_dal.update_status(ObjectId(tx_id), False, True)
         await query.edit_message_text(f"❌ Rejected {tx['type']} {tx['amount']}")
