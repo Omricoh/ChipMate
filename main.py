@@ -2358,22 +2358,14 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"(?i)^help$"), help_handler))
     app.add_handler(MessageHandler(filters.Regex("^❓ Help$"), help_handler))
 
-    # Admin conversation handler
-    app.add_handler(ConversationHandler(
-        entry_points=[
-            CommandHandler("admin", admin_login),
-            MessageHandler(filters.Regex(r"(?i)^admin\s+\w+\s+\w+$"), admin_text_login)
-        ],
-        states={
-            ADMIN_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_mode_handler)],
-            ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)],
-            ADMIN_SELECT_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_select_game)],
-            ADMIN_MANAGE_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_game_handler)],
-            CONFIRM_DESTROY_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_destroy_game)]
-        },
-        fallbacks=[MessageHandler(filters.Regex("^🚪 Exit Admin$"), admin_exit)]
-    ))
+    # Host menu handlers - MUST come before admin conversation handler
+    app.add_handler(MessageHandler(filters.Regex("^👤 Player List$"), player_list))
+    app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
+    app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
+    app.add_handler(MessageHandler(filters.Regex("^📋 Game Report$"), host_game_report))
 
+    # Player/Host conversation handlers
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💰 Buy-in$"), buyin_start)],
         states={ASK_BUYIN_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyin_type)],
@@ -2391,12 +2383,21 @@ def main():
         fallbacks=[]
     ))
 
-    # Host menu handlers
-    app.add_handler(MessageHandler(filters.Regex("^👤 Player List$"), player_list))
-    app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
-    app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
-    app.add_handler(MessageHandler(filters.Regex("^📋 Game Report$"), host_game_report))
+    # Admin conversation handler - MUST come after host menu handlers
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            CommandHandler("admin", admin_login),
+            MessageHandler(filters.Regex(r"(?i)^admin\s+\w+\s+\w+$"), admin_text_login)
+        ],
+        states={
+            ADMIN_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_mode_handler)],
+            ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)],
+            ADMIN_SELECT_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_select_game)],
+            ADMIN_MANAGE_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_game_handler)],
+            CONFIRM_DESTROY_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_destroy_game)]
+        },
+        fallbacks=[MessageHandler(filters.Regex("^🚪 Exit Admin$"), admin_exit)]
+    ))
 
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔚 End Game$"), end_game_start)],
