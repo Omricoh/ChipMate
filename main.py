@@ -832,7 +832,116 @@ async def show_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE, g
     msg += f"Total cash buy-ins: {total_cash_buyins}\n"
     msg += f"Total credit buy-ins: {total_credit_buyins}\n"
     msg += f"Total chips in play: {total_cash_buyins + total_credit_buyins}\n"
-    msg += f"Total cashed out: {total_cashouts}\n"
+    msg += f"Total cashed out: {total_cashouts}\n\n"
+
+    # Calculate settlements (who owes whom)
+    msg += "**SETTLEMENTS:**\n"
+
+    # Calculate net positions for all players who have cashed out
+    player_nets = []
+    for p in all_players:
+        if p.cashed_out and p.final_chips is not None:
+            # Get player's total buyins
+            player_buyins = 0
+            player_transactions = db.transactions.find({
+                "game_id": game_id,
+                "user_id": p.user_id,
+                "type": {"$in": ["buyin_cash", "buyin_register"]},
+                "confirmed": True
+            })
+            for tx in player_transactions:
+                player_buyins += tx["amount"]
+
+            net = p.final_chips - player_buyins
+            if net != 0:  # Only include players with non-zero net
+                player_nets.append({
+                    "name": p.name,
+                    "net": net,
+                    "user_id": p.user_id
+                })
+
+    if player_nets:
+        # Sort by net amount
+        winners = [p for p in player_nets if p["net"] > 0]
+        losers = [p for p in player_nets if p["net"] < 0]
+
+        winners.sort(key=lambda x: x["net"], reverse=True)
+        losers.sort(key=lambda x: x["net"])
+
+        if winners and losers:
+            msg += "\n💰 **Who Owes Whom:**\n"
+
+            # Calculate who pays whom
+            for loser in losers:
+                debt = -loser["net"]
+                msg += f"\n{loser['name']} owes {debt} total:\n"
+
+                for winner in winners:
+                    if debt <= 0:
+                        break
+                    if winner["net"] <= 0:
+                        continue
+
+                    payment = min(debt, winner["net"])
+                    msg += f"  → Pay {winner['name']}: {payment}\n"
+                    debt -= payment
+                    winner["net"] -= payment
+
+            # Reset for summary
+            winners = [p for p in player_nets if p["net"] > 0]
+            losers = [p for p in player_nets if p["net"] < 0]
+
+            msg += "\n📊 **Net Results:**\n"
+            for w in sorted(winners, key=lambda x: x["net"], reverse=True):
+                msg += f"  • {w['name']}: +{w['net']}\n"
+            for l in sorted(losers, key=lambda x: x["net"]):
+                msg += f"  • {l['name']}: {l['net']}\n"
+        else:
+            msg += "No settlements needed yet.\n"
+    else:
+        msg += "No completed cashouts yet.\n"
+
+    # Add comprehensive transaction history
+    msg += "\n**📜 TRANSACTION HISTORY:**\n"
+
+    # Get ALL transactions for the game, sorted by time
+    all_game_transactions = list(db.transactions.find({
+        "game_id": game_id,
+        "confirmed": True
+    }).sort("at", 1))
+
+    if all_game_transactions:
+        # Build a map of user_id to player name for quick lookup
+        player_names = {}
+        for p in all_players:
+            player_names[p.user_id] = p.name
+
+        msg += "\n"
+        for tx in all_game_transactions:
+            time_str = tx["at"].strftime("%H:%M") if "at" in tx else "??:??"
+            player_name = player_names.get(tx["user_id"], f"Unknown (ID: {tx['user_id']})")
+
+            if tx["type"] == "buyin_cash":
+                msg += f"{time_str} - {player_name}: Buy-in (💰 Cash) +{tx['amount']}\n"
+            elif tx["type"] == "buyin_register":
+                msg += f"{time_str} - {player_name}: Buy-in (💳 Credit) +{tx['amount']}\n"
+            elif tx["type"] == "cashout":
+                msg += f"{time_str} - {player_name}: Cashout {tx['amount']} chips\n"
+
+        # Summary statistics
+        msg += "\n**Transaction Summary:**\n"
+        msg += f"Total transactions: {len(all_game_transactions)}\n"
+
+        # Count by type
+        cash_buyins = sum(1 for tx in all_game_transactions if tx["type"] == "buyin_cash")
+        credit_buyins = sum(1 for tx in all_game_transactions if tx["type"] == "buyin_register")
+        cashouts = sum(1 for tx in all_game_transactions if tx["type"] == "cashout")
+
+        msg += f"  • Cash buy-ins: {cash_buyins}\n"
+        msg += f"  • Credit buy-ins: {credit_buyins}\n"
+        msg += f"  • Cashouts: {cashouts}\n"
+    else:
+        msg += "No transactions recorded yet.\n"
 
     # Send in chunks if message is too long
     if len(msg) > 4000:
