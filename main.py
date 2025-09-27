@@ -2909,58 +2909,55 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_player_ids = [p.user_id for p in players if p.active and not p.quit]
 
     all_buyins = db.transactions.find({
-            "game_id": game_id,
-            "user_id": {"$in": active_player_ids},
-            "type": {"$in": ["buyin_cash", "buyin_register"]},
-            "confirmed": True,
-            "rejected": False
-        })
+        "game_id": game_id,
+        "user_id": {"$in": active_player_ids},
+        "type": {"$in": ["buyin_cash", "buyin_register"]},
+        "confirmed": True,
+        "rejected": False
+    })
 
-        total_cash = 0
-        total_credit = 0
-        for tx in all_buyins:
-            if tx["type"] == "buyin_cash":
-                total_cash += tx["amount"]
-            elif tx["type"] == "buyin_register":
-                total_credit += tx["amount"]
+    total_cash = 0
+    total_credit = 0
+    for tx in all_buyins:
+        if tx["type"] == "buyin_cash":
+            total_cash += tx["amount"]
+        elif tx["type"] == "buyin_register":
+            total_credit += tx["amount"]
 
-        total_buyins = total_cash + total_credit
+    total_buyins = total_cash + total_credit
 
-        # Calculate total cashed out amounts
-        cashouts = db.transactions.find({
-            "game_id": game_id,
-            "type": "cashout",
-            "confirmed": True,
-            "rejected": False
-        })
-        total_cashed_out = sum(tx["amount"] for tx in cashouts)
+    # Calculate total cashed out amounts
+    cashouts = db.transactions.find({
+        "game_id": game_id,
+        "type": "cashout",
+        "confirmed": True,
+        "rejected": False
+    })
+    total_cashed_out = sum(tx["amount"] for tx in cashouts)
 
-        # Calculate settled debt amount
-        settled_debts = debt_dal.col.find({
-            "game_id": game_id,
-            "status": "settled"
-        })
-        total_debt_settled = sum(debt["amount"] for debt in settled_debts)
+    # Calculate settled debt amount
+    settled_debts = debt_dal.col.find({
+        "game_id": game_id,
+        "status": "settled"
+    })
+    total_debt_settled = sum(debt["amount"] for debt in settled_debts)
 
-        msg = f"📊 **Game Status**\n\n"
-        msg += f"Code: **{game.code}**\n"
-        msg += f"Status: {game.status}\n"
-        msg += f"Players: {active_players} active\n\n"
-        msg += f"💰 **Money Currently in Play:**\n"
-        msg += f"• Cash buy-ins: {total_cash}\n"
-        msg += f"• Credit buy-ins: {total_credit}\n"
-        msg += f"• Total in play: {total_buyins}\n\n"
-        if total_cashed_out > 0 or total_debt_settled > 0:
-            msg += f"📤 **Already Settled:**\n"
-            if total_cashed_out > 0:
-                msg += f"• Cashed out: {total_cashed_out} chips\n"
-            if total_debt_settled > 0:
-                msg += f"• Debt settled: {total_debt_settled}\n"
+    msg = f"📊 **Game Status**\n\n"
+    msg += f"Code: **{game.code}**\n"
+    msg += f"Status: {game.status}\n"
+    msg += f"Players: {active_players} active\n\n"
+    msg += f"💰 **Money Currently in Play:**\n"
+    msg += f"• Cash buy-ins: {total_cash}\n"
+    msg += f"• Credit buy-ins: {total_credit}\n"
+    msg += f"• Total in play: {total_buyins}\n\n"
+    if total_cashed_out > 0 or total_debt_settled > 0:
+        msg += f"📤 **Already Settled:**\n"
+        if total_cashed_out > 0:
+            msg += f"• Cashed out: {total_cashed_out} chips\n"
+        if total_debt_settled > 0:
+            msg += f"• Debt settled: {total_debt_settled}\n"
 
-        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
-    else:
-        # Regular player status
-        await status(update, context)
+    await update.message.reply_text(msg, reply_markup=get_host_menu(game_id), parse_mode="Markdown")
 
 # -------- Inline approvals --------
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
