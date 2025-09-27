@@ -72,3 +72,21 @@ class DebtDAL:
             {"$set": {"status": "settled"}}
         )
         return result.modified_count > 0
+
+    def get_game_debt_summary(self, game_id: str) -> dict:
+        """Get a summary of all debts in a game"""
+        pipeline = [
+            {"$match": {"game_id": game_id}},
+            {"$group": {
+                "_id": "$status",
+                "total_amount": {"$sum": "$amount"},
+                "count": {"$sum": 1}
+            }}
+        ]
+        results = list(self.col.aggregate(pipeline))
+
+        summary = {"pending": 0, "assigned": 0, "settled": 0}
+        for result in results:
+            summary[result["_id"]] = result["total_amount"]
+
+        return summary
