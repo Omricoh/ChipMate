@@ -2126,7 +2126,7 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_list_all_games(update, context)
     elif "Expire Old Games" in text:
         return await admin_expire_games(update, context)
-    elif "Game Report OLD" in text:
+    elif "📊 Game Report" in text or "Game Report" in text:
         return await admin_game_report_ask(update, context)
     elif "Find Game" in text:
         return await admin_find_game(update, context)

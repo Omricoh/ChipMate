@@ -174,29 +174,7 @@ class TestConversationFlows:
         args = self.mock_message.reply_text.call_args[0][0]
         assert "valid number" in args
 
-    @pytest.mark.asyncio
-    async def test_chips_update_conversation(self):
-        """Test chips update conversation flow"""
-        from main import chips_start, chips_amount
-
-        # Mock active player
-        self.mock_db.players.find_one.return_value = {
-            "game_id": "game123",
-            "user_id": 12345,
-            "active": True,
-            "quit": False
-        }
-
-        # Step 1: Start chips update
-        await chips_start(self.mock_update, self.mock_context)
-
-        # Step 2: Enter chip amount
-        self.mock_message.text = "175"
-
-        await chips_amount(self.mock_update, self.mock_context)
-
-        # Verify player chips updated
-        self.mock_db.players.update_one.assert_called_once()
+    # Chips functionality has been removed - test removed
 
     @pytest.mark.asyncio
     async def test_quit_conversation(self):
@@ -336,13 +314,13 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_action_without_active_game(self):
         """Test actions when user has no active game"""
-        from main import buyin_start, cashout_start, chips_start, quit_start
+        from main import buyin_start, cashout_start, quit_start
 
         # Mock no active player
         self.mock_db.players.find_one.return_value = None
 
         # Test each action
-        actions = [buyin_start, cashout_start, chips_start, quit_start]
+        actions = [buyin_start, cashout_start, quit_start]
 
         for action in actions:
             self.mock_message.reply_text.reset_mock()

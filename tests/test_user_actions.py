@@ -281,25 +281,7 @@ class TestUserActions:
         args = self.mock_message.reply_text.call_args[0]
         assert "cashout" in args[0].lower() or "amount" in args[0].lower()
 
-    @pytest.mark.asyncio
-    async def test_chips_start(self):
-        """Test chips update flow start"""
-        from main import chips_start
-
-        # Mock active player
-        self.mock_db.players.find_one.return_value = {
-            "game_id": "game123",
-            "user_id": 12345,
-            "active": True,
-            "quit": False
-        }
-
-        await chips_start(self.mock_update, self.mock_context)
-
-        # Verify chips prompt
-        self.mock_message.reply_text.assert_called_once()
-        args = self.mock_message.reply_text.call_args[0]
-        assert "chips" in args[0].lower()
+    # Chips functionality has been removed - test removed
 
     @pytest.mark.asyncio
     async def test_quit_start(self):
