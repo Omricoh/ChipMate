@@ -65,7 +65,7 @@ PLAYER_MENU = ReplyKeyboardMarkup(
 
 HOST_MENU = ReplyKeyboardMarkup(
     [
-        ["👤 Player List", "🔚 End Game"],
+        ["👤 Player List", "➕ Add Player", "🔚 End Game"],
         ["💰 Host Buy-in", "💸 Host Cashout"],
         ["⚖️ Settle", "📈 View Settlement"],
         ["📊 Status", "📋 Game Report"],
@@ -91,7 +91,8 @@ ASK_QUIT_CONFIRM = range(1)
 ASK_END_GAME_CONFIRM = range(1)
 ASK_HOST_BUYIN_PLAYER, ASK_HOST_BUYIN_TYPE, ASK_HOST_BUYIN_AMOUNT = range(3)
 ASK_HOST_CASHOUT_PLAYER, ASK_HOST_CASHOUT_AMOUNT = range(2)
-ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME = range(4)
+ASK_PLAYER_NAME, ASK_PLAYER_ID = range(2)
+ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME, CONFIRM_DESTROY_GAME = range(5)
 
 # -------- Helpers --------
 def get_active_game(user_id: int):
@@ -967,6 +968,105 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
 
 
+# -------- Host Add Player conversation --------
+async def add_player_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Host can manually add a player to the game"""
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+
+    if not pdoc or not pdoc.get("is_host"):
+        await update.message.reply_text("⚠️ Only hosts can add players.")
+        return ConversationHandler.END
+
+    game_id = pdoc["game_id"]
+    game = game_dal.get_game(game_id)
+
+    await update.message.reply_text(
+        f"Adding player to game {game.code}\n\n"
+        f"Enter the player's name:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    context.user_data["game_id"] = game_id
+    context.user_data["game_code"] = game.code
+    return ASK_PLAYER_NAME
+
+
+async def add_player_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get the player's name"""
+    player_name = update.message.text.strip()
+
+    if not player_name:
+        await update.message.reply_text("Please enter a valid name:")
+        return ASK_PLAYER_NAME
+
+    context.user_data["new_player_name"] = player_name
+
+    await update.message.reply_text(
+        f"Enter the Telegram User ID for {player_name}:\n\n"
+        f"(The player can get this by sending /start to the bot)"
+    )
+    return ASK_PLAYER_ID
+
+
+async def add_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get the player's Telegram ID and add them to the game"""
+    try:
+        user_id = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Please enter a valid numeric User ID:")
+        return ASK_PLAYER_ID
+
+    game_id = context.user_data["game_id"]
+    game_code = context.user_data["game_code"]
+    player_name = context.user_data["new_player_name"]
+
+    # Check if player is already in a game
+    existing = player_dal.get_active(user_id)
+    if existing:
+        await update.message.reply_text(
+            f"⚠️ This user is already in an active game!",
+            reply_markup=HOST_MENU
+        )
+        return ConversationHandler.END
+
+    # Add the player
+    new_player = Player(
+        game_id=game_id,
+        user_id=user_id,
+        name=player_name,
+        is_host=False
+    )
+    player_dal.add_player(new_player)
+
+    # Update game's player list
+    db.games.update_one(
+        {"_id": ObjectId(game_id)},
+        {"$addToSet": {"players": user_id}}
+    )
+
+    # Try to notify the player
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ You've been added to game {game_code} by the host!\n\n"
+                 f"You can now use the player menu to manage buy-ins and cashouts.",
+            reply_markup=PLAYER_MENU
+        )
+        notification = "✅ Player notified"
+    except:
+        notification = "⚠️ Could not notify player (they may need to /start the bot first)"
+
+    await update.message.reply_text(
+        f"✅ Player added successfully!\n\n"
+        f"Name: {player_name}\n"
+        f"User ID: {user_id}\n"
+        f"Game: {game_code}\n\n"
+        f"{notification}",
+        reply_markup=HOST_MENU
+    )
+    return ConversationHandler.END
+
+
 # -------- Host Buy-in conversation --------
 async def host_buyin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Host can buy-in for any player"""
@@ -1085,7 +1185,7 @@ async def host_buyin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ["👤 View Players", "💰 Add Buy-in"],
                 ["💸 Add Cashout", "📊 Game Status"],
                 ["⚖️ Settle Game", "🔚 End Game"],
-                ["🔙 Back to Games List"]
+                ["💣 Destroy Game", "🔙 Back to Games List"]
             ],
             resize_keyboard=True
         )
@@ -1274,7 +1374,7 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
                 ["👤 View Players", "💰 Add Buy-in"],
                 ["💸 Add Cashout", "📊 Game Status"],
                 ["⚖️ Settle Game", "🔚 End Game"],
-                ["🔙 Back to Games List"]
+                ["💣 Destroy Game", "🔙 Back to Games List"]
             ],
             resize_keyboard=True
         )
@@ -1797,8 +1897,35 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
             except:
                 pass
 
-        await update.message.reply_text(f"✅ Game {code} has been ended.", reply_markup=ADMIN_MENU)
-        return ADMIN_MODE
+        await update.message.reply_text(f"✅ Game {code} has been ended.")
+        return ADMIN_MANAGE_GAME
+
+    elif "Destroy Game" in text:
+        # Confirm destruction
+        buttons = [["✅ Yes, DESTROY", "❌ Cancel"]]
+        markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+
+        # Count data that will be deleted
+        player_count = db.players.count_documents({"game_id": game_id})
+        tx_count = db.transactions.count_documents({"game_id": game_id})
+
+        await update.message.reply_text(
+            f"⚠️ **DESTRUCTIVE ACTION**\n\n"
+            f"This will PERMANENTLY DELETE:\n"
+            f"• Game {code}\n"
+            f"• {player_count} player records\n"
+            f"• {tx_count} transactions\n\n"
+            f"This action CANNOT be undone!\n\n"
+            f"Are you absolutely sure?",
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+        context.user_data["destroy_game_id"] = game_id
+        context.user_data["destroy_game_code"] = code
+        return CONFIRM_DESTROY_GAME
+
+    elif "Back to Games List" in text:
+        return await admin_manage_games(update, context)
 
     else:
         await update.message.reply_text("Unknown action.")
@@ -1845,6 +1972,50 @@ async def admin_cashout_for_player(update: Update, context: ContextTypes.DEFAULT
     await update.message.reply_text("Select player to add cashout:", reply_markup=markup)
     context.user_data["admin_action"] = "cashout"
     return ASK_HOST_CASHOUT_PLAYER
+
+async def confirm_destroy_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle confirmation of game destruction"""
+    text = update.message.text
+
+    if "Yes, DESTROY" in text:
+        game_id = context.user_data.get("destroy_game_id")
+        code = context.user_data.get("destroy_game_code")
+
+        if not game_id:
+            await update.message.reply_text("Error: Game ID not found.", reply_markup=ADMIN_MENU)
+            return ADMIN_MODE
+
+        # Delete all related data
+        deleted_players = db.players.delete_many({"game_id": game_id})
+        deleted_txs = db.transactions.delete_many({"game_id": game_id})
+        deleted_game = db.games.delete_one({"_id": ObjectId(game_id)})
+
+        msg = f"💣 **GAME DESTROYED**\n\n"
+        msg += f"Game {code} has been completely deleted:\n"
+        msg += f"• {deleted_players.deleted_count} player records deleted\n"
+        msg += f"• {deleted_txs.deleted_count} transactions deleted\n"
+        msg += f"• {deleted_game.deleted_count} game record deleted\n\n"
+        msg += "All data has been permanently removed."
+
+        await update.message.reply_text(msg, reply_markup=ADMIN_MENU, parse_mode="Markdown")
+        return ADMIN_MODE
+    else:
+        # Cancelled
+        code = context.user_data.get("destroy_game_code", "")
+        await update.message.reply_text(f"❌ Destruction cancelled. Game {code} remains intact.")
+
+        ADMIN_GAME_MENU = ReplyKeyboardMarkup(
+            [
+                ["👤 View Players", "💰 Add Buy-in"],
+                ["💸 Add Cashout", "📊 Game Status"],
+                ["⚖️ Settle Game", "🔚 End Game"],
+                ["💣 Destroy Game", "🔙 Back to Games List"]
+            ],
+            resize_keyboard=True
+        )
+
+        return ADMIN_MANAGE_GAME
+
 
 async def admin_settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     """Admin settles the game"""
@@ -2193,7 +2364,8 @@ def main():
             ADMIN_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_mode_handler)],
             ASK_GAME_CODE_REPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_game_report)],
             ADMIN_SELECT_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_select_game)],
-            ADMIN_MANAGE_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_game_handler)]
+            ADMIN_MANAGE_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_game_handler)],
+            CONFIRM_DESTROY_GAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_destroy_game)]
         },
         fallbacks=[MessageHandler(filters.Regex("^🚪 Exit Admin$"), admin_exit)]
     ))
@@ -2225,6 +2397,15 @@ def main():
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔚 End Game$"), end_game_start)],
         states={ASK_END_GAME_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, end_game_confirm)]},
+        fallbacks=[]
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^➕ Add Player$"), add_player_start)],
+        states={
+            ASK_PLAYER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_player_name)],
+            ASK_PLAYER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_player_id)]
+        },
         fallbacks=[]
     ))
 

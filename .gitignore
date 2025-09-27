@@ -2,3 +2,4 @@
 /src/dal/__pycache__
 /src/dal/__pycache__
 *.pyc
+/src/models/__pycache__
