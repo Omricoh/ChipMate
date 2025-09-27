@@ -1936,6 +1936,16 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
     elif "Back to Games List" in text:
         return await admin_manage_games(update, context)
 
+    # Check if this is a host menu button while in admin game management mode
+    elif text == "📋 Game Report":
+        # User pressed Game Report from host menu - handle it
+        await host_game_report(update, context)
+        return ConversationHandler.END  # Exit admin mode
+    elif text in ["👤 Player List", "⚖️ Settle", "📈 View Settlement", "📊 Status",
+                   "💰 Host Buy-in", "💸 Host Cashout", "➕ Add Player", "🔚 End Game", "❓ Help"]:
+        # Other host menu buttons - exit admin mode to handle them normally
+        return ConversationHandler.END
+
     else:
         await update.message.reply_text("Unknown action.")
         return ADMIN_MANAGE_GAME
@@ -2099,6 +2109,17 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle admin menu selections"""
     text = update.message.text
 
+    # Check if this is a host menu button while in admin mode
+    if text == "📋 Game Report":
+        # User pressed Game Report from host menu - handle it
+        await host_game_report(update, context)
+        return ConversationHandler.END  # Exit admin mode to normal host mode
+    elif text in ["👤 Player List", "⚖️ Settle", "📈 View Settlement", "📊 Status",
+                   "💰 Host Buy-in", "💸 Host Cashout", "➕ Add Player", "🔚 End Game", "❓ Help"]:
+        # Other host menu buttons - exit admin mode to handle them normally
+        return ConversationHandler.END
+
+    # Admin menu options
     if "Manage Active Games" in text:
         return await admin_manage_games(update, context)
     elif "List All Games" in text:
