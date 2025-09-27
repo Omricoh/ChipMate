@@ -2,6 +2,7 @@ import os, logging, asyncio, re, io
 from datetime import datetime, timedelta, timezone
 from pymongo import MongoClient
 from bson import ObjectId
+
 import qrcode
 from PIL import Image
 
@@ -305,20 +306,20 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Send game creation message with QR code
         caption = (
-            f"🎮 **Game Created Successfully!**\n\n"
-            f"🔑 **Game Code:** `{game.code}`\n"
-            f"👑 **Host:** {host.first_name}\n\n"
-            f"📱 **Ways to Join:**\n"
+            f"🎮 <b>Game Created Successfully!</b>\n\n"
+            f"🔑 <b>Game Code:</b> <code>{game.code}</code>\n"
+            f"👑 <b>Host:</b> {host.first_name}\n\n"
+            f"📱 <b>Ways to Join:</b>\n"
             f"1. Scan this QR code\n"
-            f"2. Use command: `/join {game.code}`\n"
-            f"3. Click: {join_url}\n\n"
+            f"2. Use command: <code>/join {game.code}</code>\n"
+            f"3. Use link below\n\n"
             f"🎯 Share this QR code with players to join instantly!"
         )
 
         await update.message.reply_photo(
             photo=qr_image,
             caption=caption,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=get_host_menu(gid)
         )
     except Exception as e:
@@ -889,22 +890,22 @@ async def share_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         active_players = [p for p in players if p.active and not p.quit]
 
         caption = (
-            f"📱 **Share this QR Code to invite players!**\n\n"
-            f"🎮 **Game:** `{game.code}`\n"
-            f"👑 **Host:** {user.first_name}\n"
-            f"👥 **Players:** {len(active_players)} active\n"
-            f"📅 **Status:** {game.status}\n\n"
-            f"**How to join:**\n"
+            f"📱 <b>Share this QR Code to invite players!</b>\n\n"
+            f"🎮 <b>Game:</b> <code>{game.code}</code>\n"
+            f"👑 <b>Host:</b> {user.first_name}\n"
+            f"👥 <b>Players:</b> {len(active_players)} active\n"
+            f"📅 <b>Status:</b> {game.status}\n\n"
+            f"<b>How to join:</b>\n"
             f"1. 📱 Scan this QR code\n"
-            f"2. 💬 Send: `/join {game.code}`\n"
-            f"3. 🔗 Click: {join_url}\n\n"
+            f"2. 💬 Send: <code>/join {game.code}</code>\n"
+            f"3. 🔗 Use link below\n\n"
             f"🎯 Forward this message to invite others!"
         )
 
         await update.message.reply_photo(
             photo=qr_image,
             caption=caption,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=get_host_menu(game_id)
         )
 
@@ -2971,8 +2972,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Mark player as cashed out
             from datetime import datetime
-            if is_former_host_cashout:
-                # Former host stays active in the game as regular player
+            if is_former_host_cashout or was_host:
+                # Former host or current host stays active in the game as regular player
                 db.players.update_one(
                     {"game_id": game_id, "user_id": user_id},
                     {"$set": {
@@ -2995,9 +2996,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
 
-            # Handle host succession for non-former-host cashouts
+            # Handle host succession - hosts now stay in game but need new host assigned
             new_host_assigned = False
-            if was_host and not is_former_host_cashout:
+            if was_host:
                 # Auto-assign new host if needed
                 remaining_players = player_dal.get_players(game_id)
                 active_remaining = [p for p in remaining_players if p.active and not p.quit and not p.cashed_out]
@@ -3038,12 +3039,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 cashout_msg += f"💵 Cash to pay: {final_cash}\n"
 
-            if is_former_host_cashout:
-                cashout_msg += f"\n👤 {player_name} (former host) remains in the game as a regular player."
+            if is_former_host_cashout or was_host:
+                cashout_msg += f"\n👤 {player_name} (host/former host) remains in the game as a regular player."
             else:
                 cashout_msg += f"\n🚪 {player_name} has been removed from the game."
 
-            if was_host and new_host_assigned and not is_former_host_cashout:
+            if was_host and new_host_assigned:
                 cashout_msg += f"\n🎩 New host assigned automatically."
 
             await query.edit_message_text(cashout_msg)
@@ -3063,7 +3064,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 player_notification += f"💵 Cash you receive: {final_cash}\n"
 
-            if is_former_host_cashout:
+            if is_former_host_cashout or was_host:
                 player_notification += "\n👤 You remain in the game as a regular player."
             else:
                 player_notification += "\nYou have been removed from the game. Thank you for playing!"
