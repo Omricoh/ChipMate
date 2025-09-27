@@ -1167,7 +1167,7 @@ async def add_player_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Name: {player_name}\n"
         f"Game: {game_code}\n\n"
         f"This player has been added manually and can be managed through host functions.",
-        reply_markup=get_host_menu(pdoc["game_id"])
+        reply_markup=get_host_menu(game_id)
     )
     return ConversationHandler.END
 
