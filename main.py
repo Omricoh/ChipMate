@@ -790,7 +790,18 @@ async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = "👥 **Players in game:**\n\n"
     for p in players:
-        status = "🚪 Quit" if p.quit else "✅ Active"
+        # Determine player status
+        if p.quit:
+            status = "🚪 Quit"
+        elif p.cashed_out:
+            if p.active:
+                status = "💰 Cashed Out (Active)"  # Former host who stayed active
+            else:
+                status = "💰 Cashed Out"
+        elif p.active:
+            status = "✅ Active"
+        else:
+            status = "⚠️ Inactive"
 
         # Calculate buyins from transactions
         transactions = db.transactions.find({
@@ -811,13 +822,22 @@ async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         total_buyins = cash_buyins + credit_buyins
 
+        # Show cashout information if player has cashed out
+        cashout_info = ""
+        if p.cashed_out and hasattr(p, 'final_chips') and p.final_chips is not None:
+            cashout_info = f"  Final chips: {p.final_chips}\n"
+
         if total_buyins > 0:
             msg += f"• {p.name} ({status})\n"
             msg += f"  Cash: {cash_buyins}, Credit: {credit_buyins}\n"
-            msg += f"  Total: {total_buyins}\n\n"
+            msg += f"  Total: {total_buyins}\n"
+            msg += cashout_info
+            msg += "\n"
         else:
             msg += f"• {p.name} ({status})\n"
-            msg += f"  No buy-ins yet\n\n"
+            msg += f"  No buy-ins yet\n"
+            msg += cashout_info
+            msg += "\n"
 
     await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
@@ -1399,7 +1419,7 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
             else:
                 pending_cashouts.append({"name": p.name, "status": "Awaiting approval"})
-        elif p.active and not p.quit:
+        elif p.active and not p.quit and not p.cashed_out:
             active_no_cashout.append({"name": p.name, "status": "No cashout yet"})
 
     if cashed_out:
@@ -1681,14 +1701,14 @@ async def host_cashout_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("No players in the game.")
         return ConversationHandler.END
 
-    # Create keyboard with player names
+    # Create keyboard with player names (exclude players who have already cashed out)
     buttons = []
     for p in players:
-        if p.active and not p.quit:
+        if p.active and not p.quit and not p.cashed_out:
             buttons.append([f"{p.name} (ID: {p.user_id})"])
 
     if not buttons:
-        await update.message.reply_text("No active players.")
+        await update.message.reply_text("No active players who haven't cashed out.")
         return ConversationHandler.END
 
     buttons.append(["❌ Cancel"])
@@ -2688,11 +2708,16 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game = game_dal.get_game(game_id)
         players = player_dal.get_players(game_id)
 
+        # Count truly active players (not quit, and either not cashed out OR cashed out but still active like former hosts)
         active_players = sum(1 for p in players if p.active and not p.quit)
 
-        # Calculate total buyins from transactions
+        # Calculate total buyins from transactions - only for players still in the game
+        # (exclude completely cashed out players, but include former hosts who remain active)
+        active_player_ids = [p.user_id for p in players if p.active and not p.quit]
+
         all_buyins = db.transactions.find({
             "game_id": game_id,
+            "user_id": {"$in": active_player_ids},
             "type": {"$in": ["buyin_cash", "buyin_register"]},
             "confirmed": True,
             "rejected": False
@@ -2708,13 +2733,36 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         total_buyins = total_cash + total_credit
 
+        # Calculate total cashed out amounts
+        cashouts = db.transactions.find({
+            "game_id": game_id,
+            "type": "cashout",
+            "confirmed": True,
+            "rejected": False
+        })
+        total_cashed_out = sum(tx["amount"] for tx in cashouts)
+
+        # Calculate settled debt amount
+        settled_debts = debt_dal.col.find({
+            "game_id": game_id,
+            "status": "settled"
+        })
+        total_debt_settled = sum(debt["amount"] for debt in settled_debts)
+
         msg = f"📊 **Game Status**\n\n"
         msg += f"Code: **{game.code}**\n"
         msg += f"Status: {game.status}\n"
-        msg += f"Players: {active_players} active\n"
-        msg += f"Cash buy-ins: {total_cash}\n"
-        msg += f"Credit buy-ins: {total_credit}\n"
-        msg += f"Total in play: {total_buyins}\n"
+        msg += f"Players: {active_players} active\n\n"
+        msg += f"💰 **Money Currently in Play:**\n"
+        msg += f"• Cash buy-ins: {total_cash}\n"
+        msg += f"• Credit buy-ins: {total_credit}\n"
+        msg += f"• Total in play: {total_buyins}\n\n"
+        if total_cashed_out > 0 or total_debt_settled > 0:
+            msg += f"📤 **Already Settled:**\n"
+            if total_cashed_out > 0:
+                msg += f"• Cashed out: {total_cashed_out} chips\n"
+            if total_debt_settled > 0:
+                msg += f"• Debt settled: {total_debt_settled}\n"
 
         await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
     else:
