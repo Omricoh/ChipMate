@@ -478,8 +478,20 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Calculate this player's own outstanding debt
     player_debt_amount = sum(debt["amount"] for debt in player_debts if debt["status"] == "pending")
 
-    # Calculate available debt to transfer (from other players)
-    available_debt_transfer = sum(debt["amount"] for debt in pending_debts if debt["debtor_user_id"] != user.id)
+    # Calculate available debt to transfer (only from players who have left the game)
+    # Get all players to check their status
+    all_players = player_dal.get_players(gid)
+    inactive_player_ids = set()
+    for p in all_players:
+        # Include debts from players who have quit, cashed out, or are otherwise inactive
+        if p.quit or (p.cashed_out and not p.active):
+            inactive_player_ids.add(p.user_id)
+
+    # Only allow debt transfer from inactive players, not from active players
+    available_debt_transfer = sum(
+        debt["amount"] for debt in pending_debts
+        if debt["debtor_user_id"] != user.id and debt["debtor_user_id"] in inactive_player_ids
+    )
 
     # Calculate cash buyins for this player
     transactions = transaction_dal.col.find({
@@ -519,7 +531,7 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if remaining_after_debt > 0 and available_debt_transfer > 0:
         summary += f"\n💳 **Debt Transfer Available**\n"
-        summary += f"Other players owe: {available_debt_transfer}\n"
+        summary += f"Debts from inactive players: {available_debt_transfer}\n"
         if transfer_amount > 0:
             summary += f"Debt you'll take over: {transfer_amount}\n"
 
@@ -550,7 +562,10 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         debts_to_transfer = []
         remaining_transfer = transfer_amount
         for debt in pending_debts:
-            if debt["debtor_user_id"] != user.id and remaining_transfer > 0:
+            # Only transfer debts from inactive players
+            if (debt["debtor_user_id"] != user.id and
+                debt["debtor_user_id"] in inactive_player_ids and
+                remaining_transfer > 0):
                 debt_amount = min(debt["amount"], remaining_transfer)
                 debts_to_transfer.append({
                     "debt_id": str(debt["_id"]),
@@ -2973,9 +2988,83 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     transaction_id=tx_id
                 )
     else:
+        # Handle rejection with suggestions
         transaction_dal.update_status(ObjectId(tx_id), False, True)
-        await query.edit_message_text(f"❌ Rejected {tx['type']} {tx['amount']}")
-        await context.bot.send_message(chat_id=tx["user_id"], text=f"❌ Rejected {tx['type']} {tx['amount']}")
+        if tx["type"] == "cashout":
+            await query.edit_message_text(f"❌ Rejected cashout: {tx['amount']} chips\n💡 Alternative suggestions sent to player")
+        else:
+            await query.edit_message_text(f"❌ Rejected {tx['type']} {tx['amount']}")
+
+        # Provide helpful suggestions for rejected cashouts
+        if tx["type"] == "cashout":
+            game_id = tx["game_id"]
+            user_id = tx["user_id"]
+            chip_count = tx["amount"]
+
+            # Get player info and debt processing details
+            player = player_dal.get_player(game_id, user_id)
+            player_name = player.name if player else "Player"
+
+            # Check if this cashout had debt processing information
+            debt_processing = tx.get("debt_processing", {})
+            player_debt = debt_processing.get("player_debt_settlement", 0)
+            debt_transfers = debt_processing.get("debt_transfers", [])
+            final_cash = debt_processing.get("final_cash_amount", chip_count)
+
+            # Generate suggestions based on the cashout details
+            suggestion_msg = f"❌ **Cashout Rejected: {chip_count} chips**\n\n"
+            suggestion_msg += "💡 **Consider these alternatives:**\n\n"
+
+            suggestions = []
+
+            # Suggest different chip amount if current amount seems problematic
+            if chip_count > 200:
+                suggestions.append(f"🔢 Try a smaller amount (e.g., {chip_count // 2} chips)")
+
+            # If player has debt, suggest settling more debt first
+            if player_debt > 0:
+                suggestions.append(f"💳 Consider playing longer to settle your {player_debt} debt")
+
+            # If there were debt transfers available, explain the benefit
+            if debt_transfers:
+                total_transfer = sum(d["amount"] for d in debt_transfers)
+                suggestions.append(f"📈 With debt transfer, you'd get {final_cash} cash instead of {chip_count}")
+
+            # Check player's transaction history for better suggestions
+            player_transactions = list(db.transactions.find({
+                "game_id": game_id,
+                "user_id": user_id,
+                "confirmed": True,
+                "type": {"$in": ["buyin_cash", "buyin_register"]}
+            }))
+
+            total_buyins = sum(tx["amount"] for tx in player_transactions)
+            if total_buyins > 0:
+                # Suggest waiting if cashout is much less than buyins
+                if chip_count < total_buyins * 0.8:
+                    suggestions.append(f"🎯 Your buyins total {total_buyins} - consider playing longer")
+                # Suggest different timing
+                suggestions.append("⏰ Try cashing out at a different time")
+
+            # General suggestions
+            suggestions.append("🗣️ Talk to the host about the best cashout amount")
+            suggestions.append("♻️ You can request a new cashout anytime")
+
+            # Add suggestions to message
+            for i, suggestion in enumerate(suggestions[:4], 1):  # Limit to 4 suggestions
+                suggestion_msg += f"{i}. {suggestion}\n"
+
+            suggestion_msg += f"\n💬 **Reason**: The host felt this wasn't the right time/amount."
+            suggestion_msg += f"\n\n🔄 You can make a new cashout request anytime using 💸 Cashout."
+
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=suggestion_msg,
+                parse_mode="Markdown"
+            )
+        else:
+            # Regular rejection for non-cashout transactions
+            await context.bot.send_message(chat_id=tx["user_id"], text=f"❌ Rejected {tx['type']} {tx['amount']}")
 
 # -------- Background Tasks --------
 async def expire_games_task(context: ContextTypes.DEFAULT_TYPE):
