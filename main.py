@@ -75,7 +75,7 @@ ADMIN_MENU = ReplyKeyboardMarkup(
 
 # Conversations states
 ASK_BUYIN_TYPE, ASK_BUYIN_AMOUNT = range(2)
-ASK_CASHOUT = range(1)
+ASK_CASHOUT, ASK_NEW_HOST_SELECTION = range(2)
 ASK_QUIT_CONFIRM = range(1)
 ASK_END_GAME_CONFIRM = range(1)
 ASK_HOST_BUYIN_PLAYER, ASK_HOST_BUYIN_TYPE, ASK_HOST_BUYIN_AMOUNT = range(3)
@@ -425,6 +425,50 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pdoc = player_dal.get_active(user.id)
     gid = pdoc["game_id"]
 
+    # Check if this player is the host
+    is_host = pdoc.get("is_host", False)
+
+    # If host is cashing out, first they need to designate a new host
+    if is_host:
+        # Find other active players who can become host
+        other_players = list(db.players.find({
+            "game_id": gid,
+            "active": True,
+            "quit": False,
+            "cashed_out": False,
+            "user_id": {"$ne": user.id}  # Exclude current host
+        }))
+
+        if other_players:
+            # Store cashout data for later use
+            context.user_data["host_cashout_chip_count"] = chip_count
+
+            # Show available players to designate as new host
+            buttons = []
+            for p in other_players:
+                player_name = p["name"]
+                buttons.append([f"{player_name}"])
+
+            buttons.append(["❌ Cancel Cashout"])
+            markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
+
+            await update.message.reply_text(
+                f"🏠 **As the host, you must designate a new host before cashing out.**\n\n"
+                f"Select who will become the new host:",
+                reply_markup=markup
+            )
+            return ASK_NEW_HOST_SELECTION
+
+        else:
+            # No other players available - host cannot cash out yet
+            await update.message.reply_text(
+                f"⚠️ **Cannot cash out as host**\n\n"
+                f"You are the host and there are no other active players to take over hosting duties.\n"
+                f"Other players must join the game first, or you can end the game instead.",
+                reply_markup=get_host_menu(gid)
+            )
+            return ConversationHandler.END
+
     # Calculate cash and credit buyins from transactions
     from src.dal.transactions_dal import TransactionsDAL
     transaction_dal_temp = TransactionsDAL(db)
@@ -522,6 +566,142 @@ async def quit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=host_id, text=f"📢 {user.first_name} quit the game.")
     else:
         await update.message.reply_text("❌ Still in game.", reply_markup=PLAYER_MENU)
+    return ConversationHandler.END
+
+async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle new host selection during host cashout"""
+    text = update.message.text.strip()
+    user = update.effective_user
+
+    if "Cancel Cashout" in text:
+        pdoc = player_dal.get_active(user.id)
+        await update.message.reply_text("Cashout cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
+        return ConversationHandler.END
+
+    # Find the selected player
+    pdoc = player_dal.get_active(user.id)
+    gid = pdoc["game_id"]
+
+    selected_player = db.players.find_one({
+        "game_id": gid,
+        "name": text,
+        "active": True,
+        "quit": False,
+        "cashed_out": False
+    })
+
+    if not selected_player:
+        await update.message.reply_text("Invalid selection. Please choose a player from the list:")
+        return ASK_NEW_HOST_SELECTION
+
+    # Transfer host role
+    new_host_id = selected_player["user_id"]
+
+    # Remove host status from current host
+    db.players.update_one(
+        {"game_id": gid, "user_id": user.id},
+        {"$set": {"is_host": False}}
+    )
+
+    # Set new host
+    db.players.update_one(
+        {"game_id": gid, "user_id": new_host_id},
+        {"$set": {"is_host": True}}
+    )
+
+    # Update game host
+    db.games.update_one(
+        {"_id": ObjectId(gid)},
+        {"$set": {"host_id": new_host_id, "host_name": selected_player["name"]}}
+    )
+
+    # Now process the original cashout
+    chip_count = context.user_data["host_cashout_chip_count"]
+
+    # Calculate cash and credit buyins from transactions
+    from src.dal.transactions_dal import TransactionsDAL
+    transaction_dal_temp = TransactionsDAL(db)
+    transactions = transaction_dal_temp.col.find({
+        "game_id": gid,
+        "user_id": user.id,
+        "confirmed": True,
+        "rejected": False,
+        "type": {"$in": ["buyin_cash", "buyin_register"]}
+    })
+
+    cash_buyins = 0
+    credit_buyins = 0
+    for tx in transactions:
+        if tx["type"] == "buyin_cash":
+            cash_buyins += tx["amount"]
+        elif tx["type"] == "buyin_register":
+            credit_buyins += tx["amount"]
+
+    # Calculate net cashout
+    net_cashout = chip_count - credit_buyins
+
+    # Create summary message
+    summary = f"💸 **Cashout Summary**\n\n"
+    summary += f"Host role transferred to: {selected_player['name']}\n\n"
+    summary += f"Your chip count: {chip_count}\n"
+    summary += f"Cash buy-ins: {cash_buyins}\n"
+    summary += f"Credit buy-ins: {credit_buyins}\n\n"
+
+    if credit_buyins > 0:
+        summary += f"Credit to settle: {credit_buyins}\n"
+        summary += f"**Net cashout: {net_cashout}**\n\n"
+        if net_cashout > 0:
+            summary += f"✅ After settling {credit_buyins} credit, you'll receive {net_cashout} in cash."
+        elif net_cashout < 0:
+            summary += f"⚠️ After settling {credit_buyins} credit, you still owe {abs(net_cashout)}."
+        else:
+            summary += f"✅ Your {credit_buyins} credit debt is exactly settled. No cash exchange needed."
+    else:
+        summary += f"**Total cashout: {chip_count}**\n\n"
+        summary += f"✅ You'll receive {chip_count} in cash."
+
+    # Store the cashout transaction
+    tx = create_cashout(gid, user.id, chip_count)
+    tx_id = transaction_dal.create(tx)
+
+    await update.message.reply_text(summary, reply_markup=PLAYER_MENU, parse_mode="Markdown")
+
+    # Notify new host
+    try:
+        await context.bot.send_message(
+            chat_id=new_host_id,
+            text=f"🏠 **You are now the host!**\n\n"
+                 f"The previous host has cashed out and designated you as the new host.\n"
+                 f"You now have access to all host functions.",
+            reply_markup=get_host_menu(gid)
+        )
+    except:
+        pass  # New host might not have started bot yet
+
+    # Notify new host about cashout approval needed
+    if new_host_id:
+        host_msg = f"📢 **Cashout Request from {user.first_name} (Former Host)**\n\n"
+        host_msg += f"Chip count: {chip_count}\n"
+        host_msg += f"Credit debt: {credit_buyins}\n\n"
+
+        if net_cashout > 0:
+            host_msg += f"💵 **Pay {user.first_name}: {net_cashout} in cash**"
+        elif net_cashout < 0:
+            host_msg += f"💳 **Collect from {user.first_name}: {abs(net_cashout)} (remaining debt)**"
+        else:
+            host_msg += f"✅ **No cash exchange needed** (credit exactly settled)"
+
+        buttons = [[
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{tx_id}")
+        ]]
+        await context.bot.send_message(
+            chat_id=new_host_id,
+            text=host_msg,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="Markdown"
+        )
+
     return ConversationHandler.END
 
 # -------- Host menu functions --------
@@ -2619,7 +2799,10 @@ def main():
     ))
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💸 Cashout$"), cashout_start)],
-        states={ASK_CASHOUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, cashout_amount)]},
+        states={
+            ASK_CASHOUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, cashout_amount)],
+            ASK_NEW_HOST_SELECTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_new_host)]
+        },
         fallbacks=[]
     ))
     app.add_handler(ConversationHandler(
