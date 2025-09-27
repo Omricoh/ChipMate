@@ -91,7 +91,7 @@ ASK_QUIT_CONFIRM = range(1)
 ASK_END_GAME_CONFIRM = range(1)
 ASK_HOST_BUYIN_PLAYER, ASK_HOST_BUYIN_TYPE, ASK_HOST_BUYIN_AMOUNT = range(3)
 ASK_HOST_CASHOUT_PLAYER, ASK_HOST_CASHOUT_AMOUNT = range(2)
-ASK_PLAYER_NAME, ASK_PLAYER_ID = range(2)
+ASK_PLAYER_NAME = 0
 ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME, CONFIRM_DESTROY_GAME = range(5)
 
 # -------- Helpers --------
@@ -992,42 +992,29 @@ async def add_player_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_player_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get the player's name"""
+    """Get the player's name and add them to the game"""
+    import random
+
     player_name = update.message.text.strip()
 
     if not player_name:
         await update.message.reply_text("Please enter a valid name:")
         return ASK_PLAYER_NAME
 
-    context.user_data["new_player_name"] = player_name
-
-    await update.message.reply_text(
-        f"Enter the Telegram User ID for {player_name}:\n\n"
-        f"(The player can get this by sending /start to the bot)"
-    )
-    return ASK_PLAYER_ID
-
-
-async def add_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get the player's Telegram ID and add them to the game"""
-    try:
-        user_id = int(update.message.text.strip())
-    except ValueError:
-        await update.message.reply_text("Please enter a valid numeric User ID:")
-        return ASK_PLAYER_ID
-
     game_id = context.user_data["game_id"]
     game_code = context.user_data["game_code"]
-    player_name = context.user_data["new_player_name"]
 
-    # Check if player is already in a game
-    existing = player_dal.get_active(user_id)
-    if existing:
-        await update.message.reply_text(
-            f"⚠️ This user is already in an active game!",
-            reply_markup=HOST_MENU
-        )
-        return ConversationHandler.END
+    # Generate a unique negative user_id for manual players (negative to distinguish from real Telegram IDs)
+    # Check existing manual players to avoid collisions
+    existing_manual_ids = set()
+    for p in db.players.find({"game_id": game_id, "user_id": {"$lt": 0}}):
+        existing_manual_ids.add(p["user_id"])
+
+    # Generate unique negative ID
+    while True:
+        user_id = -random.randint(1000, 999999)
+        if user_id not in existing_manual_ids:
+            break
 
     # Add the player
     new_player = Player(
@@ -1044,24 +1031,11 @@ async def add_player_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         {"$addToSet": {"players": user_id}}
     )
 
-    # Try to notify the player
-    try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"✅ You've been added to game {game_code} by the host!\n\n"
-                 f"You can now use the player menu to manage buy-ins and cashouts.",
-            reply_markup=PLAYER_MENU
-        )
-        notification = "✅ Player notified"
-    except:
-        notification = "⚠️ Could not notify player (they may need to /start the bot first)"
-
     await update.message.reply_text(
         f"✅ Player added successfully!\n\n"
         f"Name: {player_name}\n"
-        f"User ID: {user_id}\n"
         f"Game: {game_code}\n\n"
-        f"{notification}",
+        f"This player has been added manually and can be managed through host functions.",
         reply_markup=HOST_MENU
     )
     return ConversationHandler.END
@@ -2403,8 +2377,7 @@ def main():
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Add Player$"), add_player_start)],
         states={
-            ASK_PLAYER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_player_name)],
-            ASK_PLAYER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_player_id)]
+            ASK_PLAYER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_player_name)]
         },
         fallbacks=[]
     ))
