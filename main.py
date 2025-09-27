@@ -509,6 +509,11 @@ async def quit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
+
+    if not pdoc:
+        await update.message.reply_text("⚠️ You are not in an active game.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
     if "Yes" in text:
         db.players.update_one({"game_id": pdoc["game_id"], "user_id": user.id}, {"$set": {"quit": True, "active": False}})
         await update.message.reply_text("✅ You quit the game.", reply_markup=PLAYER_MENU)
@@ -1211,7 +1216,8 @@ async def host_buyin_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if "Cancel" in text:
-        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
+        game_id = context.user_data.get("game_id")
+        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(game_id))
         return ConversationHandler.END
 
     # Extract user_id from the text
@@ -1241,7 +1247,8 @@ async def host_buyin_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if "Cancel" in text:
-        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
+        game_id = context.user_data.get("game_id")
+        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(game_id))
         return ConversationHandler.END
 
     context.user_data["buy_type"] = "cash" if "Cash" in text else "register"
@@ -1271,14 +1278,6 @@ async def host_buyin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Auto-approve since host is creating it
     transaction_dal.update_status(ObjectId(tx_id), True, False)
-
-    # Update player's buyins
-    pdoc = player_dal.get_player(game_id, player_id)
-    if pdoc:
-        if not pdoc.buyins:
-            pdoc.buyins = []
-        pdoc.buyins.append(amount)
-        player_dal.upsert(pdoc)
 
     # Check if this is admin override
     is_admin = context.user_data.get("admin_override", False)
@@ -1320,7 +1319,7 @@ async def host_buyin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Player: {player_name}\n"
             f"Type: {buy_type}\n"
             f"Amount: {amount} chips",
-            reply_markup=get_host_menu(pdoc["game_id"])
+            reply_markup=get_host_menu(game_id)
         )
 
         # Notify the player
@@ -1373,7 +1372,8 @@ async def host_cashout_player(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text
 
     if "Cancel" in text:
-        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
+        game_id = context.user_data.get("game_id")
+        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(game_id))
         return ConversationHandler.END
 
     # Extract user_id from the text
@@ -2375,7 +2375,7 @@ async def host_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game_id = pdoc["game_id"]
     game = game_dal.get_game(game_id)
     if game:
-        await show_game_report(update, context, str(game._id), game.code)
+        await show_game_report(update, context, game_id, game.code)
 
 
 async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
