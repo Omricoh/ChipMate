@@ -284,7 +284,12 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check if game has expired
     game = Game(**game_doc)
-    if (datetime.now(timezone.utc) - game.created_at) > timedelta(hours=12):
+    # Make created_at timezone-aware if it isn't already
+    created_at = game.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+
+    if (datetime.now(timezone.utc) - created_at) > timedelta(hours=12):
         await update.message.reply_text("⚠️ This game has expired (older than 12 hours).")
         return
 
@@ -1515,7 +1520,10 @@ async def admin_list_all_games(update: Update, context: ContextTypes.DEFAULT_TYP
             msg += f"  Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
             # Check if expired
-            if (datetime.now(timezone.utc) - game.created_at) > timedelta(hours=12) and game.status == "active":
+            created_at = game.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - created_at) > timedelta(hours=12) and game.status == "active":
                 msg += f"  ⚠️ Should be expired!\n"
 
             msg += "\n"
@@ -1601,7 +1609,12 @@ async def admin_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += f"Status: {game.status}\n"
     msg += f"Created: {game.created_at.strftime('%Y-%m-%d %H:%M')}\n"
 
-    duration = datetime.now(timezone.utc) - game.created_at
+    # Make created_at timezone-aware if it isn't already
+    created_at = game.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+
+    duration = datetime.now(timezone.utc) - created_at
     hours = int(duration.total_seconds() // 3600)
     minutes = int((duration.total_seconds() % 3600) // 60)
     msg += f"Duration: {hours}h {minutes}m\n\n"
