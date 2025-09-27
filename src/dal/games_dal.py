@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 from src.models.game import Game
 
+
 class GamesDAL:
     def __init__(self, db: MongoClient):
         self.col = db.games
