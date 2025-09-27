@@ -33,13 +33,11 @@ class TestUserActionValidation:
             game_id="game123",
             user_id=12345,
             name="TestUser",
-            buyins=[100, 50],
             final_chips=200,
             is_host=False
         )
         assert player.game_id == "game123"
         assert player.user_id == 12345
-        assert player.buyins == [100, 50]
         assert player.final_chips == 200
         assert not player.is_host
 
