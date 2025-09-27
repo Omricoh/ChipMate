@@ -1293,7 +1293,7 @@ async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """View current settlement status"""
+    """View current settlement status including debt information"""
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
     if not pdoc or not pdoc.get("is_host"):
@@ -1301,16 +1301,79 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     game_id = pdoc["game_id"]
-    players = player_dal.get_players(game_id)
 
-    # Check who has cashed out
+    # Get ALL players (including cashed out ones for debt history)
+    all_players = player_dal.get_players(game_id)
+
+    # Get all debts in the game
+    all_debts = list(debt_dal.col.find({"game_id": game_id}))
+
+    # Organize debt information
+    pending_debts = [d for d in all_debts if d["status"] == "pending"]
+    assigned_debts = [d for d in all_debts if d["status"] == "assigned"]
+    settled_debts = [d for d in all_debts if d["status"] == "settled"]
+
+    msg = "📈 **Settlement & Debt Status**\n\n"
+
+    # Show debt summary
+    total_pending = sum(d["amount"] for d in pending_debts)
+    total_assigned = sum(d["amount"] for d in assigned_debts)
+    total_settled = sum(d["amount"] for d in settled_debts)
+
+    if total_pending > 0 or total_assigned > 0 or total_settled > 0:
+        msg += "💳 **Debt Summary:**\n"
+        if total_pending > 0:
+            msg += f"• Pending (unassigned): {total_pending}\n"
+        if total_assigned > 0:
+            msg += f"• Assigned to players: {total_assigned}\n"
+        if total_settled > 0:
+            msg += f"• Settled: {total_settled}\n"
+        msg += f"• Total debt created: {total_pending + total_assigned + total_settled}\n\n"
+
+    # Show current debt assignments (who owes whom)
+    if assigned_debts:
+        msg += "📋 **Current Debt Assignments:**\n"
+        # Group by creditor
+        debts_by_creditor = {}
+        for debt in assigned_debts:
+            creditor_id = debt["creditor_user_id"]
+            if creditor_id not in debts_by_creditor:
+                debts_by_creditor[creditor_id] = {
+                    "creditor_name": debt["creditor_name"],
+                    "debtors": []
+                }
+            debts_by_creditor[creditor_id]["debtors"].append({
+                "name": debt["debtor_name"],
+                "amount": debt["amount"]
+            })
+
+        for creditor_info in debts_by_creditor.values():
+            total_owed = sum(d["amount"] for d in creditor_info["debtors"])
+            msg += f"• {creditor_info['creditor_name']} is owed {total_owed}:\n"
+            for debtor in creditor_info["debtors"]:
+                msg += f"  - {debtor['name']}: {debtor['amount']}\n"
+        msg += "\n"
+
+    # Show settled debt history
+    if settled_debts:
+        msg += "✅ **Debt Settlement History:**\n"
+        debt_settlements = {}
+        for debt in settled_debts:
+            debtor_name = debt["debtor_name"]
+            if debtor_name not in debt_settlements:
+                debt_settlements[debtor_name] = 0
+            debt_settlements[debtor_name] += debt["amount"]
+
+        for debtor_name, total_settled in debt_settlements.items():
+            msg += f"• {debtor_name}: {total_settled} settled\n"
+        msg += "\n"
+
+    # Show cashout status
     cashed_out = []
-    pending = []
+    pending_cashouts = []
+    active_no_cashout = []
 
-    for p in players:
-        if p.quit or not p.active:
-            continue
-
+    for p in all_players:
         cashout = db.transactions.find_one({
             "game_id": game_id,
             "user_id": p.user_id,
@@ -1320,37 +1383,56 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if cashout:
             if cashout.get("confirmed"):
-                cashed_out.append({"name": p.name, "chips": cashout["amount"]})
-            else:
-                pending.append({"name": p.name, "status": "Awaiting approval"})
-        else:
-            pending.append({"name": p.name, "status": "No cashout yet"})
+                # Get debt processing info if available
+                debt_processing = cashout.get("debt_processing", {})
+                debt_settled = debt_processing.get("player_debt_settlement", 0)
+                debt_transferred = sum(t["amount"] for t in debt_processing.get("debt_transfers", []))
+                final_cash = debt_processing.get("final_cash_amount", cashout["amount"])
 
-    msg = "📈 **Settlement Status**\n\n"
+                cashed_out.append({
+                    "name": p.name,
+                    "chips": cashout["amount"],
+                    "debt_settled": debt_settled,
+                    "debt_transferred": debt_transferred,
+                    "cash_received": final_cash,
+                    "status": "Cashed out" if not p.active else "Cashed out (still active)"
+                })
+            else:
+                pending_cashouts.append({"name": p.name, "status": "Awaiting approval"})
+        elif p.active and not p.quit:
+            active_no_cashout.append({"name": p.name, "status": "No cashout yet"})
 
     if cashed_out:
-        msg += "✅ **Cashed out:**\n"
+        msg += "💰 **Completed Cashouts:**\n"
         for co in cashed_out:
-            msg += f"• {co['name']}: {co['chips']} chips\n"
+            msg += f"• {co['name']}: {co['chips']} chips"
+            if co['debt_settled'] > 0:
+                msg += f" (settled {co['debt_settled']} debt)"
+            if co['debt_transferred'] > 0:
+                msg += f" (took {co['debt_transferred']} debt)"
+            msg += f" → {co['cash_received']} cash\n"
+            msg += f"  Status: {co['status']}\n"
         msg += "\n"
 
-    if pending:
-        msg += "⏳ **Pending:**\n"
-        for p in pending:
+    if pending_cashouts:
+        msg += "⏳ **Pending Cashouts:**\n"
+        for p in pending_cashouts:
             msg += f"• {p['name']}: {p['status']}\n"
         msg += "\n"
 
-    if not pending and cashed_out:
-        msg += "💡 All players have cashed out!\n"
-        msg += "Showing final settlement...\n\n"
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        await show_final_settlement(update, context, game_id)
-    elif not pending and not cashed_out:
-        msg += "No active players in the game."
-        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
-    else:
+    if active_no_cashout:
+        msg += "🎯 **Active Players (No Cashout):**\n"
+        for p in active_no_cashout:
+            msg += f"• {p['name']}: {p['status']}\n"
+        msg += "\n"
+
+    if not pending_cashouts and not active_no_cashout and cashed_out:
+        msg += "🎉 All players have completed cashouts!\n"
+        msg += "💡 Use '📋 Game Report' for detailed final settlement.\n"
+    elif active_no_cashout or pending_cashouts:
         msg += "💡 Use '⚖️ Settle' to request cashouts from remaining players."
-        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
+
+    await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
 
 # -------- Host Add Player conversation --------
