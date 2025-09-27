@@ -63,17 +63,6 @@ PLAYER_MENU = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
-HOST_MENU = ReplyKeyboardMarkup(
-    [
-        ["👤 Player List", "➕ Add Player", "🔚 End Game"],
-        ["💰 Host Buy-in", "💸 Host Cashout"],
-        ["⚖️ Settle", "📈 View Settlement"],
-        ["📊 Status", "📋 Game Report"],
-        ["❓ Help"]
-    ],
-    resize_keyboard=True,
-)
-
 ADMIN_MENU = ReplyKeyboardMarkup(
     [
         ["🎮 Manage Active Games", "📋 List All Games"],
@@ -101,6 +90,33 @@ def get_active_game(user_id: int):
 def get_host_id(game_id: str):
     g = db.games.find_one({"_id": ObjectId(game_id)})
     return g.get("host_id") if g else None
+
+def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
+    """Generate host menu dynamically based on game state"""
+    # Check if all active players have cashed out
+    active_player_count = db.players.count_documents({
+        "game_id": game_id,
+        "active": True,
+        "cashed_out": False,
+        "quit": False
+    })
+
+    has_active_players = active_player_count > 0
+
+    # Build menu rows
+    menu_rows = [
+        ["👤 Player List", "➕ Add Player"],
+        ["💰 Host Buy-in", "💸 Host Cashout"],
+        ["⚖️ Settle", "📈 View Settlement"],
+        ["📊 Status", "📋 Game Report"],
+        ["❓ Help"]
+    ]
+
+    # Only add End Game if no active players left (all cashed out)
+    if not has_active_players:
+        menu_rows[0].append("🔚 End Game")
+
+    return ReplyKeyboardMarkup(menu_rows, resize_keyboard=True)
 
 # -------- Commands --------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,7 +146,7 @@ async def mygame(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     is_host = pdoc.get("is_host", False)
-    menu = HOST_MENU if is_host else PLAYER_MENU
+    menu = get_host_menu(pdoc["game_id"]) if is_host else PLAYER_MENU
 
     msg = f"🎮 **Your Current Game**\n\n"
     msg += f"Code: **{game.code}**\n"
@@ -159,6 +175,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     is_host = pdoc.get("is_host", False)
+    game_id = pdoc.get("game_id")
 
     if is_host:
         # Host help
@@ -171,12 +188,12 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `💸 Host Cashout` - Add cashout for any player\n\n"
             "**Game Control:**\n"
             "• `⚖️ Settle` - Calculate final settlements\n"
-            "• `🔚 End Game` - End the game permanently\n"
+            "• `🔚 End Game` - End the game permanently (appears when all players cashed out)\n"
             "• `📊 Status` - View comprehensive game status\n\n"
             "**Commands:**\n"
             "• `status` - Quick status check\n"
             "• `mygame` - Game overview",
-            reply_markup=HOST_MENU,
+            reply_markup=get_host_menu(game_id),
             parse_mode="Markdown"
         )
     else:
@@ -233,7 +250,7 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gid = game_dal.create(game)
     host_player.game_id = gid
     player_dal.upsert(host_player)
-    await update.message.reply_text(f"🎮 Game created with code {game.code}", reply_markup=HOST_MENU)
+    await update.message.reply_text(f"🎮 Game created with code {game.code}", reply_markup=get_host_menu(gid))
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -254,7 +271,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             # Show their current game menu based on role
             if existing.get("is_host"):
-                await update.message.reply_text("Returning to your host menu...", reply_markup=HOST_MENU)
+                await update.message.reply_text("Returning to your host menu...", reply_markup=get_host_menu(pdoc["game_id"]))
             else:
                 await update.message.reply_text("Returning to your player menu...", reply_markup=PLAYER_MENU)
             return
@@ -277,7 +294,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id == game.host_id:
         await update.message.reply_text(
             f"✅ Welcome back to your game, {user.first_name}!",
-            reply_markup=HOST_MENU
+            reply_markup=get_host_menu(pdoc["game_id"])
         )
         # Make sure they're marked as active
         player_dal.col.update_one(
@@ -322,7 +339,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Show appropriate menu based on role
     is_host = pdoc.get("is_host", False)
-    menu = HOST_MENU if is_host else PLAYER_MENU
+    menu = get_host_menu(pdoc["game_id"]) if is_host else PLAYER_MENU
 
     # Calculate cash and credit buyins separately from transactions
     cash_buyins = 0
@@ -543,7 +560,7 @@ async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"• {p.name} ({status})\n"
             msg += f"  No buy-ins yet\n\n"
 
-    await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
 async def end_game_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start end game process"""
@@ -626,13 +643,13 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += "All players have already cashed out.\n"
             msg += "Showing final settlement...\n"
 
-        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
         # If everyone has cashed out, show settlement immediately
         if not active_players:
             await show_final_settlement(update, context, game_id)
     else:
-        await update.message.reply_text("❌ Game continues.", reply_markup=HOST_MENU)
+        await update.message.reply_text("❌ Game continues.", reply_markup=get_host_menu(pdoc["game_id"]))
 
     return ConversationHandler.END
 
@@ -709,7 +726,7 @@ async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     host_msg += "\n💡 Once all players submit cashouts, the final settlement will be calculated."
 
-    await update.message.reply_text(host_msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+    await update.message.reply_text(host_msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
 
 async def show_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id, code):
@@ -904,7 +921,7 @@ async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TY
             debt -= payment
             winner["net"] -= payment
 
-    await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
 
 async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -962,10 +979,10 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_final_settlement(update, context, game_id)
     elif not pending and not cashed_out:
         msg += "No active players in the game."
-        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
     else:
         msg += "💡 Use '⚖️ Settle' to request cashouts from remaining players."
-        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
 
 # -------- Host Add Player conversation --------
@@ -1036,7 +1053,7 @@ async def add_player_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Name: {player_name}\n"
         f"Game: {game_code}\n\n"
         f"This player has been added manually and can be managed through host functions.",
-        reply_markup=HOST_MENU
+        reply_markup=get_host_menu(pdoc["game_id"])
     )
     return ConversationHandler.END
 
@@ -1080,7 +1097,7 @@ async def host_buyin_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if "Cancel" in text:
-        await update.message.reply_text("Cancelled.", reply_markup=HOST_MENU)
+        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
         return ConversationHandler.END
 
     # Extract user_id from the text
@@ -1110,7 +1127,7 @@ async def host_buyin_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if "Cancel" in text:
-        await update.message.reply_text("Cancelled.", reply_markup=HOST_MENU)
+        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
         return ConversationHandler.END
 
     context.user_data["buy_type"] = "cash" if "Cash" in text else "register"
@@ -1189,7 +1206,7 @@ async def host_buyin_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Player: {player_name}\n"
             f"Type: {buy_type}\n"
             f"Amount: {amount} chips",
-            reply_markup=HOST_MENU
+            reply_markup=get_host_menu(pdoc["game_id"])
         )
 
         # Notify the player
@@ -1242,7 +1259,7 @@ async def host_cashout_player(update: Update, context: ContextTypes.DEFAULT_TYPE
     text = update.message.text
 
     if "Cancel" in text:
-        await update.message.reply_text("Cancelled.", reply_markup=HOST_MENU)
+        await update.message.reply_text("Cancelled.", reply_markup=get_host_menu(pdoc["game_id"]))
         return ConversationHandler.END
 
     # Extract user_id from the text
@@ -1382,7 +1399,7 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(
             summary,
-            reply_markup=HOST_MENU,
+            reply_markup=get_host_menu(pdoc["game_id"]),
             parse_mode="Markdown"
         )
 
@@ -2141,7 +2158,7 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"Credit buy-ins: {total_credit}\n"
         msg += f"Total in play: {total_buyins}\n"
 
-        await update.message.reply_text(msg, reply_markup=HOST_MENU, parse_mode="Markdown")
+        await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
     else:
         # Regular player status
         await status(update, context)
@@ -2232,7 +2249,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                  f"• Settling the game\n"
                                  f"• Managing buy-ins/cashouts\n"
                                  f"• Ending the game",
-                            reply_markup=HOST_MENU
+                            reply_markup=get_host_menu(pdoc["game_id"])
                         )
                     except:
                         pass
