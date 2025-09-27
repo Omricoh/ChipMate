@@ -4,3 +4,8 @@
 *.pyc
 /src/models/__pycache__
 *.pyc
+src/models/__pycache__/player.cpython-39.pyc
+src/models/__pycache__/game.cpython-39.pyc
+src/dal/__pycache__/transactions_dal.cpython-39.pyc
+src/dal/__pycache__/players_dal.cpython-39.pyc
+src/dal/__pycache__/games_dal.cpython-39.pyc

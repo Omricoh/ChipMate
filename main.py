@@ -920,12 +920,23 @@ async def share_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def player_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show list of players in the game"""
     user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
-    if not pdoc or not pdoc.get("is_host"):
-        await update.message.reply_text("⚠️ Only hosts can view player list.")
-        return
 
-    game_id = pdoc["game_id"]
+    # Check if user is admin (either in admin mode or temporarily exited admin mode)
+    is_admin = context.user_data.get("admin_auth", False) or context.user_data.get("admin_temp_exit", False)
+
+    if is_admin and context.user_data.get("game_id"):
+        # Admin access - use game_id from context
+        game_id = context.user_data["game_id"]
+        # Clear temp exit flag since we're handling the function now
+        if context.user_data.get("admin_temp_exit"):
+            context.user_data.pop("admin_temp_exit", None)
+    else:
+        # Regular host access
+        pdoc = player_dal.get_active(user.id)
+        if not pdoc or not pdoc.get("is_host"):
+            await update.message.reply_text("⚠️ Only hosts can view player list.")
+            return
+        game_id = pdoc["game_id"]
     players = player_dal.get_players(game_id)
     if not players:
         await update.message.reply_text("No players in the game yet.")
@@ -1078,12 +1089,23 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def settle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Initiate settlement - request cashout from all players"""
     user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
-    if not pdoc or not pdoc.get("is_host"):
-        await update.message.reply_text("⚠️ Only hosts can settle the game.")
-        return
 
-    game_id = pdoc["game_id"]
+    # Check if user is admin (either in admin mode or temporarily exited admin mode)
+    is_admin = context.user_data.get("admin_auth", False) or context.user_data.get("admin_temp_exit", False)
+
+    if is_admin and context.user_data.get("game_id"):
+        # Admin access - use game_id from context
+        game_id = context.user_data["game_id"]
+        # Clear temp exit flag since we're handling the function now
+        if context.user_data.get("admin_temp_exit"):
+            context.user_data.pop("admin_temp_exit", None)
+    else:
+        # Regular host access
+        pdoc = player_dal.get_active(user.id)
+        if not pdoc or not pdoc.get("is_host"):
+            await update.message.reply_text("⚠️ Only hosts can settle the game.")
+            return
+        game_id = pdoc["game_id"]
     players = player_dal.get_players(game_id)
 
     # Get active players who haven't cashed out yet
@@ -1458,12 +1480,23 @@ async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TY
 async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """View current settlement status including debt information"""
     user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
-    if not pdoc or not pdoc.get("is_host"):
-        await update.message.reply_text("⚠️ Only hosts can view settlement.")
-        return
 
-    game_id = pdoc["game_id"]
+    # Check if user is admin (either in admin mode or temporarily exited admin mode)
+    is_admin = context.user_data.get("admin_auth", False) or context.user_data.get("admin_temp_exit", False)
+
+    if is_admin and context.user_data.get("game_id"):
+        # Admin access - use game_id from context
+        game_id = context.user_data["game_id"]
+        # Clear temp exit flag since we're handling the function now
+        if context.user_data.get("admin_temp_exit"):
+            context.user_data.pop("admin_temp_exit", None)
+    else:
+        # Regular host access
+        pdoc = player_dal.get_active(user.id)
+        if not pdoc or not pdoc.get("is_host"):
+            await update.message.reply_text("⚠️ Only hosts can view settlement.")
+            return
+        game_id = pdoc["game_id"]
 
     # Get ALL players (including cashed out ones for debt history)
     all_players = player_dal.get_players(game_id)
@@ -2582,7 +2615,9 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
         return ConversationHandler.END  # Exit admin mode
     elif text in ["👤 Player List", "⚖️ Settle", "📈 View Settlement", "📊 Status",
                    "💰 Host Buy-in", "💸 Host Cashout", "➕ Add Player", "🔚 End Game", "❓ Help"]:
-        # Other host menu buttons - exit admin mode to handle them normally
+        # Other host menu buttons - keep admin context and exit admin mode to handle them normally
+        # Keep admin_auth and game_id in context for the host menu functions
+        context.user_data["admin_temp_exit"] = True
         return ConversationHandler.END
 
     else:
@@ -2803,7 +2838,8 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END  # Exit admin mode to normal host mode
     elif text in ["👤 Player List", "⚖️ Settle", "📈 View Settlement", "📊 Status",
                    "💰 Host Buy-in", "💸 Host Cashout", "➕ Add Player", "🔚 End Game", "❓ Help"]:
-        # Other host menu buttons - exit admin mode to handle them normally
+        # Other host menu buttons - keep admin context and exit admin mode to handle them normally
+        context.user_data["admin_temp_exit"] = True
         return ConversationHandler.END
 
     # Admin menu options
@@ -2844,21 +2880,35 @@ async def host_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show comprehensive game status for hosts"""
     user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
 
-    if pdoc and pdoc.get("is_host"):
+    # Check if user is admin (either in admin mode or temporarily exited admin mode)
+    is_admin = context.user_data.get("admin_auth", False) or context.user_data.get("admin_temp_exit", False)
+
+    if is_admin and context.user_data.get("game_id"):
+        # Admin access - use game_id from context
+        game_id = context.user_data["game_id"]
+        # Clear temp exit flag since we're handling the function now
+        if context.user_data.get("admin_temp_exit"):
+            context.user_data.pop("admin_temp_exit", None)
+    else:
+        # Regular host access
+        pdoc = player_dal.get_active(user.id)
+        if not pdoc or not pdoc.get("is_host"):
+            await update.message.reply_text("⚠️ Only hosts can view status.")
+            return
         game_id = pdoc["game_id"]
-        game = game_dal.get_game(game_id)
-        players = player_dal.get_players(game_id)
 
-        # Count truly active players (not quit, and either not cashed out OR cashed out but still active like former hosts)
-        active_players = sum(1 for p in players if p.active and not p.quit)
+    game = game_dal.get_game(game_id)
+    players = player_dal.get_players(game_id)
 
-        # Calculate total buyins from transactions - only for players still in the game
-        # (exclude completely cashed out players, but include former hosts who remain active)
-        active_player_ids = [p.user_id for p in players if p.active and not p.quit]
+    # Count truly active players (not quit, and either not cashed out OR cashed out but still active like former hosts)
+    active_players = sum(1 for p in players if p.active and not p.quit)
 
-        all_buyins = db.transactions.find({
+    # Calculate total buyins from transactions - only for players still in the game
+    # (exclude completely cashed out players, but include former hosts who remain active)
+    active_player_ids = [p.user_id for p in players if p.active and not p.quit]
+
+    all_buyins = db.transactions.find({
             "game_id": game_id,
             "user_id": {"$in": active_player_ids},
             "type": {"$in": ["buyin_cash", "buyin_register"]},
