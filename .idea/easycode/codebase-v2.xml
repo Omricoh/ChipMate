@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="com.obiscr.chatgpt.settings.EasyCodeState">
-    <option name="projectFiles" value="$PROJECT_DIR$/src/bl/game_bl.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/bl/player_bl.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/bl/transaction_bl.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/dal/games_dal.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/dal/players_dal.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/dal/transactions_dal.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/models/game.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/models/player.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/src/models/transaction.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/tests/test_game_flow.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/tests/test_game_id.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/tests/test_game_model.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/tests/test_player_model.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/tests/test_transaction_model.py;C:/Users/omric/OneDrive/Documents/GitHub/ChipMate/main.py" />
-  </component>
-</project>
