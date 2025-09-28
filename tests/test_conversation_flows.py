@@ -40,7 +40,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_buyin_conversation_cash(self):
         """Test complete cash buyin conversation flow"""
-        from main import buyin_start, buyin_type, buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_start, buyin_type, buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -71,7 +71,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_buyin_conversation_credit(self):
         """Test complete credit buyin conversation flow"""
-        from main import buyin_type, buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_type, buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -100,7 +100,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_buyin_invalid_amount(self):
         """Test buyin with invalid amount"""
-        from main import buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -124,7 +124,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_cashout_conversation(self):
         """Test complete cashout conversation flow"""
-        from main import cashout_start, cashout_amount
+        from src.ui.handlers.conversation_handlers import cashout_start, cashout_amount
 
         # Mock active player with chips
         self.mock_db.players.find_one.return_value = {
@@ -153,7 +153,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_cashout_invalid_amount(self):
         """Test cashout with invalid amount"""
-        from main import cashout_amount
+        from src.ui.handlers.conversation_handlers import cashout_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -179,7 +179,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_quit_conversation(self):
         """Test quit game conversation flow"""
-        from main import quit_start, quit_confirm
+        from src.ui.handlers.conversation_handlers import quit_start, quit_confirm
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -204,7 +204,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_quit_cancel(self):
         """Test canceling quit"""
-        from main import quit_confirm
+        from src.ui.handlers.conversation_handlers import quit_confirm
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -226,7 +226,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_host_buyin_conversation(self):
         """Test host buyin for other players conversation"""
-        from main import host_buyin_start, host_buyin_player, host_buyin_type, host_buyin_amount
+        from src.ui.handlers.conversation_handlers import host_buyin_start, host_buyin_player, host_buyin_type, host_buyin_amount
 
         # Mock host player
         self.mock_db.players.find_one.return_value = {
@@ -270,7 +270,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_admin_login_conversation(self):
         """Test admin login conversation"""
-        from main import admin_text_login
+        from src.ui.handlers.conversation_handlers import admin_text_login
 
         # Set admin user
         os.environ["ADMIN_USERS"] = "99999"
