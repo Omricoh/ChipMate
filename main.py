@@ -1963,14 +1963,14 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Auto-approve since host is creating it
     transaction_dal.update_status(ObjectId(tx_id), True, False)
 
-    # Mark the player as cashed out instead of removing
+    # Mark the player as cashed out but keep them active in the game
     from datetime import datetime
     db.players.update_one(
         {"game_id": game_id, "user_id": player_id},
         {"$set": {
             "cashed_out": True,
             "cashout_time": datetime.now(timezone.utc),
-            "active": False,
+            "active": True,  # Keep player active so they remain in game with debt
             "final_chips": chip_count
         }}
     )
@@ -1997,7 +1997,11 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         summary += f"**Total cashout: {chip_count}**\n"
         summary += f"💵 Pay {player_name}: **{chip_count} in cash**"
 
-    summary += f"\n\n🚪 {player_name} has been removed from the game."
+    # Add debt status to message if player has remaining debt
+    if net_cashout < 0:
+        summary += f"\n\n💳 {player_name} remains in the game with outstanding debt of {abs(net_cashout)}."
+    else:
+        summary += f"\n\n✅ {player_name} has fully settled and may continue playing."
 
     if is_admin:
         # Return to admin game management menu
@@ -2025,7 +2029,12 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
             player_msg += f"Net amount: {net_cashout}"
         else:
             player_msg += f"Cash amount: {chip_count}"
-        player_msg += f"\n\nYou have been removed from the game. Thank you for playing!"
+
+        # Add debt status to player notification
+        if net_cashout < 0:
+            player_msg += f"\n\n💳 Outstanding debt: {abs(net_cashout)}. You remain in the game and will need to settle this debt."
+        else:
+            player_msg += f"\n\n✅ You have fully settled and may continue playing!"
 
         try:
             await context.bot.send_message(
@@ -2052,7 +2061,12 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
             player_msg += f"Net amount: {net_cashout}"
         else:
             player_msg += f"Cash amount: {chip_count}"
-        player_msg += f"\n\nYou have been removed from the game. Thank you for playing!"
+
+        # Add debt status to player notification
+        if net_cashout < 0:
+            player_msg += f"\n\n💳 Outstanding debt: {abs(net_cashout)}. You remain in the game and will need to settle this debt."
+        else:
+            player_msg += f"\n\n✅ You have fully settled and may continue playing!"
 
         try:
             await context.bot.send_message(
@@ -3032,13 +3046,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
             else:
-                # Regular player - deactivate normally
+                # Regular player - keep active in game with debt if applicable
                 db.players.update_one(
                     {"game_id": game_id, "user_id": user_id},
                     {"$set": {
                         "cashed_out": True,
                         "cashout_time": datetime.now(timezone.utc),
-                        "active": False,
+                        "active": True,  # Keep active so they remain in game with debt
                         "final_chips": chip_count
                     }}
                 )
@@ -3114,7 +3128,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_former_host_cashout or was_host:
                 player_notification += "\n👤 You remain in the game as a regular player."
             else:
-                player_notification += "\nYou have been removed from the game. Thank you for playing!"
+                # Check if player has remaining debt - they should stay in game if so
+                remaining_debt = abs(final_cash) if final_cash < 0 else 0
+                if remaining_debt > 0:
+                    player_notification += f"\n💳 Outstanding debt: {remaining_debt}. You remain in the game and will need to settle this debt."
+                else:
+                    player_notification += "\n✅ You have fully settled and may continue playing!"
 
             await context.bot.send_message(chat_id=user_id, text=player_notification)
 

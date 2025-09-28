@@ -9,6 +9,9 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from src.ui.menus.menu_builder import MenuBuilder
 from src.ui.formatters.message_formatter import MessageFormatter
 
+# Version info
+CHIPMATE_VERSION = "2.0.1-beta"
+
 logger = logging.getLogger("chipbot")
 
 # Database connection for standalone functions
@@ -391,7 +394,9 @@ class CommandHandlers:
         if self.admin_service.authenticate_admin(username, password):
             context.user_data["admin_auth"] = True
             await update.message.reply_text(
-                "✅ **Admin Access Granted**\n\nWelcome to admin panel!",
+                f"✅ **Admin Access Granted**\n\n"
+                f"Welcome to ChipMate Admin Panel!\n"
+                f"Version: `{CHIPMATE_VERSION}`",
                 reply_markup=MenuBuilder.get_admin_menu(),
                 parse_mode="Markdown"
             )
@@ -407,7 +412,9 @@ class CommandHandlers:
             if self.admin_service.authenticate_admin(username, password):
                 context.user_data["admin_auth"] = True
                 await update.message.reply_text(
-                    "✅ **Admin Access Granted**\n\nWelcome to admin panel!",
+                    f"✅ **Admin Access Granted**\n\n"
+                    f"Welcome to ChipMate Admin Panel!\n"
+                    f"Version: `{CHIPMATE_VERSION}`",
                     reply_markup=MenuBuilder.get_admin_menu(),
                     parse_mode="Markdown"
                 )
