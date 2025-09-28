@@ -277,6 +277,48 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def admin_system_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show system statistics and version info"""
+    from src.ui.handlers.command_handlers import CHIPMATE_VERSION
+
+    # Get system statistics
+    total_games = db.games.count_documents({})
+    active_games = db.games.count_documents({"status": "active"})
+    total_players = db.players.count_documents({})
+    active_players = db.players.count_documents({"active": True, "quit": False})
+    total_transactions = db.transactions.count_documents({})
+    total_debts = db.debts.count_documents({}) if hasattr(db, 'debts') else 0
+
+    # Calculate some basic stats
+    avg_players_per_game = round(total_players / max(total_games, 1), 1)
+    avg_transactions_per_game = round(total_transactions / max(total_games, 1), 1)
+
+    stats_msg = f"📈 **ChipMate System Statistics**\n\n"
+    stats_msg += f"**Version:** `{CHIPMATE_VERSION}`\n\n"
+    stats_msg += f"**Games:**\n"
+    stats_msg += f"• Total Games: {total_games}\n"
+    stats_msg += f"• Active Games: {active_games}\n"
+    stats_msg += f"• Avg Players/Game: {avg_players_per_game}\n\n"
+    stats_msg += f"**Players:**\n"
+    stats_msg += f"• Total Players: {total_players}\n"
+    stats_msg += f"• Currently Active: {active_players}\n\n"
+    stats_msg += f"**Transactions:**\n"
+    stats_msg += f"• Total Transactions: {total_transactions}\n"
+    stats_msg += f"• Avg per Game: {avg_transactions_per_game}\n\n"
+    if total_debts > 0:
+        stats_msg += f"**Debts:**\n"
+        stats_msg += f"• Total Debt Records: {total_debts}\n\n"
+    stats_msg += f"**Database Collections:**\n"
+    stats_msg += f"• Games, Players, Transactions"
+    if total_debts > 0:
+        stats_msg += f", Debts"
+
+    await update.message.reply_text(
+        stats_msg,
+        reply_markup=ADMIN_MENU,
+        parse_mode="Markdown"
+    )
+
 async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     host = update.effective_user
 
@@ -2113,10 +2155,14 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["admin_user"] = username
     context.user_data["admin_pass"] = password
 
+    from src.ui.handlers.command_handlers import CHIPMATE_VERSION
+
     await update.message.reply_text(
-        "🔐 **Admin Mode Activated**\n\n"
-        "Select an option from the menu:",
-        reply_markup=ADMIN_MENU
+        f"🔐 **Admin Mode Activated**\n\n"
+        f"ChipMate Version: `{CHIPMATE_VERSION}`\n\n"
+        f"Select an option from the menu:",
+        reply_markup=ADMIN_MENU,
+        parse_mode="Markdown"
     )
     return ADMIN_MODE
 
@@ -2867,6 +2913,9 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_game_report_ask(update, context)
     elif "Find Game" in text:
         return await admin_find_game(update, context)
+    elif "System Stats" in text:
+        await admin_system_stats(update, context)
+        return ADMIN_MODE
     elif "Help" in text:
         await admin_help(update, context)
         return ADMIN_MODE
