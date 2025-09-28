@@ -7,7 +7,8 @@ def test_player_defaults():
     assert player.quit is False
     assert player.is_host is False
     assert player.active is True
-    assert player.buyins == []
+    assert player.cashed_out is False
+    assert player.cashout_time is None
 
 def test_player_host_flag():
     host = Player(game_id="game123", user_id=1, name="Alice", is_host=True)
