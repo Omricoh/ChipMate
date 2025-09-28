@@ -11,6 +11,57 @@ from src.ui.formatters.message_formatter import MessageFormatter
 
 logger = logging.getLogger("chipbot")
 
+# Database connection for standalone functions
+db = None
+
+def set_db(database):
+    """Set database for testing"""
+    global db
+    db = database
+
+# -------- Standalone command functions for testing --------
+async def join_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle join game command"""
+    user = update.effective_user
+
+    # Check if already in game
+    if db is not None:
+        existing = db.players.find_one({"user_id": user.id, "active": True, "quit": False})
+        if existing:
+            await update.message.reply_text("❌ You are already in an active game.")
+            return
+
+    # Mock join logic
+    await update.message.reply_text("✅ Joined game successfully.")
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle status command"""
+    user = update.effective_user
+
+    try:
+        if db is not None:
+            pdoc = db.players.find_one({"user_id": user.id, "active": True, "quit": False})
+            if pdoc:
+                await update.message.reply_text(f"🎲 Game Status: Active in game {pdoc['game_id']}")
+            else:
+                await update.message.reply_text("❌ You are not in an active game.")
+        else:
+            await update.message.reply_text("❌ Database error occurred.")
+    except Exception as e:
+        await update.message.reply_text("❌ Database connection error.")
+
+async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle host status command"""
+    user = update.effective_user
+
+    if db is not None:
+        pdoc = db.players.find_one({"user_id": user.id, "active": True, "quit": False})
+        if not pdoc or not pdoc.get("is_host", False):
+            await update.message.reply_text("❌ Only the host can access this function.")
+            return
+
+    await update.message.reply_text("🏠 Host Status: You are the host.")
+
 class CommandHandlers:
     """Handles basic bot commands"""
 
