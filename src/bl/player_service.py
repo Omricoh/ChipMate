@@ -26,8 +26,14 @@ class PlayerService:
         self.transactions_dal = TransactionsDAL(self.db)
 
     def get_active_player(self, user_id: int) -> Optional[dict]:
-        """Get active player by user ID"""
-        return self.players_dal.get_active(user_id)
+        """Get active player by user ID - only returns player if game is still active"""
+        player = self.players_dal.get_active(user_id)
+        if player:
+            # Check if the game is still active
+            game = self.games_dal.get_game(player["game_id"])
+            if game and game.status == "active":
+                return player
+        return None
 
     def get_player(self, game_id: str, user_id: int) -> Optional[Player]:
         """Get specific player in game"""

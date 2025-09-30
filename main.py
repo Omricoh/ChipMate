@@ -118,6 +118,15 @@ ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME, CONFIRM_
 def get_active_game(user_id: int):
     return player_dal.get_active(user_id)
 
+def get_active_game_only_if_game_active(user_id: int):
+    """Get active player only if their game is still active"""
+    player = player_dal.get_active(user_id)
+    if player:
+        game = game_dal.get_game(player["game_id"])
+        if game and game.status == "active":
+            return player
+    return None
+
 def get_host_id(game_id: str):
     g = db.games.find_one({"_id": ObjectId(game_id)})
     return g.get("host_id") if g else None
@@ -338,7 +347,7 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     host = update.effective_user
 
     # Check if user is already in an active game
-    existing = player_dal.get_active(host.id)
+    existing = get_active_game_only_if_game_active(host.id)
     if existing:
         existing_game = game_dal.get_game(existing["game_id"])
         if existing_game:
@@ -395,7 +404,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     # Check if user is already in an active game
-    existing = player_dal.get_active(user.id)
+    existing = get_active_game_only_if_game_active(user.id)
     if existing:
         existing_game = game_dal.get_game(existing["game_id"])
         if existing_game:
