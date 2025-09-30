@@ -122,8 +122,23 @@ def get_host_id(game_id: str):
     g = db.games.find_one({"_id": ObjectId(game_id)})
     return g.get("host_id") if g else None
 
+def is_game_ended(game_id: str) -> bool:
+    """Check if game is ended"""
+    game = db.games.find_one({"_id": ObjectId(game_id)})
+    return game and game.get("status") == "ended"
+
 def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
     """Generate host menu dynamically based on game state"""
+    # Check game status first
+    game = db.games.find_one({"_id": ObjectId(game_id)})
+    if game and game.get("status") == "ended":
+        # Game is ended - show limited menu
+        menu_rows = [
+            ["📈 View Settlement", "📋 Game Report"],
+            ["📊 Status", "❓ Help"]
+        ]
+        return ReplyKeyboardMarkup(menu_rows, resize_keyboard=True)
+
     # Check if all active players have cashed out
     active_player_count = db.players.count_documents({
         "game_id": game_id,
@@ -134,7 +149,7 @@ def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
 
     has_active_players = active_player_count > 0
 
-    # Build menu rows
+    # Build menu rows for active game
     menu_rows = [
         ["👤 Player List", "➕ Add Player"],
         ["💰 Host Buy-in", "💸 Host Cashout"],
@@ -489,14 +504,29 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = f"📊 **Your Game Status**\n\n"
     msg += f"Game Code: **{game.code}**\n"
+    msg += f"Game Status: {'🔚 Ended' if game.status == 'ended' else '🎮 Active'}\n"
     msg += f"Cash Buy-ins: {cash_buyins}\n"
     msg += f"Credit Buy-ins: {credit_buyins}\n"
-    msg += f"Status: {'🚪 Quit' if pdoc.get('quit') else '✅ Active'}"
+    msg += f"Player Status: {'🚪 Quit' if pdoc.get('quit') else '✅ Active'}"
+
+    if game.status == "ended":
+        msg += f"\n\n⚠️ **This game has been ended by the host.**\nNo new transactions can be processed."
 
     await update.message.reply_text(msg, reply_markup=menu, parse_mode="Markdown")
 
 # -------- Buy-in conversation --------
 async def buyin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check if user's game is ended
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if pdoc and is_game_ended(pdoc["game_id"]):
+        await update.message.reply_text(
+            "🔚 **Game Has Ended**\n\n"
+            "This game has been ended by the host. No new buy-ins can be processed.",
+            reply_markup=ReplyKeyboardMarkup([["📊 Status"]], resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
     buttons = [["💰 Cash", "💳 Register"]]
     markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text("How do you want to buy in?", reply_markup=markup)
@@ -544,6 +574,16 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
     gid = pdoc["game_id"]
+
+    # Check if game is ended
+    if is_game_ended(gid):
+        await update.message.reply_text(
+            "🔚 **Game Has Ended**\n\n"
+            "This game has been ended by the host. No new transactions can be processed.\n"
+            "Check with the host for final settlement.",
+            reply_markup=ReplyKeyboardMarkup([["📊 Status"]], resize_keyboard=True)
+        )
+        return ConversationHandler.END
 
     # Check if this player is the host
     is_host = pdoc.get("is_host", False)
