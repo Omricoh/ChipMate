@@ -87,7 +87,14 @@ class GameService:
         """End a game"""
         try:
             self.games_dal.update_status(game_id, "ended")
-            logger.info(f"Game {game_id} ended")
+
+            # Exit all players from the game
+            result = self.players_dal.col.update_many(
+                {"game_id": game_id},
+                {"$set": {"active": False, "game_exited": True}}
+            )
+
+            logger.info(f"Game {game_id} ended, {result.modified_count} players exited")
             return True
         except Exception as e:
             logger.error(f"Error ending game: {e}")

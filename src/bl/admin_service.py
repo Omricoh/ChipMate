@@ -255,13 +255,19 @@ class AdminService:
             # Mark game as ended
             self.games_dal.update_status(game_id, "ended")
 
+            # Exit all players from the game
+            exit_result = self.players_dal.col.update_many(
+                {"game_id": game_id},
+                {"$set": {"active": False, "game_exited": True}}
+            )
+
             # Set ended timestamp if not already set
             self.games_dal.col.update_one(
                 {"_id": self.games_dal.col.database.ObjectId(game_id)},
                 {"$set": {"ended_at": datetime.now(timezone.utc)}}
             )
 
-            logger.info(f"Game {game_id} ended with {len(active_players)} active players")
+            logger.info(f"Game {game_id} ended with {len(active_players)} active players, {exit_result.modified_count} players exited")
 
             return {
                 "success": True,

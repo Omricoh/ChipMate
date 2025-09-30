@@ -131,6 +131,20 @@ def get_host_id(game_id: str):
     g = db.games.find_one({"_id": ObjectId(game_id)})
     return g.get("host_id") if g else None
 
+def exit_all_players_from_game(game_id: str):
+    """Exit all players from a game when it ends"""
+    try:
+        # Update all players in the game to be inactive (exited from game)
+        result = player_dal.col.update_many(
+            {"game_id": game_id},
+            {"$set": {"active": False, "game_exited": True}}
+        )
+        logger.info(f"Exited {result.modified_count} players from game {game_id}")
+        return result.modified_count
+    except Exception as e:
+        logger.error(f"Error exiting players from game {game_id}: {e}")
+        return 0
+
 def is_game_ended(game_id: str) -> bool:
     """Check if game is ended"""
     game = db.games.find_one({"_id": ObjectId(game_id)})
@@ -1154,8 +1168,31 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Update game status to ended
         game_dal.update_status(ObjectId(game_id), "ended")
 
+        # Exit all players from the game
+        exited_count = exit_all_players_from_game(game_id)
+
+        # Notify all other players that the game has ended and they've been exited
+        all_players = player_dal.get_players(game_id)
+        for p in all_players:
+            if p.user_id != user.id:  # Don't notify the host again
+                try:
+                    if p in active_players:
+                        # Already got cashout notification above
+                        continue
+                    else:
+                        # Notify exited players
+                        await context.bot.send_message(
+                            chat_id=p.user_id,
+                            text="🔚 **Game Has Ended**\n\n"
+                                 "The host has ended the game.\n"
+                                 "You have been exited from the game."
+                        )
+                except:
+                    pass
+
         # Show message to host
         msg = "🔚 **Game Ended**\n\n"
+        msg += f"All {exited_count} players have been exited from the game.\n\n"
 
         if active_players:
             msg += f"Cashout requests sent to {len(active_players)} players.\n\n"
@@ -2674,18 +2711,21 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
     elif "End Game" in text:
         game_dal.update_status(game_id, "ended")
 
+        # Exit all players from the game
+        exited_count = exit_all_players_from_game(game_id)
+
         # Notify all players
         players = player_dal.get_players(game_id)
         for p in players:
             try:
                 await context.bot.send_message(
                     chat_id=p.user_id,
-                    text=f"🔚 Game {code} has been ended by an administrator."
+                    text=f"🔚 Game {code} has been ended by an administrator. You have been exited from the game."
                 )
             except:
                 pass
 
-        await update.message.reply_text(f"✅ Game {code} has been ended.")
+        await update.message.reply_text(f"✅ Game {code} has been ended. {exited_count} players exited.")
         return ADMIN_MANAGE_GAME
 
     elif "Game Report" in text:
