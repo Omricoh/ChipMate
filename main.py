@@ -145,6 +145,123 @@ def exit_all_players_from_game(game_id: str):
         logger.error(f"Error exiting players from game {game_id}: {e}")
         return 0
 
+async def send_final_game_summaries(context, game_id: str):
+    """Send each player their final game summary with debt and cash details"""
+    try:
+        # Get game info
+        game = game_dal.get_game(game_id)
+        if not game:
+            return
+
+        # Get all players who participated in the game
+        all_players = player_dal.get_players(game_id)
+
+        for player in all_players:
+            try:
+                # Calculate player's cash buyins
+                cash_transactions = transaction_dal.col.find({
+                    "game_id": game_id,
+                    "user_id": player.user_id,
+                    "confirmed": True,
+                    "rejected": False,
+                    "type": "buyin_cash"
+                })
+                cash_buyins = sum(tx["amount"] for tx in cash_transactions)
+
+                # Calculate player's credit buyins (original debt)
+                credit_transactions = transaction_dal.col.find({
+                    "game_id": game_id,
+                    "user_id": player.user_id,
+                    "confirmed": True,
+                    "rejected": False,
+                    "type": "buyin_register"
+                })
+                credit_buyins = sum(tx["amount"] for tx in credit_transactions)
+
+                # Get approved cashouts
+                cashout_transactions = list(transaction_dal.col.find({
+                    "game_id": game_id,
+                    "user_id": player.user_id,
+                    "confirmed": True,
+                    "rejected": False,
+                    "type": "cashout"
+                }))
+
+                total_cashed_out = sum(tx["amount"] for tx in cashout_transactions)
+
+                # Calculate how much cash they should have received
+                final_cash_received = 0
+                for cashout in cashout_transactions:
+                    debt_processing = cashout.get("debt_processing", {})
+                    final_cash_received += debt_processing.get("final_cash_amount", 0)
+
+                # Get current debts this player owes
+                player_debts = debt_dal.get_player_debts(game_id, player.user_id)
+                owes_to = []
+                for debt in player_debts:
+                    if debt["status"] == "pending":
+                        if debt.get("creditor_user_id"):
+                            # Find creditor name
+                            creditor = player_dal.get_player(game_id, debt["creditor_user_id"])
+                            creditor_name = creditor.name if creditor else "Unknown Player"
+                            owes_to.append(f"{creditor_name}: {debt['amount']}")
+                        else:
+                            owes_to.append(f"Game/Bank: {debt['amount']}")
+
+                # Get debts owed to this player
+                owed_by_others = []
+                all_debts = debt_dal.get_pending_debts(game_id)
+                for debt in all_debts:
+                    if debt.get("creditor_user_id") == player.user_id:
+                        # Find debtor name
+                        debtor = player_dal.get_player(game_id, debt["debtor_user_id"])
+                        debtor_name = debtor.name if debtor else "Unknown Player"
+                        owed_by_others.append(f"{debtor_name}: {debt['amount']}")
+
+                # Create final summary message
+                msg = f"🏁 **Final Game Summary - {game.code}**\n\n"
+                msg += f"**Your Investment:**\n"
+                msg += f"• Cash buy-ins: {cash_buyins}\n"
+                msg += f"• Credit buy-ins: {credit_buyins}\n"
+                msg += f"• Total chips cashed out: {total_cashed_out}\n\n"
+
+                msg += f"**Cash Settlement:**\n"
+                msg += f"• Cash you received: {final_cash_received}\n\n"
+
+                if owes_to:
+                    msg += f"**💳 You owe:**\n"
+                    for debt in owes_to:
+                        msg += f"• {debt}\n"
+                    msg += "\n"
+
+                if owed_by_others:
+                    msg += f"**💰 Others owe you:**\n"
+                    for debt in owed_by_others:
+                        msg += f"• {debt}\n"
+                    msg += "\n"
+
+                if not owes_to and not owed_by_others:
+                    msg += f"✅ **No outstanding debts**\n\n"
+
+                msg += f"**Summary:**\n"
+                if owes_to or owed_by_others:
+                    msg += f"💡 Settle outstanding debts with other players outside the game.\n"
+                msg += f"🎮 Game {game.code} is now complete. Thanks for playing!"
+
+                # Send the summary to the player
+                await context.bot.send_message(
+                    chat_id=player.user_id,
+                    text=msg,
+                    parse_mode="Markdown"
+                )
+
+            except Exception as e:
+                logger.error(f"Error sending final summary to player {player.user_id}: {e}")
+                continue
+
+    except Exception as e:
+        logger.error(f"Error sending final game summaries for game {game_id}: {e}")
+
 def is_game_ended(game_id: str) -> bool:
     """Check if game is ended"""
     game = db.games.find_one({"_id": ObjectId(game_id)})
@@ -1182,9 +1299,11 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
-        # If everyone has cashed out, show settlement immediately
+        # If everyone has cashed out, show settlement immediately and send final summaries
         if not active_players:
             await show_final_settlement(update, context, game_id)
+            # Send final game summaries to all players
+            await send_final_game_summaries(context, game_id)
     else:
         await update.message.reply_text("❌ Game continues.", reply_markup=get_host_menu(pdoc["game_id"]))
 
@@ -2679,7 +2798,10 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
             except:
                 pass
 
-        await update.message.reply_text(f"✅ Game {code} has been ended. {exited_count} players exited.")
+        # Send final game summaries to all players
+        await send_final_game_summaries(context, game_id)
+
+        await update.message.reply_text(f"✅ Game {code} has been ended. {exited_count} players exited. Final summaries sent to all players.")
         return ADMIN_MANAGE_GAME
 
     elif "Game Report" in text:
