@@ -199,7 +199,7 @@ async def send_final_game_summaries(context, game_id: str):
                 player_debts = debt_dal.get_player_debts(game_id, player.user_id)
                 owes_to = []
                 for debt in player_debts:
-                    if debt["status"] == "pending":
+                    if debt["status"] in ["pending", "assigned"]:
                         if debt.get("creditor_user_id"):
                             # Find creditor name
                             creditor = player_dal.get_player(game_id, debt["creditor_user_id"])
@@ -210,7 +210,11 @@ async def send_final_game_summaries(context, game_id: str):
 
                 # Get debts owed to this player
                 owed_by_others = []
-                all_debts = debt_dal.get_pending_debts(game_id)
+                # Get all debts (pending and assigned)
+                all_debts = list(debt_dal.col.find({
+                    "game_id": game_id,
+                    "status": {"$in": ["pending", "assigned"]}
+                }))
                 for debt in all_debts:
                     if debt.get("creditor_user_id") == player.user_id:
                         # Find debtor name
@@ -778,8 +782,8 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player_debts = debt_dal.get_player_debts(gid, user.id)  # What this player owes
     pending_debts = debt_dal.get_pending_debts(gid)  # What others owe (available for transfer)
 
-    # Calculate this player's own outstanding debt
-    player_debt_amount = sum(debt["amount"] for debt in player_debts if debt["status"] == "pending")
+    # Calculate this player's own outstanding debt (both pending and assigned)
+    player_debt_amount = sum(debt["amount"] for debt in player_debts if debt["status"] in ["pending", "assigned"])
 
     # Calculate available debt to transfer (only from players who have left the game)
     # Get all players to check their status
@@ -3375,17 +3379,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             player_notification += f"💵 Cash you receive: {final_cash}\n"
 
             if total_debt_transferred > 0:
-                player_notification += f"💳 Debt transferred to you: {total_debt_transferred}\n\n"
-                player_notification += "📋 Players now owe you:\n"
-                for notif in transfer_notifications:
-                    player_notification += f"• {notif['debtor_name']}: {notif['amount']}\n"
+                debt_transfer_msg = message_formatter.format_debt_transfer_notification(
+                    transfer_notifications, total_debt_transferred
+                )
+                player_notification += f"\n{debt_transfer_msg}\n"
 
             if is_former_host_cashout or was_host:
                 player_notification += "\n👤 You remain in the game as a regular player."
             else:
-                # Check if player has debt - get their current debt amount
+                # Check if player has debt - get their current debt amount (both pending and assigned)
                 current_debts = debt_dal.get_player_debts(game_id, user_id)
-                current_debt = sum(debt["amount"] for debt in current_debts if debt["status"] == "pending")
+                current_debt = sum(debt["amount"] for debt in current_debts if debt["status"] in ["pending", "assigned"])
                 if current_debt > 0:
                     player_notification += f"\n💳 Outstanding debt: {current_debt}. You remain in the game and will need to settle this debt."
                 else:

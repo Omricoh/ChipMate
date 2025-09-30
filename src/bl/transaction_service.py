@@ -244,9 +244,9 @@ class TransactionService:
             credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_register")
             total_buyins = cash_buyins + credit_buyins
 
-            # Get player's debt
+            # Get player's debt (both pending and assigned debts)
             player_debts = self.debt_dal.get_player_debts(game_id, user_id)
-            pending_debt = sum(debt["amount"] for debt in player_debts if debt["status"] == "pending")
+            pending_debt = sum(debt["amount"] for debt in player_debts if debt["status"] in ["pending", "assigned"])
 
             return {
                 "cash_buyins": cash_buyins,

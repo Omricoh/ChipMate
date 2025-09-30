@@ -188,6 +188,18 @@ class MessageFormatter:
         """Format credit notification message"""
         return f"💳 {debtor_name} owes you {amount}"
 
+    def format_debt_transfer_notification(self, transfer_notifications: List[Dict], total_amount: int) -> str:
+        """Format debt transfer notification for creditor"""
+        msg = f"💳 **Debt Transfer Notice**\n\n"
+        msg += f"You have received {total_amount} in debt transfers.\n"
+        msg += f"These players now owe money to YOU (not the game):\n\n"
+
+        for notif in transfer_notifications:
+            msg += f"💰 {notif['debtor_name']} owes you: {notif['amount']}\n"
+
+        msg += f"\n💡 You should collect payment directly from these players."
+        return msg
+
     def format_settlement_data(self, settlement_data: Dict[str, Any]) -> str:
         """Format settlement data message"""
         msg = "⚖️ **Game Settlement**\n\n"
