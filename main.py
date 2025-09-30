@@ -631,8 +631,9 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         transfer_amount = 0
 
-    # STEP 3: Final cash amount
-    final_cash = remaining_after_debt - transfer_amount
+    # STEP 3: Final cash amount (debt transfer does NOT reduce cash - it's separate)
+    # Player gets their cash buy-ins back, debt transfer is a separate obligation
+    final_cash = min(remaining_after_debt, cash_buyins)
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
@@ -656,9 +657,9 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary += f"\n**Final Breakdown:**\n"
     if debt_settlement > 0:
         summary += f"• Your debt settled: {debt_settlement}\n"
-    if transfer_amount > 0:
-        summary += f"• Debt transferred to you: {transfer_amount}\n"
     summary += f"• Cash you receive: {max(0, final_cash)}\n"
+    if transfer_amount > 0:
+        summary += f"• Debt you now collect: {transfer_amount} (others owe you)\n"
 
     if final_cash < 0:
         summary += f"\n⚠️ **You still owe {abs(final_cash)} after cashout**"
@@ -1646,9 +1647,11 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"• {co['name']}: {co['chips']} chips"
             if co['debt_settled'] > 0:
                 msg += f" (settled {co['debt_settled']} debt)"
+            msg += f" → {co['cash_received']} cash"
             if co['debt_transferred'] > 0:
-                msg += f" (took {co['debt_transferred']} debt)"
-            msg += f" → {co['cash_received']} cash\n"
+                msg += f" + {co['debt_transferred']} debt collection\n"
+            else:
+                msg += f"\n"
             msg += f"  Status: {co['status']}\n"
         msg += "\n"
 
