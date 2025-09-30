@@ -488,12 +488,17 @@ async def join_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Call the regular join function
     await join(update, context)
 
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE, player_doc=None):
     user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
-    if not pdoc:
-        await update.message.reply_text("⚠️ You are not in an active game.\n\nUse /newgame to create or /join <code> to join.")
-        return
+
+    # Use provided player_doc or get active player
+    if player_doc:
+        pdoc = player_doc
+    else:
+        pdoc = player_dal.get_active(user.id)
+        if not pdoc:
+            await update.message.reply_text("⚠️ You are not in an active game.\n\nUse /newgame to create or /join <code> to join.")
+            return
 
     game = game_dal.get_game(pdoc["game_id"])
     if not game:
@@ -1603,7 +1608,7 @@ async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TY
             debt -= payment
             winner["net"] -= payment
 
-    await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=get_host_menu(game_id), parse_mode="Markdown")
 
 
 async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3032,6 +3037,45 @@ async def host_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_game_report(update, context, game_id, game.code)
 
 
+async def unified_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unified status handler that determines if user should see player or host status"""
+    user = update.effective_user
+
+    # Check if user is admin (either in admin mode or temporarily exited admin mode)
+    is_admin = context.user_data.get("admin_auth", False) or context.user_data.get("admin_temp_exit", False)
+
+    if is_admin and context.user_data.get("game_id"):
+        # Admin access - show host status for the selected game
+        return await host_status(update, context)
+
+    # Check for active player first
+    pdoc = player_dal.get_active(user.id)
+    if pdoc:
+        # Player is active in a game
+        if pdoc.get("is_host"):
+            return await host_status(update, context)
+        else:
+            return await status(update, context, pdoc)
+
+    # Check if player was in a game (including ended games)
+    # Find most recent player record
+    recent_player = db.players.find_one(
+        {"user_id": user.id},
+        sort=[("_id", -1)]  # Get most recent
+    )
+
+    if recent_player:
+        game = game_dal.get_game(recent_player["game_id"])
+        if game:
+            # Show status for their most recent game
+            if recent_player.get("is_host"):
+                return await host_status(update, context)
+            else:
+                return await status(update, context, recent_player)
+
+    # No game found
+    await update.message.reply_text("⚠️ You are not in any game.")
+
 async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show comprehensive game status for hosts"""
     user = update.effective_user
@@ -3048,9 +3092,22 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Regular host access
         pdoc = player_dal.get_active(user.id)
-        if not pdoc or not pdoc.get("is_host"):
+        if not pdoc:
+            # Check if user was a host in any recent game (including ended games)
+            recent_player = db.players.find_one(
+                {"user_id": user.id, "is_host": True},
+                sort=[("_id", -1)]  # Get most recent
+            )
+            if recent_player:
+                pdoc = recent_player
+            else:
+                await update.message.reply_text("⚠️ Only hosts can view status.")
+                return
+
+        if not pdoc.get("is_host"):
             await update.message.reply_text("⚠️ Only hosts can view status.")
             return
+
         game_id = pdoc["game_id"]
 
     game = game_dal.get_game(game_id)
@@ -3127,7 +3184,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         # Use transaction service to handle approval (includes debt creation)
         from src.bl.transaction_service import TransactionService
-        transaction_service = TransactionService()
+        transaction_service = TransactionService(MONGO_URL)
         transaction_service.approve_transaction(tx_id)
 
         # If this is a cashout, process debt settlement and transfers
@@ -3460,7 +3517,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^👤 Player List$"), player_list))
     app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
     app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), unified_status))
     app.add_handler(MessageHandler(filters.Regex("^📋 Game Report$"), host_game_report))
     app.add_handler(MessageHandler(filters.Regex("^📱 Share QR$"), share_qr))
 
