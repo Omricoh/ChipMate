@@ -166,8 +166,7 @@ class MessageFormatter:
         """Format cashout approval message for host"""
         msg = f"✅ **Approved cashout: {processing_result['chip_count']} chips**\n\n"
 
-        if processing_result["player_debt_settlement"] > 0:
-            msg += f"💳 Player's debt settled: {processing_result['player_debt_settlement']}\n"
+        # No debt settlement anymore - player keeps their debts
 
         total_debt_transferred = sum(t["amount"] for t in processing_result["debt_transfers"])
         if total_debt_transferred > 0:

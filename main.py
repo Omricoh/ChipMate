@@ -689,19 +689,12 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     })
     cash_buyins = sum(tx["amount"] for tx in transactions)
 
-    # STEP 1: First deduct player's own debt from their cashout
-    remaining_after_debt = chip_count - player_debt_amount
-    debt_settlement = min(chip_count, player_debt_amount)
+    # STEP 1: Calculate debt transfer from available chip count
+    transfer_amount = min(chip_count, available_debt_transfer)
 
-    # STEP 2: Then calculate debt transfer from remaining amount
-    if remaining_after_debt > 0:
-        transfer_amount = min(remaining_after_debt, available_debt_transfer)
-    else:
-        transfer_amount = 0
-
-    # STEP 3: Final cash amount - all cash comes from/goes to cashier
-    # Cashier pays out the full remaining amount after debt settlement
-    final_cash = remaining_after_debt
+    # STEP 2: Final cash amount - only based on cash buy-ins, not debt settlement
+    # Player keeps their debts, only gets cash for cash they put in
+    final_cash = min(chip_count, cash_buyins)
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
@@ -709,28 +702,21 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary += f"Your cash buy-ins: {cash_buyins}\n"
 
     if player_debt_amount > 0:
-        summary += f"Your outstanding debt: {player_debt_amount}\n"
-        summary += f"Debt settlement: {debt_settlement}\n"
-        if remaining_after_debt > 0:
-            summary += f"Remaining after debt: {remaining_after_debt}\n"
-        else:
-            summary += f"⚠️ Your debt exceeds your chips by {abs(remaining_after_debt)}\n"
+        summary += f"Your outstanding debt: {player_debt_amount} (remains as debt)\n"
 
-    if remaining_after_debt > 0 and available_debt_transfer > 0:
+    if available_debt_transfer > 0:
         summary += f"\n💳 **Debt Transfer Available**\n"
         summary += f"Debts from inactive players: {available_debt_transfer}\n"
         if transfer_amount > 0:
             summary += f"Debt you'll take over: {transfer_amount}\n"
 
     summary += f"\n**Final Breakdown:**\n"
-    if debt_settlement > 0:
-        summary += f"• Your debt settled: {debt_settlement}\n"
-    summary += f"• Cash you receive: {max(0, final_cash)}\n"
+    summary += f"• Cash you receive: {final_cash}\n"
     if transfer_amount > 0:
         summary += f"• Debt you now collect: {transfer_amount} (others owe you)\n"
 
-    if final_cash < 0:
-        summary += f"\n⚠️ **You still owe {abs(final_cash)} after cashout**"
+    if player_debt_amount > 0:
+        summary += f"\n💳 **Your debt of {player_debt_amount} remains unchanged**"
 
     # Store the cashout transaction with debt info
     tx = create_cashout(gid, user.id, chip_count)
@@ -738,10 +724,10 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Store debt processing information in the transaction
     debt_info = {
-        "player_debt_settlement": debt_settlement,
-        "player_debts_to_settle": [str(debt["_id"]) for debt in player_debts if debt["status"] == "pending"],
+        "player_debt_settlement": 0,  # No debt settlement anymore
+        "player_debts_to_settle": [],  # No debts are settled
         "debt_transfers": [],
-        "final_cash_amount": max(0, final_cash)
+        "final_cash_amount": final_cash
     }
 
     # Store which debts should be transferred upon approval
@@ -770,30 +756,24 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(summary, reply_markup=PLAYER_MENU, parse_mode="Markdown")
 
-    # Notify host with debt settlement and transfer details
+    # Notify host with cashout and transfer details
     host_id = get_host_id(gid)
     if host_id:
         host_msg = f"📢 **Cashout Request from {user.first_name}**\n\n"
         host_msg += f"Chip count: {chip_count}\n"
+        host_msg += f"Cash buy-ins: {cash_buyins}\n"
 
         if player_debt_amount > 0:
-            host_msg += f"Player's debt: {player_debt_amount}\n"
-            host_msg += f"Debt settlement: {debt_settlement}\n"
+            host_msg += f"Player's debt: {player_debt_amount} (remains as debt)\n"
 
         if transfer_amount > 0:
             host_msg += f"Debt transfer: {transfer_amount}\n"
 
-        host_msg += f"\n💵 **Cash to Pay: {max(0, final_cash)}**\n"
-
-        if debt_settlement > 0:
-            host_msg += f"\n📝 **Processing:**\n"
-            host_msg += f"• {user.first_name}'s debt of {debt_settlement} will be settled\n"
+        host_msg += f"\n💵 **Cash to Pay: {final_cash}**\n"
 
         if transfer_amount > 0:
+            host_msg += f"\n📝 **Processing:**\n"
             host_msg += f"• {user.first_name} will take over {transfer_amount} in debt from other players\n"
-
-        if final_cash < 0:
-            host_msg += f"\n⚠️ **Note:** {user.first_name} will still owe {abs(final_cash)} after cashout"
 
         buttons = [[
             InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
@@ -902,8 +882,8 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif tx["type"] == "buyin_register":
             credit_buyins += tx["amount"]
 
-    # Calculate net cashout
-    net_cashout = chip_count - credit_buyins
+    # Calculate cash only (no debt settlement)
+    final_cash = min(chip_count, cash_buyins)
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
@@ -912,15 +892,10 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary += f"Cash buy-ins: {cash_buyins}\n"
     summary += f"Credit buy-ins: {credit_buyins}\n\n"
 
+    summary += f"💵 **Cash you receive: {final_cash}**\n"
+
     if credit_buyins > 0:
-        summary += f"Credit to settle: {credit_buyins}\n"
-        summary += f"**Net cashout: {net_cashout}**\n\n"
-        if net_cashout > 0:
-            summary += f"✅ After settling {credit_buyins} credit, you'll receive {net_cashout} in cash."
-        elif net_cashout < 0:
-            summary += f"⚠️ After settling {credit_buyins} credit, you still owe {abs(net_cashout)}."
-        else:
-            summary += f"✅ Your {credit_buyins} credit debt is exactly settled. No cash exchange needed."
+        summary += f"💳 **Your debt of {credit_buyins} remains unchanged**\n"
     else:
         summary += f"**Total cashout: {chip_count}**\n\n"
         summary += f"✅ You'll receive {chip_count} in cash."
@@ -953,14 +928,9 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if new_host_id:
         host_msg = f"📢 **Cashout Request from {user.first_name} (Former Host)**\n\n"
         host_msg += f"Chip count: {chip_count}\n"
-        host_msg += f"Credit debt: {credit_buyins}\n\n"
-
-        if net_cashout > 0:
-            host_msg += f"💵 **Pay {user.first_name}: {net_cashout} in cash**"
-        elif net_cashout < 0:
-            host_msg += f"💳 **Collect from {user.first_name}: {abs(net_cashout)} (remaining debt)**"
-        else:
-            host_msg += f"✅ **No cash exchange needed** (credit exactly settled)"
+        host_msg += f"Cash buy-ins: {cash_buyins}\n"
+        host_msg += f"Credit debt: {credit_buyins} (remains as debt)\n\n"
+        host_msg += f"💵 **Pay {user.first_name}: {final_cash} in cash**"
 
         buttons = [[
             InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
@@ -2089,8 +2059,8 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         elif tx["type"] == "buyin_register":
             credit_buyins += tx["amount"]
 
-    # Calculate net cashout
-    net_cashout = chip_count - credit_buyins
+    # Calculate cash only (no debt settlement)
+    final_cash = min(chip_count, cash_buyins)
 
     # Create cashout transaction
     tx = create_cashout(game_id, player_id, chip_count)
@@ -2120,24 +2090,13 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     summary += f"Cash buy-ins: {cash_buyins}\n"
     summary += f"Credit buy-ins: {credit_buyins}\n\n"
 
-    if credit_buyins > 0:
-        summary += f"Credit to settle: {credit_buyins}\n"
-        summary += f"**Net cashout: {net_cashout}**\n\n"
-        if net_cashout > 0:
-            summary += f"💵 Pay {player_name}: **{net_cashout} in cash**"
-        elif net_cashout < 0:
-            summary += f"💳 Collect from {player_name}: **{abs(net_cashout)}** (remaining debt)"
-        else:
-            summary += f"✅ No cash exchange needed (credit exactly settled)"
-    else:
-        summary += f"**Total cashout: {chip_count}**\n"
-        summary += f"💵 Pay {player_name}: **{chip_count} in cash**"
+    summary += f"💵 Pay {player_name}: **{final_cash} in cash**\n"
 
-    # Add debt status to message if player has remaining debt
-    if net_cashout < 0:
-        summary += f"\n\n💳 {player_name} remains in the game with outstanding debt of {abs(net_cashout)}."
+    if credit_buyins > 0:
+        summary += f"💳 {player_name}'s debt of {credit_buyins} remains unchanged.\n"
+        summary += f"\n💳 {player_name} remains in the game with outstanding debt of {credit_buyins}."
     else:
-        summary += f"\n\n✅ {player_name} has fully settled and may continue playing."
+        summary += f"\n✅ {player_name} has fully cashed out and may continue playing."
 
     if is_admin:
         # Return to admin game management menu
@@ -2160,17 +2119,12 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Notify the player with their summary
         player_msg = f"✅ Administrator recorded your cashout:\n\n"
         player_msg += f"Chips: {chip_count}\n"
-        if credit_buyins > 0:
-            player_msg += f"Credit settled: {credit_buyins}\n"
-            player_msg += f"Net amount: {net_cashout}"
-        else:
-            player_msg += f"Cash amount: {chip_count}"
+        player_msg += f"Cash amount: {final_cash}\n"
 
-        # Add debt status to player notification
-        if net_cashout < 0:
-            player_msg += f"\n\n💳 Outstanding debt: {abs(net_cashout)}. You remain in the game and will need to settle this debt."
+        if credit_buyins > 0:
+            player_msg += f"\n💳 Outstanding debt: {credit_buyins} (unchanged). You remain in the game and will need to settle this debt."
         else:
-            player_msg += f"\n\n✅ You have fully settled and may continue playing!"
+            player_msg += f"\n✅ You have fully cashed out and may continue playing!"
 
         try:
             await context.bot.send_message(
@@ -2192,17 +2146,12 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Notify the player with their summary
         player_msg = f"✅ Host recorded your cashout:\n\n"
         player_msg += f"Chips: {chip_count}\n"
-        if credit_buyins > 0:
-            player_msg += f"Credit settled: {credit_buyins}\n"
-            player_msg += f"Net amount: {net_cashout}"
-        else:
-            player_msg += f"Cash amount: {chip_count}"
+        player_msg += f"Cash amount: {final_cash}\n"
 
-        # Add debt status to player notification
-        if net_cashout < 0:
-            player_msg += f"\n\n💳 Outstanding debt: {abs(net_cashout)}. You remain in the game and will need to settle this debt."
+        if credit_buyins > 0:
+            player_msg += f"\n💳 Outstanding debt: {credit_buyins} (unchanged). You remain in the game and will need to settle this debt."
         else:
-            player_msg += f"\n\n✅ You have fully settled and may continue playing!"
+            player_msg += f"\n✅ You have fully cashed out and may continue playing!"
 
         try:
             await context.bot.send_message(
@@ -3201,19 +3150,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Get debt processing information
             debt_processing = tx.get("debt_processing", {})
-            debt_settlement = debt_processing.get("player_debt_settlement", 0)
-            debts_to_settle = debt_processing.get("player_debts_to_settle", [])
             debt_transfers = debt_processing.get("debt_transfers", [])
             final_cash = debt_processing.get("final_cash_amount", chip_count)
 
-            # STEP 1: Settle player's own debts
-            debt_settlement_notifications = []
-            for debt_id in debts_to_settle:
-                success = debt_dal.settle_debt(debt_id)
-                if success:
-                    debt_settlement_notifications.append(debt_id)
-
-            # STEP 2: Process debt transfers
+            # STEP 1: Process debt transfers (no debt settlement anymore)
             total_debt_transferred = 0
             transfer_notifications = []
 
@@ -3288,13 +3228,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Create approval message
             cashout_msg = f"✅ Approved cashout: {chip_count} chips\n"
-
-            if debt_settlement > 0:
-                cashout_msg += f"💳 Player's debt settled: {debt_settlement}\n"
+            cashout_msg += f"💵 Cash paid: {final_cash}\n"
 
             if total_debt_transferred > 0:
-                cashout_msg += f"💳 Debt transferred to player: {total_debt_transferred}\n"
-                cashout_msg += f"💵 Cash to pay: {final_cash}\n\n"
+                cashout_msg += f"💳 Debt transferred to player: {total_debt_transferred}\n\n"
                 cashout_msg += f"Debts transferred to {player_name}:\n"
                 for notif in transfer_notifications:
                     cashout_msg += f"• {notif['debtor_name']}: {notif['amount']}\n"
@@ -3313,28 +3250,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Notify the cashing out player
             player_notification = f"✅ Cashout approved: {chip_count} chips\n"
-
-            if debt_settlement > 0:
-                player_notification += f"💳 Your debt settled: {debt_settlement}\n"
+            player_notification += f"💵 Cash you receive: {final_cash}\n"
 
             if total_debt_transferred > 0:
-                player_notification += f"💳 Debt transferred to you: {total_debt_transferred}\n"
-                player_notification += f"💵 Cash you receive: {final_cash}\n\n"
+                player_notification += f"💳 Debt transferred to you: {total_debt_transferred}\n\n"
                 player_notification += "📋 Players now owe you:\n"
                 for notif in transfer_notifications:
                     player_notification += f"• {notif['debtor_name']}: {notif['amount']}\n"
-            else:
-                player_notification += f"💵 Cash you receive: {final_cash}\n"
 
             if is_former_host_cashout or was_host:
                 player_notification += "\n👤 You remain in the game as a regular player."
             else:
-                # Check if player has remaining debt - they should stay in game if so
-                remaining_debt = abs(final_cash) if final_cash < 0 else 0
-                if remaining_debt > 0:
-                    player_notification += f"\n💳 Outstanding debt: {remaining_debt}. You remain in the game and will need to settle this debt."
+                # Check if player has debt - get their current debt amount
+                current_debts = debt_dal.get_player_debts(game_id, user_id)
+                current_debt = sum(debt["amount"] for debt in current_debts if debt["status"] == "pending")
+                if current_debt > 0:
+                    player_notification += f"\n💳 Outstanding debt: {current_debt}. You remain in the game and will need to settle this debt."
                 else:
-                    player_notification += "\n✅ You have fully settled and may continue playing!"
+                    player_notification += "\n✅ You have fully cashed out and may continue playing!"
 
             await context.bot.send_message(chat_id=user_id, text=player_notification)
 
