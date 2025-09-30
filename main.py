@@ -671,9 +671,9 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         transfer_amount = 0
 
-    # STEP 3: Final cash amount (debt transfer does NOT reduce cash - it's separate)
-    # Player gets their cash buy-ins back, debt transfer is a separate obligation
-    final_cash = min(remaining_after_debt, cash_buyins)
+    # STEP 3: Final cash amount - all cash comes from/goes to cashier
+    # Cashier pays out the full remaining amount after debt settlement
+    final_cash = remaining_after_debt
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
@@ -3076,7 +3076,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "approve":
-        transaction_dal.update_status(ObjectId(tx_id), True, False)
+        # Use transaction service to handle approval (includes debt creation)
+        from src.bl.transaction_service import TransactionService
+        transaction_service = TransactionService()
+        transaction_service.approve_transaction(tx_id)
 
         # If this is a cashout, process debt settlement and transfers
         if tx["type"] == "cashout":
@@ -3257,22 +3260,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             # Regular buy-in approval
             await query.edit_message_text(f"✅ Approved {tx['type']} {tx['amount']}")
-            await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
 
-            # If this is a register buyin, create a debt record
-            if tx["type"] == "buyin_register":
-                # Get player name
-                player = player_dal.get_player(tx["game_id"], tx["user_id"])
-                player_name = player.name if player else "Unknown"
-
-                # Create debt record
-                debt_dal.create_debt(
-                    game_id=tx["game_id"],
-                    debtor_user_id=tx["user_id"],
-                    debtor_name=player_name,
-                    amount=tx["amount"],
-                    transaction_id=tx_id
+            # Send notification to player with debt info if register buyin
+            if tx['type'] == 'buyin_register':
+                player_msg = (
+                    f"✅ Approved {tx['type']} {tx['amount']}\n\n"
+                    f"💳 You now owe {tx['amount']} to the game.\n"
+                    f"This debt will be transferred to other players when they cash out."
                 )
+                await context.bot.send_message(chat_id=tx["user_id"], text=player_msg)
+            else:
+                await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
+
+            # Note: Debt creation for register buyin is now handled by TransactionService
+            # No need to create debt record here - it's handled in the service layer
     else:
         # Handle rejection with suggestions
         transaction_dal.update_status(ObjectId(tx_id), False, True)
