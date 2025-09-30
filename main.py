@@ -200,12 +200,16 @@ async def send_final_game_summaries(context, game_id: str):
                 owes_to = []
                 for debt in player_debts:
                     if debt["status"] in ["pending", "assigned"]:
-                        if debt.get("creditor_user_id"):
-                            # Find creditor name
+                        if debt["status"] == "assigned" and debt.get("creditor_user_id"):
+                            # This debt has been assigned to a specific player
                             creditor = player_dal.get_player(game_id, debt["creditor_user_id"])
                             creditor_name = creditor.name if creditor else "Unknown Player"
                             owes_to.append(f"{creditor_name}: {debt['amount']}")
+                        elif debt["status"] == "pending":
+                            # This debt is still pending (owed to game/bank)
+                            owes_to.append(f"Game/Bank: {debt['amount']}")
                         else:
+                            # This shouldn't happen but handle it gracefully
                             owes_to.append(f"Game/Bank: {debt['amount']}")
 
                 # Get debts owed to this player
