@@ -1,0 +1,156 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { Observable, BehaviorSubject } from 'rxjs';
+import { environment } from '../../environments/environment';
+import {
+  Game,
+  Player,
+  Transaction,
+  Debt,
+  GameStatus,
+  PlayerSummary,
+  CashoutRequest,
+  BuyinRequest,
+  GameLink
+} from '../models/game.model';
+import { User, AuthRequest, AuthResponse } from '../models/user.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ApiService {
+  private baseUrl = environment.apiUrl;
+  private currentUserSubject = new BehaviorSubject<User | null>(null);
+  public currentUser$ = this.currentUserSubject.asObservable();
+
+  constructor(private http: HttpClient) {
+    // Try to restore user from localStorage
+    const savedUser = localStorage.getItem('chipmate_user');
+    if (savedUser) {
+      this.currentUserSubject.next(JSON.parse(savedUser));
+    }
+  }
+
+  private getHeaders(): HttpHeaders {
+    return new HttpHeaders({
+      'Content-Type': 'application/json'
+    });
+  }
+
+  // Authentication
+  login(authRequest: AuthRequest): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${this.baseUrl}/auth/login`, authRequest, {
+      headers: this.getHeaders()
+    });
+  }
+
+  setCurrentUser(user: User): void {
+    this.currentUserSubject.next(user);
+    localStorage.setItem('chipmate_user', JSON.stringify(user));
+  }
+
+  logout(): void {
+    this.currentUserSubject.next(null);
+    localStorage.removeItem('chipmate_user');
+  }
+
+  getCurrentUser(): User | null {
+    return this.currentUserSubject.value;
+  }
+
+  // Game Management
+  createGame(hostName: string): Observable<{ game_id: string; game_code: string }> {
+    return this.http.post<{ game_id: string; game_code: string }>(`${this.baseUrl}/games`, {
+      host_name: hostName
+    }, { headers: this.getHeaders() });
+  }
+
+  joinGame(gameCode: string, userName: string): Observable<{ game_id: string; message: string }> {
+    return this.http.post<{ game_id: string; message: string }>(`${this.baseUrl}/games/join`, {
+      code: gameCode,
+      user_name: userName
+    }, { headers: this.getHeaders() });
+  }
+
+  getGame(gameId: string): Observable<Game> {
+    return this.http.get<Game>(`${this.baseUrl}/games/${gameId}`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getGameStatus(gameId: string): Observable<GameStatus> {
+    return this.http.get<GameStatus>(`${this.baseUrl}/games/${gameId}/status`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getGamePlayers(gameId: string): Observable<Player[]> {
+    return this.http.get<Player[]>(`${this.baseUrl}/games/${gameId}/players`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  endGame(gameId: string): Observable<{ message: string }> {
+    return this.http.post<{ message: string }>(`${this.baseUrl}/games/${gameId}/end`, {}, {
+      headers: this.getHeaders()
+    });
+  }
+
+  // Generate game link with QR code
+  generateGameLink(gameCode: string): Observable<GameLink> {
+    return this.http.get<GameLink>(`${this.baseUrl}/games/${gameCode}/link`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  // Transactions
+  createBuyin(buyinRequest: BuyinRequest): Observable<{ transaction_id: string; message: string }> {
+    return this.http.post<{ transaction_id: string; message: string }>(`${this.baseUrl}/transactions/buyin`, buyinRequest, {
+      headers: this.getHeaders()
+    });
+  }
+
+  createCashout(cashoutRequest: CashoutRequest): Observable<{ transaction_id: string; message: string }> {
+    return this.http.post<{ transaction_id: string; message: string }>(`${this.baseUrl}/transactions/cashout`, cashoutRequest, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getPendingTransactions(gameId: string): Observable<Transaction[]> {
+    return this.http.get<Transaction[]>(`${this.baseUrl}/games/${gameId}/transactions/pending`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  approveTransaction(transactionId: string): Observable<{ message: string }> {
+    return this.http.post<{ message: string }>(`${this.baseUrl}/transactions/${transactionId}/approve`, {}, {
+      headers: this.getHeaders()
+    });
+  }
+
+  rejectTransaction(transactionId: string): Observable<{ message: string }> {
+    return this.http.post<{ message: string }>(`${this.baseUrl}/transactions/${transactionId}/reject`, {}, {
+      headers: this.getHeaders()
+    });
+  }
+
+  // Player Status
+  getPlayerSummary(gameId: string, userId: number): Observable<PlayerSummary> {
+    return this.http.get<PlayerSummary>(`${this.baseUrl}/games/${gameId}/players/${userId}/summary`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  // Debt Management
+  getGameDebts(gameId: string): Observable<Debt[]> {
+    return this.http.get<Debt[]>(`${this.baseUrl}/games/${gameId}/debts`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getSettlementData(gameId: string): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/games/${gameId}/settlement`, {
+      headers: this.getHeaders()
+    });
+  }
+}
