@@ -17,4 +17,4 @@ cmds = [
 ]
 
 [start]
-cmd = "source venv/bin/activate && python src/api/production_server.py"
+cmd = "source venv/bin/activate && cd /app && python src/api/production_server.py"

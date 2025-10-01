@@ -38,13 +38,40 @@ def health_check():
     })
 
 # Import all API routes from web_api
-from src.api.web_api import (
-    login, create_game, join_game, get_game, get_game_status,
-    get_game_players, end_game, generate_game_link, create_buyin,
-    create_cashout, get_pending_transactions, approve_transaction,
-    reject_transaction, get_player_summary, get_game_debts,
-    get_settlement_data
-)
+import sys
+import os
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, project_root)
+
+try:
+    from src.api.web_api import (
+        login, create_game, join_game, get_game, get_game_status,
+        get_game_players, end_game, generate_game_link, create_buyin,
+        create_cashout, get_pending_transactions, approve_transaction,
+        reject_transaction, get_player_summary, get_game_debts,
+        get_settlement_data
+    )
+    logger.info("Successfully imported API routes from web_api")
+except ImportError as e:
+    logger.error(f"Failed to import API routes: {e}")
+    # Define dummy functions to prevent server crash
+    def login(): return jsonify({'error': 'API not available'}), 500
+    def create_game(): return jsonify({'error': 'API not available'}), 500
+    def join_game(): return jsonify({'error': 'API not available'}), 500
+    def get_game(game_id): return jsonify({'error': 'API not available'}), 500
+    def get_game_status(game_id): return jsonify({'error': 'API not available'}), 500
+    def get_game_players(game_id): return jsonify({'error': 'API not available'}), 500
+    def end_game(): return jsonify({'error': 'API not available'}), 500
+    def generate_game_link(): return jsonify({'error': 'API not available'}), 500
+    def create_buyin(): return jsonify({'error': 'API not available'}), 500
+    def create_cashout(): return jsonify({'error': 'API not available'}), 500
+    def get_pending_transactions(): return jsonify({'error': 'API not available'}), 500
+    def approve_transaction(): return jsonify({'error': 'API not available'}), 500
+    def reject_transaction(): return jsonify({'error': 'API not available'}), 500
+    def get_player_summary(): return jsonify({'error': 'API not available'}), 500
+    def get_game_debts(): return jsonify({'error': 'API not available'}), 500
+    def get_settlement_data(): return jsonify({'error': 'API not available'}), 500
 
 # Register API routes
 app.add_url_rule('/api/auth/login', 'login', login, methods=['POST'])
