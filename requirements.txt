@@ -6,3 +6,10 @@ pytest
 mongomock
 qrcode[pil]==8.2
 pillow>=9.1.0
+
+# Web UI Requirements for Railway deployment
+flask==3.0.0
+flask-cors==4.0.0
+gunicorn==21.2.0
+python-dotenv==1.0.0
+requests==2.31.0
