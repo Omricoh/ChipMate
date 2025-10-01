@@ -1,0 +1,18 @@
+{
+  "name": "chipmate",
+  "version": "1.0.0",
+  "description": "ChipMate - Poker Game Management System",
+  "scripts": {
+    "build": "cd web-ui && npm ci && npm run build",
+    "start": "python src/api/production_server.py",
+    "dev": "python src/api/web_api.py",
+    "install-deps": "pip install -r requirements.txt && cd web-ui && npm install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/chipmate.git"
+  },
+  "keywords": ["poker", "game", "management", "web", "app"],
+  "author": "Your Name",
+  "license": "MIT"
+}
