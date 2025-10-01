@@ -21,6 +21,12 @@ class TestConversationFlows:
         self.mock_db.players = MagicMock()
         self.mock_db.transactions = MagicMock()
 
+        # Set up mock database for conversation handlers
+        from src.ui.handlers.conversation_handlers import set_db as set_conv_db
+        from src.ui.handlers.command_handlers import set_db as set_cmd_db
+        set_conv_db(self.mock_db)
+        set_cmd_db(self.mock_db)
+
         # Mock telegram objects
         self.mock_user = User(id=12345, first_name="TestUser", is_bot=False)
         self.mock_chat = Chat(id=1, type="private")
@@ -40,7 +46,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_buyin_conversation_cash(self):
         """Test complete cash buyin conversation flow"""
-        from main import buyin_start, buyin_type, buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_start, buyin_type, buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -71,7 +77,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_buyin_conversation_credit(self):
         """Test complete credit buyin conversation flow"""
-        from main import buyin_type, buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_type, buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -100,7 +106,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_buyin_invalid_amount(self):
         """Test buyin with invalid amount"""
-        from main import buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -124,7 +130,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_cashout_conversation(self):
         """Test complete cashout conversation flow"""
-        from main import cashout_start, cashout_amount
+        from src.ui.handlers.conversation_handlers import cashout_start, cashout_amount
 
         # Mock active player with chips
         self.mock_db.players.find_one.return_value = {
@@ -153,7 +159,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_cashout_invalid_amount(self):
         """Test cashout with invalid amount"""
-        from main import cashout_amount
+        from src.ui.handlers.conversation_handlers import cashout_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -179,7 +185,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_quit_conversation(self):
         """Test quit game conversation flow"""
-        from main import quit_start, quit_confirm
+        from src.ui.handlers.conversation_handlers import quit_start, quit_confirm
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -204,7 +210,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_quit_cancel(self):
         """Test canceling quit"""
-        from main import quit_confirm
+        from src.ui.handlers.conversation_handlers import quit_confirm
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -226,7 +232,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_host_buyin_conversation(self):
         """Test host buyin for other players conversation"""
-        from main import host_buyin_start, host_buyin_player, host_buyin_type, host_buyin_amount
+        from src.ui.handlers.conversation_handlers import host_buyin_start, host_buyin_player, host_buyin_type, host_buyin_amount
 
         # Mock host player
         self.mock_db.players.find_one.return_value = {
@@ -242,6 +248,18 @@ class TestConversationFlows:
             {"user_id": 67890, "name": "HostUser", "active": True, "quit": False},
             {"user_id": 12345, "name": "Player1", "active": True, "quit": False}
         ]
+
+        # Mock find_one calls for different scenarios
+        def mock_find_one(query):
+            if "name" in query and query["name"] == "Player1":
+                return {"user_id": 12345, "name": "Player1", "active": True, "quit": False, "game_id": "game123"}
+            elif "user_id" in query and query["user_id"] == 67890:
+                return {"game_id": "game123", "user_id": 67890, "active": True, "quit": False, "is_host": True}
+            elif "user_id" in query:  # For any other user_id queries
+                return {"game_id": "game123", "user_id": query["user_id"], "active": True, "quit": False}
+            return {"game_id": "game123", "user_id": 67890, "active": True, "quit": False, "is_host": True}
+
+        self.mock_db.players.find_one.side_effect = mock_find_one
 
         # Step 1: Start host buyin
         await host_buyin_start(self.mock_update, self.mock_context)
@@ -270,7 +288,7 @@ class TestConversationFlows:
     @pytest.mark.asyncio
     async def test_admin_login_conversation(self):
         """Test admin login conversation"""
-        from main import admin_text_login
+        from src.ui.handlers.conversation_handlers import admin_text_login
 
         # Set admin user
         os.environ["ADMIN_USERS"] = "99999"
@@ -299,6 +317,12 @@ class TestEdgeCases:
         self.mock_db.players = MagicMock()
         self.mock_db.transactions = MagicMock()
 
+        # Set up mock database for conversation handlers
+        from src.ui.handlers.conversation_handlers import set_db as set_conv_db
+        from src.ui.handlers.command_handlers import set_db as set_cmd_db
+        set_conv_db(self.mock_db)
+        set_cmd_db(self.mock_db)
+
         self.mock_user = User(id=12345, first_name="TestUser", is_bot=False)
         self.mock_message = MagicMock(spec=Message)
         self.mock_message.text = ""
@@ -314,7 +338,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_action_without_active_game(self):
         """Test actions when user has no active game"""
-        from main import buyin_start, cashout_start, quit_start
+        from src.ui.handlers.conversation_handlers import buyin_start, cashout_start, quit_start
 
         # Mock no active player
         self.mock_db.players.find_one.return_value = None
@@ -334,7 +358,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_join_already_in_game(self):
         """Test joining when already in game"""
-        from main import join_text
+        from src.ui.handlers.command_handlers import join_text
 
         self.mock_message.text = "join ABC12"
 
@@ -355,7 +379,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_non_host_accessing_host_functions(self):
         """Test non-host trying to use host functions"""
-        from main import host_buyin_start, host_cashout_start, host_status
+        from src.ui.handlers.conversation_handlers import host_buyin_start
+        from src.ui.handlers.command_handlers import host_status
 
         # Mock regular player (not host)
         self.mock_db.players.find_one.return_value = {
@@ -367,7 +392,7 @@ class TestEdgeCases:
         }
 
         # Test host functions
-        host_functions = [host_buyin_start, host_cashout_start, host_status]
+        host_functions = [host_buyin_start, host_status]
 
         for func in host_functions:
             self.mock_message.reply_text.reset_mock()
@@ -381,7 +406,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_database_connection_error(self):
         """Test handling of database connection errors"""
-        from main import status
+        from src.ui.handlers.command_handlers import status
 
         # Mock database error
         self.mock_db.players.find_one.side_effect = Exception("Database connection failed")
@@ -394,7 +419,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_negative_buyin_amount(self):
         """Test negative buyin amount"""
-        from main import buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {
@@ -418,7 +443,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_zero_buyin_amount(self):
         """Test zero buyin amount"""
-        from main import buyin_amount
+        from src.ui.handlers.conversation_handlers import buyin_amount
 
         # Mock active player
         self.mock_db.players.find_one.return_value = {

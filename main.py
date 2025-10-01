@@ -118,12 +118,175 @@ ADMIN_MODE, ASK_GAME_CODE_REPORT, ADMIN_MANAGE_GAME, ADMIN_SELECT_GAME, CONFIRM_
 def get_active_game(user_id: int):
     return player_dal.get_active(user_id)
 
+def get_active_game_only_if_game_active(user_id: int):
+    """Get active player only if their game is still active"""
+    player = player_dal.get_active(user_id)
+    if player:
+        game = game_dal.get_game(player["game_id"])
+        if game and game.status == "active":
+            return player
+    return None
+
 def get_host_id(game_id: str):
     g = db.games.find_one({"_id": ObjectId(game_id)})
     return g.get("host_id") if g else None
 
+def exit_all_players_from_game(game_id: str):
+    """Exit all players from a game when it ends"""
+    try:
+        # Update all players in the game to be inactive (exited from game)
+        result = player_dal.col.update_many(
+            {"game_id": game_id},
+            {"$set": {"active": False, "game_exited": True}}
+        )
+        logger.info(f"Exited {result.modified_count} players from game {game_id}")
+        return result.modified_count
+    except Exception as e:
+        logger.error(f"Error exiting players from game {game_id}: {e}")
+        return 0
+
+async def send_final_game_summaries(context, game_id: str):
+    """Send each player their final game summary with debt and cash details"""
+    try:
+        # Get game info
+        game = game_dal.get_game(game_id)
+        if not game:
+            return
+
+        # Get all players who participated in the game
+        all_players = player_dal.get_players(game_id)
+
+        for player in all_players:
+            try:
+                # Calculate player's cash buyins
+                cash_transactions = transaction_dal.col.find({
+                    "game_id": game_id,
+                    "user_id": player.user_id,
+                    "confirmed": True,
+                    "rejected": False,
+                    "type": "buyin_cash"
+                })
+                cash_buyins = sum(tx["amount"] for tx in cash_transactions)
+
+                # Calculate player's credit buyins (original debt)
+                credit_transactions = transaction_dal.col.find({
+                    "game_id": game_id,
+                    "user_id": player.user_id,
+                    "confirmed": True,
+                    "rejected": False,
+                    "type": "buyin_register"
+                })
+                credit_buyins = sum(tx["amount"] for tx in credit_transactions)
+
+                # Get approved cashouts
+                cashout_transactions = list(transaction_dal.col.find({
+                    "game_id": game_id,
+                    "user_id": player.user_id,
+                    "confirmed": True,
+                    "rejected": False,
+                    "type": "cashout"
+                }))
+
+                total_cashed_out = sum(tx["amount"] for tx in cashout_transactions)
+
+                # Calculate how much cash they should have received
+                final_cash_received = 0
+                for cashout in cashout_transactions:
+                    debt_processing = cashout.get("debt_processing", {})
+                    final_cash_received += debt_processing.get("final_cash_amount", 0)
+
+                # Get current debts this player owes
+                player_debts = debt_dal.get_player_debts(game_id, player.user_id)
+                owes_to = []
+                for debt in player_debts:
+                    if debt["status"] in ["pending", "assigned"]:
+                        if debt["status"] == "assigned" and debt.get("creditor_user_id"):
+                            # This debt has been assigned to a specific player
+                            creditor = player_dal.get_player(game_id, debt["creditor_user_id"])
+                            creditor_name = creditor.name if creditor else "Unknown Player"
+                            owes_to.append(f"{creditor_name}: {debt['amount']}")
+                        elif debt["status"] == "pending":
+                            # This debt is still pending (owed to game/bank)
+                            owes_to.append(f"Game/Bank: {debt['amount']}")
+                        else:
+                            # This shouldn't happen but handle it gracefully
+                            owes_to.append(f"Game/Bank: {debt['amount']}")
+
+                # Get debts owed to this player
+                owed_by_others = []
+                # Get all debts (pending and assigned)
+                all_debts = list(debt_dal.col.find({
+                    "game_id": game_id,
+                    "status": {"$in": ["pending", "assigned"]}
+                }))
+                for debt in all_debts:
+                    if debt.get("creditor_user_id") == player.user_id:
+                        # Find debtor name
+                        debtor = player_dal.get_player(game_id, debt["debtor_user_id"])
+                        debtor_name = debtor.name if debtor else "Unknown Player"
+                        owed_by_others.append(f"{debtor_name}: {debt['amount']}")
+
+                # Create final summary message
+                msg = f"🏁 **Final Game Summary - {game.code}**\n\n"
+                msg += f"**Your Investment:**\n"
+                msg += f"• Cash buy-ins: {cash_buyins}\n"
+                msg += f"• Credit buy-ins: {credit_buyins}\n"
+                msg += f"• Total chips cashed out: {total_cashed_out}\n\n"
+
+                msg += f"**Cash Settlement:**\n"
+                msg += f"• Cash you received: {final_cash_received}\n\n"
+
+                if owes_to:
+                    msg += f"**💳 You owe:**\n"
+                    for debt in owes_to:
+                        msg += f"• {debt}\n"
+                    msg += "\n"
+
+                if owed_by_others:
+                    msg += f"**💰 Others owe you:**\n"
+                    for debt in owed_by_others:
+                        msg += f"• {debt}\n"
+                    msg += "\n"
+
+                if not owes_to and not owed_by_others:
+                    msg += f"✅ **No outstanding debts**\n\n"
+
+                msg += f"**Summary:**\n"
+                if owes_to or owed_by_others:
+                    msg += f"💡 Settle outstanding debts with other players outside the game.\n"
+                msg += f"🎮 Game {game.code} is now complete. Thanks for playing!"
+
+                # Send the summary to the player
+                await context.bot.send_message(
+                    chat_id=player.user_id,
+                    text=msg,
+                    parse_mode="Markdown"
+                )
+
+            except Exception as e:
+                logger.error(f"Error sending final summary to player {player.user_id}: {e}")
+                continue
+
+    except Exception as e:
+        logger.error(f"Error sending final game summaries for game {game_id}: {e}")
+
+def is_game_ended(game_id: str) -> bool:
+    """Check if game is ended"""
+    game = db.games.find_one({"_id": ObjectId(game_id)})
+    return game and game.get("status") == "ended"
+
 def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
     """Generate host menu dynamically based on game state"""
+    # Check game status first
+    game = db.games.find_one({"_id": ObjectId(game_id)})
+    if game and game.get("status") == "ended":
+        # Game is ended - show limited menu
+        menu_rows = [
+            ["📈 View Settlement", "📋 Game Report"],
+            ["📊 Status", "❓ Help"]
+        ]
+        return ReplyKeyboardMarkup(menu_rows, resize_keyboard=True)
+
     # Check if all active players have cashed out
     active_player_count = db.players.count_documents({
         "game_id": game_id,
@@ -134,7 +297,7 @@ def get_host_menu(game_id: str) -> ReplyKeyboardMarkup:
 
     has_active_players = active_player_count > 0
 
-    # Build menu rows
+    # Build menu rows for active game
     menu_rows = [
         ["👤 Player List", "➕ Add Player"],
         ["💰 Host Buy-in", "💸 Host Cashout"],
@@ -277,11 +440,53 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def admin_system_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show system statistics and version info"""
+    from src.ui.handlers.command_handlers import CHIPMATE_VERSION
+
+    # Get system statistics
+    total_games = db.games.count_documents({})
+    active_games = db.games.count_documents({"status": "active"})
+    total_players = db.players.count_documents({})
+    active_players = db.players.count_documents({"active": True, "quit": False})
+    total_transactions = db.transactions.count_documents({})
+    total_debts = db.debts.count_documents({}) if hasattr(db, 'debts') else 0
+
+    # Calculate some basic stats
+    avg_players_per_game = round(total_players / max(total_games, 1), 1)
+    avg_transactions_per_game = round(total_transactions / max(total_games, 1), 1)
+
+    stats_msg = f"📈 **ChipMate System Statistics**\n\n"
+    stats_msg += f"**Version:** `{CHIPMATE_VERSION}`\n\n"
+    stats_msg += f"**Games:**\n"
+    stats_msg += f"• Total Games: {total_games}\n"
+    stats_msg += f"• Active Games: {active_games}\n"
+    stats_msg += f"• Avg Players/Game: {avg_players_per_game}\n\n"
+    stats_msg += f"**Players:**\n"
+    stats_msg += f"• Total Players: {total_players}\n"
+    stats_msg += f"• Currently Active: {active_players}\n\n"
+    stats_msg += f"**Transactions:**\n"
+    stats_msg += f"• Total Transactions: {total_transactions}\n"
+    stats_msg += f"• Avg per Game: {avg_transactions_per_game}\n\n"
+    if total_debts > 0:
+        stats_msg += f"**Debts:**\n"
+        stats_msg += f"• Total Debt Records: {total_debts}\n\n"
+    stats_msg += f"**Database Collections:**\n"
+    stats_msg += f"• Games, Players, Transactions"
+    if total_debts > 0:
+        stats_msg += f", Debts"
+
+    await update.message.reply_text(
+        stats_msg,
+        reply_markup=ADMIN_MENU,
+        parse_mode="Markdown"
+    )
+
 async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     host = update.effective_user
 
     # Check if user is already in an active game
-    existing = player_dal.get_active(host.id)
+    existing = get_active_game_only_if_game_active(host.id)
     if existing:
         existing_game = game_dal.get_game(existing["game_id"])
         if existing_game:
@@ -338,7 +543,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     # Check if user is already in an active game
-    existing = player_dal.get_active(user.id)
+    existing = get_active_game_only_if_game_active(user.id)
     if existing:
         existing_game = game_dal.get_game(existing["game_id"])
         if existing_game:
@@ -408,12 +613,17 @@ async def join_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Call the regular join function
     await join(update, context)
 
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE, player_doc=None):
     user = update.effective_user
-    pdoc = player_dal.get_active(user.id)
-    if not pdoc:
-        await update.message.reply_text("⚠️ You are not in an active game.\n\nUse /newgame to create or /join <code> to join.")
-        return
+
+    # Use provided player_doc or get active player
+    if player_doc:
+        pdoc = player_doc
+    else:
+        pdoc = player_dal.get_active(user.id)
+        if not pdoc:
+            await update.message.reply_text("⚠️ You are not in an active game.\n\nUse /newgame to create or /join <code> to join.")
+            return
 
     game = game_dal.get_game(pdoc["game_id"])
     if not game:
@@ -447,14 +657,29 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = f"📊 **Your Game Status**\n\n"
     msg += f"Game Code: **{game.code}**\n"
+    msg += f"Game Status: {'🔚 Ended' if game.status == 'ended' else '🎮 Active'}\n"
     msg += f"Cash Buy-ins: {cash_buyins}\n"
     msg += f"Credit Buy-ins: {credit_buyins}\n"
-    msg += f"Status: {'🚪 Quit' if pdoc.get('quit') else '✅ Active'}"
+    msg += f"Player Status: {'🚪 Quit' if pdoc.get('quit') else '✅ Active'}"
+
+    if game.status == "ended":
+        msg += f"\n\n⚠️ **This game has been ended by the host.**\nNo new transactions can be processed."
 
     await update.message.reply_text(msg, reply_markup=menu, parse_mode="Markdown")
 
 # -------- Buy-in conversation --------
 async def buyin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check if user's game is ended
+    user = update.effective_user
+    pdoc = player_dal.get_active(user.id)
+    if pdoc and is_game_ended(pdoc["game_id"]):
+        await update.message.reply_text(
+            "🔚 **Game Has Ended**\n\n"
+            "This game has been ended by the host. No new buy-ins can be processed.",
+            reply_markup=ReplyKeyboardMarkup([["📊 Status"]], resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
     buttons = [["💰 Cash", "💳 Register"]]
     markup = ReplyKeyboardMarkup(buttons, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text("How do you want to buy in?", reply_markup=markup)
@@ -502,6 +727,16 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     pdoc = player_dal.get_active(user.id)
     gid = pdoc["game_id"]
+
+    # Check if game is ended
+    if is_game_ended(gid):
+        await update.message.reply_text(
+            "🔚 **Game Has Ended**\n\n"
+            "This game has been ended by the host. No new transactions can be processed.\n"
+            "Check with the host for final settlement.",
+            reply_markup=ReplyKeyboardMarkup([["📊 Status"]], resize_keyboard=True)
+        )
+        return ConversationHandler.END
 
     # Check if this player is the host
     is_host = pdoc.get("is_host", False)
@@ -551,8 +786,8 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player_debts = debt_dal.get_player_debts(gid, user.id)  # What this player owes
     pending_debts = debt_dal.get_pending_debts(gid)  # What others owe (available for transfer)
 
-    # Calculate this player's own outstanding debt
-    player_debt_amount = sum(debt["amount"] for debt in player_debts if debt["status"] == "pending")
+    # Calculate this player's own outstanding debt (both pending and assigned)
+    player_debt_amount = sum(debt["amount"] for debt in player_debts if debt["status"] in ["pending", "assigned"])
 
     # Calculate available debt to transfer (only from players who have left the game)
     # Get all players to check their status
@@ -579,18 +814,12 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     })
     cash_buyins = sum(tx["amount"] for tx in transactions)
 
-    # STEP 1: First deduct player's own debt from their cashout
-    remaining_after_debt = chip_count - player_debt_amount
-    debt_settlement = min(chip_count, player_debt_amount)
+    # STEP 1: Calculate debt transfer from available chip count
+    transfer_amount = min(chip_count, available_debt_transfer)
 
-    # STEP 2: Then calculate debt transfer from remaining amount
-    if remaining_after_debt > 0:
-        transfer_amount = min(remaining_after_debt, available_debt_transfer)
-    else:
-        transfer_amount = 0
-
-    # STEP 3: Final cash amount
-    final_cash = remaining_after_debt - transfer_amount
+    # STEP 2: Final cash amount - only based on cash buy-ins, not debt settlement
+    # Player keeps their debts, only gets cash for cash they put in
+    final_cash = min(chip_count, cash_buyins)
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
@@ -598,28 +827,21 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary += f"Your cash buy-ins: {cash_buyins}\n"
 
     if player_debt_amount > 0:
-        summary += f"Your outstanding debt: {player_debt_amount}\n"
-        summary += f"Debt settlement: {debt_settlement}\n"
-        if remaining_after_debt > 0:
-            summary += f"Remaining after debt: {remaining_after_debt}\n"
-        else:
-            summary += f"⚠️ Your debt exceeds your chips by {abs(remaining_after_debt)}\n"
+        summary += f"Your outstanding debt: {player_debt_amount} (remains as debt)\n"
 
-    if remaining_after_debt > 0 and available_debt_transfer > 0:
+    if available_debt_transfer > 0:
         summary += f"\n💳 **Debt Transfer Available**\n"
         summary += f"Debts from inactive players: {available_debt_transfer}\n"
         if transfer_amount > 0:
             summary += f"Debt you'll take over: {transfer_amount}\n"
 
     summary += f"\n**Final Breakdown:**\n"
-    if debt_settlement > 0:
-        summary += f"• Your debt settled: {debt_settlement}\n"
+    summary += f"• Cash you receive: {final_cash}\n"
     if transfer_amount > 0:
-        summary += f"• Debt transferred to you: {transfer_amount}\n"
-    summary += f"• Cash you receive: {max(0, final_cash)}\n"
+        summary += f"• Debt you now collect: {transfer_amount} (others owe you)\n"
 
-    if final_cash < 0:
-        summary += f"\n⚠️ **You still owe {abs(final_cash)} after cashout**"
+    if player_debt_amount > 0:
+        summary += f"\n💳 **Your debt of {player_debt_amount} remains unchanged**"
 
     # Store the cashout transaction with debt info
     tx = create_cashout(gid, user.id, chip_count)
@@ -627,10 +849,10 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Store debt processing information in the transaction
     debt_info = {
-        "player_debt_settlement": debt_settlement,
-        "player_debts_to_settle": [str(debt["_id"]) for debt in player_debts if debt["status"] == "pending"],
+        "player_debt_settlement": 0,  # No debt settlement anymore
+        "player_debts_to_settle": [],  # No debts are settled
         "debt_transfers": [],
-        "final_cash_amount": max(0, final_cash)
+        "final_cash_amount": final_cash
     }
 
     # Store which debts should be transferred upon approval
@@ -659,30 +881,24 @@ async def cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(summary, reply_markup=PLAYER_MENU, parse_mode="Markdown")
 
-    # Notify host with debt settlement and transfer details
+    # Notify host with cashout and transfer details
     host_id = get_host_id(gid)
     if host_id:
         host_msg = f"📢 **Cashout Request from {user.first_name}**\n\n"
         host_msg += f"Chip count: {chip_count}\n"
+        host_msg += f"Cash buy-ins: {cash_buyins}\n"
 
         if player_debt_amount > 0:
-            host_msg += f"Player's debt: {player_debt_amount}\n"
-            host_msg += f"Debt settlement: {debt_settlement}\n"
+            host_msg += f"Player's debt: {player_debt_amount} (remains as debt)\n"
 
         if transfer_amount > 0:
             host_msg += f"Debt transfer: {transfer_amount}\n"
 
-        host_msg += f"\n💵 **Cash to Pay: {max(0, final_cash)}**\n"
-
-        if debt_settlement > 0:
-            host_msg += f"\n📝 **Processing:**\n"
-            host_msg += f"• {user.first_name}'s debt of {debt_settlement} will be settled\n"
+        host_msg += f"\n💵 **Cash to Pay: {final_cash}**\n"
 
         if transfer_amount > 0:
+            host_msg += f"\n📝 **Processing:**\n"
             host_msg += f"• {user.first_name} will take over {transfer_amount} in debt from other players\n"
-
-        if final_cash < 0:
-            host_msg += f"\n⚠️ **Note:** {user.first_name} will still owe {abs(final_cash)} after cashout"
 
         buttons = [[
             InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
@@ -791,8 +1007,8 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif tx["type"] == "buyin_register":
             credit_buyins += tx["amount"]
 
-    # Calculate net cashout
-    net_cashout = chip_count - credit_buyins
+    # Calculate cash only (no debt settlement)
+    final_cash = min(chip_count, cash_buyins)
 
     # Create summary message
     summary = f"💸 **Cashout Summary**\n\n"
@@ -801,15 +1017,10 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary += f"Cash buy-ins: {cash_buyins}\n"
     summary += f"Credit buy-ins: {credit_buyins}\n\n"
 
+    summary += f"💵 **Cash you receive: {final_cash}**\n"
+
     if credit_buyins > 0:
-        summary += f"Credit to settle: {credit_buyins}\n"
-        summary += f"**Net cashout: {net_cashout}**\n\n"
-        if net_cashout > 0:
-            summary += f"✅ After settling {credit_buyins} credit, you'll receive {net_cashout} in cash."
-        elif net_cashout < 0:
-            summary += f"⚠️ After settling {credit_buyins} credit, you still owe {abs(net_cashout)}."
-        else:
-            summary += f"✅ Your {credit_buyins} credit debt is exactly settled. No cash exchange needed."
+        summary += f"💳 **Your debt of {credit_buyins} remains unchanged**\n"
     else:
         summary += f"**Total cashout: {chip_count}**\n\n"
         summary += f"✅ You'll receive {chip_count} in cash."
@@ -842,14 +1053,9 @@ async def select_new_host(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if new_host_id:
         host_msg = f"📢 **Cashout Request from {user.first_name} (Former Host)**\n\n"
         host_msg += f"Chip count: {chip_count}\n"
-        host_msg += f"Credit debt: {credit_buyins}\n\n"
-
-        if net_cashout > 0:
-            host_msg += f"💵 **Pay {user.first_name}: {net_cashout} in cash**"
-        elif net_cashout < 0:
-            host_msg += f"💳 **Collect from {user.first_name}: {abs(net_cashout)} (remaining debt)**"
-        else:
-            host_msg += f"✅ **No cash exchange needed** (credit exactly settled)"
+        host_msg += f"Cash buy-ins: {cash_buyins}\n"
+        host_msg += f"Credit debt: {credit_buyins} (remains as debt)\n\n"
+        host_msg += f"💵 **Pay {user.first_name}: {final_cash} in cash**"
 
         buttons = [[
             InlineKeyboardButton("✅ Approve", callback_data=f"approve:{tx_id}"),
@@ -1062,8 +1268,31 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Update game status to ended
         game_dal.update_status(ObjectId(game_id), "ended")
 
+        # Exit all players from the game
+        exited_count = exit_all_players_from_game(game_id)
+
+        # Notify all other players that the game has ended and they've been exited
+        all_players = player_dal.get_players(game_id)
+        for p in all_players:
+            if p.user_id != user.id:  # Don't notify the host again
+                try:
+                    if p in active_players:
+                        # Already got cashout notification above
+                        continue
+                    else:
+                        # Notify exited players
+                        await context.bot.send_message(
+                            chat_id=p.user_id,
+                            text="🔚 **Game Has Ended**\n\n"
+                                 "The host has ended the game.\n"
+                                 "You have been exited from the game."
+                        )
+                except:
+                    pass
+
         # Show message to host
         msg = "🔚 **Game Ended**\n\n"
+        msg += f"All {exited_count} players have been exited from the game.\n\n"
 
         if active_players:
             msg += f"Cashout requests sent to {len(active_players)} players.\n\n"
@@ -1078,9 +1307,11 @@ async def end_game_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
 
-        # If everyone has cashed out, show settlement immediately
+        # If everyone has cashed out, show settlement immediately and send final summaries
         if not active_players:
             await show_final_settlement(update, context, game_id)
+            # Send final game summaries to all players
+            await send_final_game_summaries(context, game_id)
     else:
         await update.message.reply_text("❌ Game continues.", reply_markup=get_host_menu(pdoc["game_id"]))
 
@@ -1474,7 +1705,7 @@ async def show_final_settlement(update: Update, context: ContextTypes.DEFAULT_TY
             debt -= payment
             winner["net"] -= payment
 
-    await update.message.reply_text(msg, reply_markup=get_host_menu(pdoc["game_id"]), parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=get_host_menu(game_id), parse_mode="Markdown")
 
 
 async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1604,9 +1835,11 @@ async def view_settlement(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"• {co['name']}: {co['chips']} chips"
             if co['debt_settled'] > 0:
                 msg += f" (settled {co['debt_settled']} debt)"
+            msg += f" → {co['cash_received']} cash"
             if co['debt_transferred'] > 0:
-                msg += f" (took {co['debt_transferred']} debt)"
-            msg += f" → {co['cash_received']} cash\n"
+                msg += f" + {co['debt_transferred']} debt collection\n"
+            else:
+                msg += f"\n"
             msg += f"  Status: {co['status']}\n"
         msg += "\n"
 
@@ -1953,8 +2186,8 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         elif tx["type"] == "buyin_register":
             credit_buyins += tx["amount"]
 
-    # Calculate net cashout
-    net_cashout = chip_count - credit_buyins
+    # Calculate cash only (no debt settlement)
+    final_cash = min(chip_count, cash_buyins)
 
     # Create cashout transaction
     tx = create_cashout(game_id, player_id, chip_count)
@@ -1963,14 +2196,14 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Auto-approve since host is creating it
     transaction_dal.update_status(ObjectId(tx_id), True, False)
 
-    # Mark the player as cashed out instead of removing
+    # Mark the player as cashed out but keep them active in the game
     from datetime import datetime
     db.players.update_one(
         {"game_id": game_id, "user_id": player_id},
         {"$set": {
             "cashed_out": True,
             "cashout_time": datetime.now(timezone.utc),
-            "active": False,
+            "active": True,  # Keep player active so they remain in game with debt
             "final_chips": chip_count
         }}
     )
@@ -1984,20 +2217,13 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
     summary += f"Cash buy-ins: {cash_buyins}\n"
     summary += f"Credit buy-ins: {credit_buyins}\n\n"
 
-    if credit_buyins > 0:
-        summary += f"Credit to settle: {credit_buyins}\n"
-        summary += f"**Net cashout: {net_cashout}**\n\n"
-        if net_cashout > 0:
-            summary += f"💵 Pay {player_name}: **{net_cashout} in cash**"
-        elif net_cashout < 0:
-            summary += f"💳 Collect from {player_name}: **{abs(net_cashout)}** (remaining debt)"
-        else:
-            summary += f"✅ No cash exchange needed (credit exactly settled)"
-    else:
-        summary += f"**Total cashout: {chip_count}**\n"
-        summary += f"💵 Pay {player_name}: **{chip_count} in cash**"
+    summary += f"💵 Pay {player_name}: **{final_cash} in cash**\n"
 
-    summary += f"\n\n🚪 {player_name} has been removed from the game."
+    if credit_buyins > 0:
+        summary += f"💳 {player_name}'s debt of {credit_buyins} remains unchanged.\n"
+        summary += f"\n💳 {player_name} remains in the game with outstanding debt of {credit_buyins}."
+    else:
+        summary += f"\n✅ {player_name} has fully cashed out and may continue playing."
 
     if is_admin:
         # Return to admin game management menu
@@ -2020,12 +2246,12 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Notify the player with their summary
         player_msg = f"✅ Administrator recorded your cashout:\n\n"
         player_msg += f"Chips: {chip_count}\n"
+        player_msg += f"Cash amount: {final_cash}\n"
+
         if credit_buyins > 0:
-            player_msg += f"Credit settled: {credit_buyins}\n"
-            player_msg += f"Net amount: {net_cashout}"
+            player_msg += f"\n💳 Outstanding debt: {credit_buyins} (unchanged). You remain in the game and will need to settle this debt."
         else:
-            player_msg += f"Cash amount: {chip_count}"
-        player_msg += f"\n\nYou have been removed from the game. Thank you for playing!"
+            player_msg += f"\n✅ You have fully cashed out and may continue playing!"
 
         try:
             await context.bot.send_message(
@@ -2047,12 +2273,12 @@ async def host_cashout_amount(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Notify the player with their summary
         player_msg = f"✅ Host recorded your cashout:\n\n"
         player_msg += f"Chips: {chip_count}\n"
+        player_msg += f"Cash amount: {final_cash}\n"
+
         if credit_buyins > 0:
-            player_msg += f"Credit settled: {credit_buyins}\n"
-            player_msg += f"Net amount: {net_cashout}"
+            player_msg += f"\n💳 Outstanding debt: {credit_buyins} (unchanged). You remain in the game and will need to settle this debt."
         else:
-            player_msg += f"Cash amount: {chip_count}"
-        player_msg += f"\n\nYou have been removed from the game. Thank you for playing!"
+            player_msg += f"\n✅ You have fully cashed out and may continue playing!"
 
         try:
             await context.bot.send_message(
@@ -2099,10 +2325,14 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["admin_user"] = username
     context.user_data["admin_pass"] = password
 
+    from src.ui.handlers.command_handlers import CHIPMATE_VERSION
+
     await update.message.reply_text(
-        "🔐 **Admin Mode Activated**\n\n"
-        "Select an option from the menu:",
-        reply_markup=ADMIN_MENU
+        f"🔐 **Admin Mode Activated**\n\n"
+        f"ChipMate Version: `{CHIPMATE_VERSION}`\n\n"
+        f"Select an option from the menu:",
+        reply_markup=ADMIN_MENU,
+        parse_mode="Markdown"
     )
     return ADMIN_MODE
 
@@ -2562,18 +2792,24 @@ async def admin_manage_game_handler(update: Update, context: ContextTypes.DEFAUL
     elif "End Game" in text:
         game_dal.update_status(game_id, "ended")
 
+        # Exit all players from the game
+        exited_count = exit_all_players_from_game(game_id)
+
         # Notify all players
         players = player_dal.get_players(game_id)
         for p in players:
             try:
                 await context.bot.send_message(
                     chat_id=p.user_id,
-                    text=f"🔚 Game {code} has been ended by an administrator."
+                    text=f"🔚 Game {code} has been ended by an administrator. You have been exited from the game."
                 )
             except:
                 pass
 
-        await update.message.reply_text(f"✅ Game {code} has been ended.")
+        # Send final game summaries to all players
+        await send_final_game_summaries(context, game_id)
+
+        await update.message.reply_text(f"✅ Game {code} has been ended. {exited_count} players exited. Final summaries sent to all players.")
         return ADMIN_MANAGE_GAME
 
     elif "Game Report" in text:
@@ -2853,6 +3089,9 @@ async def admin_mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await admin_game_report_ask(update, context)
     elif "Find Game" in text:
         return await admin_find_game(update, context)
+    elif "System Stats" in text:
+        await admin_system_stats(update, context)
+        return ADMIN_MODE
     elif "Help" in text:
         await admin_help(update, context)
         return ADMIN_MODE
@@ -2877,6 +3116,45 @@ async def host_game_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_game_report(update, context, game_id, game.code)
 
 
+async def unified_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unified status handler that determines if user should see player or host status"""
+    user = update.effective_user
+
+    # Check if user is admin (either in admin mode or temporarily exited admin mode)
+    is_admin = context.user_data.get("admin_auth", False) or context.user_data.get("admin_temp_exit", False)
+
+    if is_admin and context.user_data.get("game_id"):
+        # Admin access - show host status for the selected game
+        return await host_status(update, context)
+
+    # Check for active player first
+    pdoc = player_dal.get_active(user.id)
+    if pdoc:
+        # Player is active in a game
+        if pdoc.get("is_host"):
+            return await host_status(update, context)
+        else:
+            return await status(update, context, pdoc)
+
+    # Check if player was in a game (including ended games)
+    # Find most recent player record
+    recent_player = db.players.find_one(
+        {"user_id": user.id},
+        sort=[("_id", -1)]  # Get most recent
+    )
+
+    if recent_player:
+        game = game_dal.get_game(recent_player["game_id"])
+        if game:
+            # Show status for their most recent game
+            if recent_player.get("is_host"):
+                return await host_status(update, context)
+            else:
+                return await status(update, context, recent_player)
+
+    # No game found
+    await update.message.reply_text("⚠️ You are not in any game.")
+
 async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show comprehensive game status for hosts"""
     user = update.effective_user
@@ -2893,9 +3171,22 @@ async def host_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Regular host access
         pdoc = player_dal.get_active(user.id)
-        if not pdoc or not pdoc.get("is_host"):
+        if not pdoc:
+            # Check if user was a host in any recent game (including ended games)
+            recent_player = db.players.find_one(
+                {"user_id": user.id, "is_host": True},
+                sort=[("_id", -1)]  # Get most recent
+            )
+            if recent_player:
+                pdoc = recent_player
+            else:
+                await update.message.reply_text("⚠️ Only hosts can view status.")
+                return
+
+        if not pdoc.get("is_host"):
             await update.message.reply_text("⚠️ Only hosts can view status.")
             return
+
         game_id = pdoc["game_id"]
 
     game = game_dal.get_game(game_id)
@@ -2970,7 +3261,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "approve":
-        transaction_dal.update_status(ObjectId(tx_id), True, False)
+        # Use transaction service to handle approval (includes debt creation)
+        from src.bl.transaction_service import TransactionService
+        transaction_service = TransactionService(MONGO_URL)
+        transaction_service.approve_transaction(tx_id)
 
         # If this is a cashout, process debt settlement and transfers
         if tx["type"] == "cashout":
@@ -2986,19 +3280,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Get debt processing information
             debt_processing = tx.get("debt_processing", {})
-            debt_settlement = debt_processing.get("player_debt_settlement", 0)
-            debts_to_settle = debt_processing.get("player_debts_to_settle", [])
             debt_transfers = debt_processing.get("debt_transfers", [])
             final_cash = debt_processing.get("final_cash_amount", chip_count)
 
-            # STEP 1: Settle player's own debts
-            debt_settlement_notifications = []
-            for debt_id in debts_to_settle:
-                success = debt_dal.settle_debt(debt_id)
-                if success:
-                    debt_settlement_notifications.append(debt_id)
-
-            # STEP 2: Process debt transfers
+            # STEP 1: Process debt transfers (no debt settlement anymore)
             total_debt_transferred = 0
             transfer_notifications = []
 
@@ -3032,13 +3317,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     }}
                 )
             else:
-                # Regular player - deactivate normally
+                # Regular player - keep active in game with debt if applicable
                 db.players.update_one(
                     {"game_id": game_id, "user_id": user_id},
                     {"$set": {
                         "cashed_out": True,
                         "cashout_time": datetime.now(timezone.utc),
-                        "active": False,
+                        "active": True,  # Keep active so they remain in game with debt
                         "final_chips": chip_count
                     }}
                 )
@@ -3073,13 +3358,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Create approval message
             cashout_msg = f"✅ Approved cashout: {chip_count} chips\n"
-
-            if debt_settlement > 0:
-                cashout_msg += f"💳 Player's debt settled: {debt_settlement}\n"
+            cashout_msg += f"💵 Cash paid: {final_cash}\n"
 
             if total_debt_transferred > 0:
-                cashout_msg += f"💳 Debt transferred to player: {total_debt_transferred}\n"
-                cashout_msg += f"💵 Cash to pay: {final_cash}\n\n"
+                cashout_msg += f"💳 Debt transferred to player: {total_debt_transferred}\n\n"
                 cashout_msg += f"Debts transferred to {player_name}:\n"
                 for notif in transfer_notifications:
                     cashout_msg += f"• {notif['debtor_name']}: {notif['amount']}\n"
@@ -3098,23 +3380,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Notify the cashing out player
             player_notification = f"✅ Cashout approved: {chip_count} chips\n"
-
-            if debt_settlement > 0:
-                player_notification += f"💳 Your debt settled: {debt_settlement}\n"
+            player_notification += f"💵 Cash you receive: {final_cash}\n"
 
             if total_debt_transferred > 0:
-                player_notification += f"💳 Debt transferred to you: {total_debt_transferred}\n"
-                player_notification += f"💵 Cash you receive: {final_cash}\n\n"
-                player_notification += "📋 Players now owe you:\n"
-                for notif in transfer_notifications:
-                    player_notification += f"• {notif['debtor_name']}: {notif['amount']}\n"
-            else:
-                player_notification += f"💵 Cash you receive: {final_cash}\n"
+                debt_transfer_msg = message_formatter.format_debt_transfer_notification(
+                    transfer_notifications, total_debt_transferred
+                )
+                player_notification += f"\n{debt_transfer_msg}\n"
 
             if is_former_host_cashout or was_host:
                 player_notification += "\n👤 You remain in the game as a regular player."
             else:
-                player_notification += "\nYou have been removed from the game. Thank you for playing!"
+                # Check if player has debt - get their current debt amount (both pending and assigned)
+                current_debts = debt_dal.get_player_debts(game_id, user_id)
+                current_debt = sum(debt["amount"] for debt in current_debts if debt["status"] in ["pending", "assigned"])
+                if current_debt > 0:
+                    player_notification += f"\n💳 Outstanding debt: {current_debt}. You remain in the game and will need to settle this debt."
+                else:
+                    player_notification += "\n✅ You have fully cashed out and may continue playing!"
 
             await context.bot.send_message(chat_id=user_id, text=player_notification)
 
@@ -3146,22 +3429,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             # Regular buy-in approval
             await query.edit_message_text(f"✅ Approved {tx['type']} {tx['amount']}")
-            await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
 
-            # If this is a register buyin, create a debt record
-            if tx["type"] == "buyin_register":
-                # Get player name
-                player = player_dal.get_player(tx["game_id"], tx["user_id"])
-                player_name = player.name if player else "Unknown"
-
-                # Create debt record
-                debt_dal.create_debt(
-                    game_id=tx["game_id"],
-                    debtor_user_id=tx["user_id"],
-                    debtor_name=player_name,
-                    amount=tx["amount"],
-                    transaction_id=tx_id
+            # Send notification to player with debt info if register buyin
+            if tx['type'] == 'buyin_register':
+                player_msg = (
+                    f"✅ Approved {tx['type']} {tx['amount']}\n\n"
+                    f"💳 You now owe {tx['amount']} to the game.\n"
+                    f"This debt will be transferred to other players when they cash out."
                 )
+                await context.bot.send_message(chat_id=tx["user_id"], text=player_msg)
+            else:
+                await context.bot.send_message(chat_id=tx["user_id"], text=f"✅ Approved {tx['type']} {tx['amount']}")
+
+            # Note: Debt creation for register buyin is now handled by TransactionService
+            # No need to create debt record here - it's handled in the service layer
     else:
         # Handle rejection with suggestions
         transaction_dal.update_status(ObjectId(tx_id), False, True)
@@ -3299,7 +3580,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^👤 Player List$"), player_list))
     app.add_handler(MessageHandler(filters.Regex("^⚖️ Settle$"), settle_game))
     app.add_handler(MessageHandler(filters.Regex("^📈 View Settlement$"), view_settlement))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), host_status))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Status$"), unified_status))
     app.add_handler(MessageHandler(filters.Regex("^📋 Game Report$"), host_game_report))
     app.add_handler(MessageHandler(filters.Regex("^📱 Share QR$"), share_qr))
 
