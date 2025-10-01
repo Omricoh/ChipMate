@@ -8,7 +8,7 @@ nixPkgs = ["python3", "python3Packages.pip", "python3Packages.virtualenv", "node
 cmds = [
   "python3 -m venv venv",
   "source venv/bin/activate && pip install -r requirements.txt",
-  "cd web-ui && npm ci --legacy-peer-deps && cd .."
+  "cd web-ui && npm install --legacy-peer-deps && cd .."
 ]
 
 [phases.build]

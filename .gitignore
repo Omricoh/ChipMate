@@ -1,3 +1,8 @@
 __pycache__
 *.pyc
 .idea
+/web-ui/.angular/cache
+/web-ui/dist
+/web-ui/node_modules/.bin
+/web-ui/node_modules/@angular-devkit
+/web-ui/node_modules
