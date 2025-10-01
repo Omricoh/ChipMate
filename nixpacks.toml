@@ -1,14 +1,12 @@
 [variables]
 NODE_VERSION = "18"
-PYTHON_VERSION = "3.10"
 
 [phases.setup]
-nixPkgs = ["python310", "python310Packages.pip", "nodejs_18", "npm-9_x"]
+nixPkgs = ["python3", "python3Packages.pip", "nodejs_18"]
 
 [phases.install]
 cmds = [
-  "python3 -m pip install --upgrade pip",
-  "pip install -r requirements.txt",
+  "pip3 install -r requirements.txt",
   "cd web-ui && npm install && cd .."
 ]
 
@@ -18,4 +16,4 @@ cmds = [
 ]
 
 [start]
-cmd = "python src/api/production_server.py"
+cmd = "python3 src/api/production_server.py"
