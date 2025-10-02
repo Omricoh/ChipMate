@@ -143,8 +143,12 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Get port from environment (Railway sets this)
-    port = int(os.getenv('PORT', 5000))
+    # Railway uses port 8080 internally
+    port = int(os.getenv('PORT', 8080))
+
+    # Force port 8080 for Railway
+    if os.getenv('RAILWAY_ENVIRONMENT_NAME'):
+        port = 8080
 
     # Check if we're in production
     is_production = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None

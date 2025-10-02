@@ -86,12 +86,17 @@ def serve_angular(path):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Get port from environment
-    port = int(os.getenv('PORT', 5000))
+    # Railway uses port 8080 internally
+    port = int(os.getenv('PORT', 8080))
+
+    # Force port 8080 for Railway
+    if os.getenv('RAILWAY_ENVIRONMENT_NAME'):
+        port = 8080
 
     logger.info("="*50)
     logger.info(f"Starting ChipMate Server")
     logger.info(f"Port: {port}")
+    logger.info(f"Railway env: {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'not set')}")
     logger.info(f"Angular path: {ANGULAR_BUILD_PATH}")
     logger.info(f"Angular exists: {os.path.exists(ANGULAR_BUILD_PATH)}")
     logger.info("="*50)
