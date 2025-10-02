@@ -86,8 +86,9 @@ def login():
             else:
                 return jsonify({'error': 'Invalid admin credentials'}), 401
 
-        if not name:
-            return jsonify({'error': 'Name is required'}), 400
+        # For player login, require either name or user_id
+        if not name and not user_id:
+            return jsonify({'error': 'Name or User ID is required'}), 400
 
         # If user_id provided, try to find existing player
         if user_id:
@@ -121,9 +122,12 @@ def login():
         if not user_id:
             user_id = int(datetime.now().timestamp() * 1000)  # Generate unique ID
 
+        # Use name if provided, otherwise create a default name
+        display_name = name if name else f'User_{user_id}'
+
         user = {
             'id': user_id,
-            'name': name,
+            'name': display_name,
             'is_authenticated': True,
             'current_game_id': None,
             'is_host': False,
@@ -132,7 +136,7 @@ def login():
 
         return jsonify({
             'user': user,
-            'message': f'Welcome, {name}!'
+            'message': f'Welcome, {display_name}!'
         })
 
     except Exception as e:
