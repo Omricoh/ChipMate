@@ -125,7 +125,7 @@ import { AuthRequest } from '../../../models/user.model';
                   <button
                     type="submit"
                     class="btn btn-primary"
-                    [disabled]="loginForm.invalid || isLoading"
+                    [disabled]="isLoading"
                   >
                     <span *ngIf="isLoading" class="loading-spinner me-2"></span>
                     <i *ngIf="!isLoading" class="bi bi-box-arrow-in-right me-2"></i>
@@ -166,7 +166,7 @@ export class LoginComponent {
     private router: Router
   ) {
     this.loginForm = this.formBuilder.group({
-      name: ['', [Validators.required, Validators.minLength(2)]],
+      name: ['', [Validators.minLength(2)]],
       user_id: ['']
     });
 
@@ -182,36 +182,45 @@ export class LoginComponent {
   }
 
   onSubmit(): void {
-    if (this.loginForm.valid) {
-      this.isLoading = true;
-      this.errorMessage = '';
+    const name = this.loginForm.value.name?.trim();
+    const userId = this.loginForm.value.user_id;
 
-      const authRequest: AuthRequest = {
-        name: this.loginForm.value.name.trim()
-      };
-
-      if (this.loginForm.value.user_id) {
-        authRequest.user_id = parseInt(this.loginForm.value.user_id, 10);
-      }
-
-      this.apiService.login(authRequest).subscribe({
-        next: (response) => {
-          this.apiService.setCurrentUser(response.user);
-          this.isLoading = false;
-
-          // Redirect to current game if user has one, otherwise to home
-          if (response.user.current_game_id) {
-            this.router.navigate(['/game', response.user.current_game_id]);
-          } else {
-            this.router.navigate(['/home']);
-          }
-        },
-        error: (error) => {
-          this.isLoading = false;
-          this.errorMessage = error.error?.error || 'Login failed. Please try again.';
-        }
-      });
+    // At least one of name or user_id must be provided
+    if (!name && !userId) {
+      this.errorMessage = 'Please enter your name or User ID';
+      return;
     }
+
+    this.isLoading = true;
+    this.errorMessage = '';
+
+    const authRequest: AuthRequest = {};
+
+    if (name) {
+      authRequest.name = name;
+    }
+
+    if (userId) {
+      authRequest.user_id = parseInt(userId, 10);
+    }
+
+    this.apiService.login(authRequest).subscribe({
+      next: (response) => {
+        this.apiService.setCurrentUser(response.user);
+        this.isLoading = false;
+
+        // Redirect to current game if user has one, otherwise to home
+        if (response.user.current_game_id) {
+          this.router.navigate(['/game', response.user.current_game_id]);
+        } else {
+          this.router.navigate(['/home']);
+        }
+      },
+      error: (error) => {
+        this.isLoading = false;
+        this.errorMessage = error.error?.error || 'Login failed. Please try again.';
+      }
+    });
   }
 
   onAdminSubmit(): void {
