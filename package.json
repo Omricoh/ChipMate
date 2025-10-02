@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "ChipMate - Poker Game Management System",
   "scripts": {
-    "build": "cd web-ui && npm install --legacy-peer-deps && npm run build && cd ..",
+    "build": "cd web-ui && npm run build && cd ..",
     "start": "python src/api/production_server.py",
     "dev": "python src/api/web_api.py"
   },

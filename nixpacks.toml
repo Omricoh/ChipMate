@@ -1,0 +1,17 @@
+[phases.setup]
+nixPkgs = ["python310", "python310Packages.pip", "nodejs_18"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "npm install",
+  "cd web-ui && npm install --legacy-peer-deps && cd .."
+]
+
+[phases.build]
+cmds = [
+  "cd web-ui && npm run build && cd .."
+]
+
+[start]
+cmd = "python src/api/production_server.py"
