@@ -1,9 +1,11 @@
 [phases.setup]
-nixPkgs = ["python310", "python310Packages.pip", "nodejs_18"]
+nixPkgs = ["python310", "python310Packages.pip", "python310Packages.virtualenv", "nodejs_18"]
 
 [phases.install]
 cmds = [
-  "pip install -r requirements.txt",
+  "python -m venv /opt/venv",
+  "/opt/venv/bin/pip install --upgrade pip",
+  "/opt/venv/bin/pip install -r requirements.txt",
   "npm install",
   "cd web-ui && npm install --legacy-peer-deps && cd .."
 ]
@@ -14,4 +16,4 @@ cmds = [
 ]
 
 [start]
-cmd = "chmod +x start.sh && ./start.sh"
+cmd = "/opt/venv/bin/python src/api/simple_server.py"
