@@ -1,1 +1,1 @@
-web: python src/api/minimal_server.py
+web: python src/api/production_server.py
