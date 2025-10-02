@@ -14,4 +14,4 @@ cmds = [
 ]
 
 [start]
-cmd = "python src/api/production_server.py"
+cmd = "chmod +x start.sh && ./start.sh"
