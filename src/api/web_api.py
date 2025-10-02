@@ -63,6 +63,28 @@ def login():
         data = request.get_json()
         name = data.get('name', '').strip()
         user_id = data.get('user_id')
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+
+        # Check for admin login
+        if username and password:
+            if admin_service.authenticate_admin(username, password):
+                # Admin user
+                admin_user = {
+                    'id': -1,  # Special ID for admin
+                    'name': 'Admin',
+                    'username': username,
+                    'is_authenticated': True,
+                    'current_game_id': None,
+                    'is_host': False,
+                    'is_admin': True
+                }
+                return jsonify({
+                    'user': admin_user,
+                    'message': f'Welcome, Admin!'
+                })
+            else:
+                return jsonify({'error': 'Invalid admin credentials'}), 401
 
         if not name:
             return jsonify({'error': 'Name is required'}), 400
@@ -86,7 +108,8 @@ def login():
                     'name': existing_player['name'],
                     'is_authenticated': True,
                     'current_game_id': current_game_id,
-                    'is_host': existing_player.get('is_host', False)
+                    'is_host': existing_player.get('is_host', False),
+                    'is_admin': False
                 }
 
                 return jsonify({
@@ -103,7 +126,8 @@ def login():
             'name': name,
             'is_authenticated': True,
             'current_game_id': None,
-            'is_host': False
+            'is_host': False,
+            'is_admin': False
         }
 
         return jsonify({
@@ -122,12 +146,16 @@ def create_game():
     try:
         data = request.get_json()
         host_name = data.get('host_name', '').strip()
+        user_id = data.get('user_id')
 
         if not host_name:
             return jsonify({'error': 'Host name is required'}), 400
 
-        # Generate unique host user ID
-        host_user_id = int(datetime.now().timestamp() * 1000)
+        # Use provided user_id or generate unique host user ID
+        if not user_id:
+            host_user_id = int(datetime.now().timestamp() * 1000)
+        else:
+            host_user_id = user_id
 
         # Create game using existing service
         game_id, game_code = game_service.create_game(host_user_id, host_name)
@@ -135,6 +163,7 @@ def create_game():
         return jsonify({
             'game_id': game_id,
             'game_code': game_code,
+            'host_user_id': host_user_id,
             'message': f'Game {game_code} created successfully!'
         })
 

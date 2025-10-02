@@ -21,7 +21,77 @@ import { AuthRequest } from '../../../models/user.model';
               </h4>
             </div>
             <div class="card-body">
-              <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+              <!-- Login Type Toggle -->
+              <div class="btn-group w-100 mb-3" role="group">
+                <button
+                  type="button"
+                  class="btn"
+                  [class.btn-primary]="!isAdminMode"
+                  [class.btn-outline-primary]="isAdminMode"
+                  (click)="toggleMode(false)"
+                >
+                  <i class="bi bi-person me-1"></i>
+                  Player Login
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  [class.btn-primary]="isAdminMode"
+                  [class.btn-outline-primary]="!isAdminMode"
+                  (click)="toggleMode(true)"
+                >
+                  <i class="bi bi-shield-lock me-1"></i>
+                  Admin Login
+                </button>
+              </div>
+
+              <!-- Admin Login Form -->
+              <form *ngIf="isAdminMode" [formGroup]="adminLoginForm" (ngSubmit)="onAdminSubmit()">
+                <div class="mb-3">
+                  <label for="username" class="form-label">Username</label>
+                  <input
+                    type="text"
+                    class="form-control"
+                    id="username"
+                    formControlName="username"
+                    placeholder="Admin username"
+                    [class.is-invalid]="adminLoginForm.get('username')?.invalid && adminLoginForm.get('username')?.touched"
+                  >
+                  <div class="invalid-feedback" *ngIf="adminLoginForm.get('username')?.invalid && adminLoginForm.get('username')?.touched">
+                    Username is required
+                  </div>
+                </div>
+
+                <div class="mb-3">
+                  <label for="password" class="form-label">Password</label>
+                  <input
+                    type="password"
+                    class="form-control"
+                    id="password"
+                    formControlName="password"
+                    placeholder="Admin password"
+                    [class.is-invalid]="adminLoginForm.get('password')?.invalid && adminLoginForm.get('password')?.touched"
+                  >
+                  <div class="invalid-feedback" *ngIf="adminLoginForm.get('password')?.invalid && adminLoginForm.get('password')?.touched">
+                    Password is required
+                  </div>
+                </div>
+
+                <div class="d-grid">
+                  <button
+                    type="submit"
+                    class="btn btn-primary"
+                    [disabled]="adminLoginForm.invalid || isLoading"
+                  >
+                    <span *ngIf="isLoading" class="loading-spinner me-2"></span>
+                    <i *ngIf="!isLoading" class="bi bi-shield-lock me-2"></i>
+                    {{ isLoading ? 'Logging in...' : 'Admin Login' }}
+                  </button>
+                </div>
+              </form>
+
+              <!-- Player Login Form -->
+              <form *ngIf="!isAdminMode" [formGroup]="loginForm" (ngSubmit)="onSubmit()">
                 <div class="mb-3">
                   <label for="name" class="form-label">Your Name</label>
                   <input
@@ -69,7 +139,7 @@ import { AuthRequest } from '../../../models/user.model';
                 {{ errorMessage }}
               </div>
 
-              <div class="mt-4 text-center">
+              <div class="mt-4 text-center" *ngIf="!isAdminMode">
                 <small class="text-muted">
                   <i class="bi bi-info-circle me-1"></i>
                   ChipMate helps you track poker game buy-ins, cashouts, and debts easily.
@@ -85,6 +155,8 @@ import { AuthRequest } from '../../../models/user.model';
 })
 export class LoginComponent {
   loginForm: FormGroup;
+  adminLoginForm: FormGroup;
+  isAdminMode = false;
   isLoading = false;
   errorMessage = '';
 
@@ -97,6 +169,16 @@ export class LoginComponent {
       name: ['', [Validators.required, Validators.minLength(2)]],
       user_id: ['']
     });
+
+    this.adminLoginForm = this.formBuilder.group({
+      username: ['', Validators.required],
+      password: ['', Validators.required]
+    });
+  }
+
+  toggleMode(isAdmin: boolean): void {
+    this.isAdminMode = isAdmin;
+    this.errorMessage = '';
   }
 
   onSubmit(): void {
@@ -126,7 +208,33 @@ export class LoginComponent {
         },
         error: (error) => {
           this.isLoading = false;
-          this.errorMessage = error.error?.message || 'Login failed. Please try again.';
+          this.errorMessage = error.error?.error || 'Login failed. Please try again.';
+        }
+      });
+    }
+  }
+
+  onAdminSubmit(): void {
+    if (this.adminLoginForm.valid) {
+      this.isLoading = true;
+      this.errorMessage = '';
+
+      const authRequest: AuthRequest = {
+        username: this.adminLoginForm.value.username.trim(),
+        password: this.adminLoginForm.value.password
+      };
+
+      this.apiService.login(authRequest).subscribe({
+        next: (response) => {
+          this.apiService.setCurrentUser(response.user);
+          this.isLoading = false;
+
+          // Admin users go to home
+          this.router.navigate(['/home']);
+        },
+        error: (error) => {
+          this.isLoading = false;
+          this.errorMessage = error.error?.error || 'Invalid admin credentials. Please try again.';
         }
       });
     }

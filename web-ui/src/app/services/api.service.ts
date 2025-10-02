@@ -59,10 +59,18 @@ export class ApiService {
   }
 
   // Game Management
-  createGame(hostName: string): Observable<{ game_id: string; game_code: string }> {
-    return this.http.post<{ game_id: string; game_code: string }>(`${this.baseUrl}/games`, {
+  createGame(hostName: string): Observable<{ game_id: string; game_code: string; host_user_id: number }> {
+    const currentUser = this.getCurrentUser();
+    const requestBody: any = {
       host_name: hostName
-    }, { headers: this.getHeaders() });
+    };
+
+    // Include user_id if user is logged in
+    if (currentUser && currentUser.id) {
+      requestBody.user_id = currentUser.id;
+    }
+
+    return this.http.post<{ game_id: string; game_code: string; host_user_id: number }>(`${this.baseUrl}/games`, requestBody, { headers: this.getHeaders() });
   }
 
   joinGame(gameCode: string, userName: string): Observable<{ game_id: string; message: string }> {
