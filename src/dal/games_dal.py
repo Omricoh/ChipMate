@@ -20,6 +20,8 @@ class GamesDAL:
     def get_by_code(self, code: str):
         doc = self.col.find_one({"code": code, "status": "active"})
         if doc:
+            # Convert ObjectId to string for id field
+            doc['_id'] = str(doc['_id'])
             # Check if game should be expired
             game = Game(**doc)
             if (datetime.utcnow() - game.created_at) > timedelta(hours=12):
@@ -35,6 +37,8 @@ class GamesDAL:
             game_id = ObjectId(game_id)
         doc = self.col.find_one({"_id": game_id})
         if doc:
+            # Convert ObjectId to string for id field
+            doc['_id'] = str(doc['_id'])
             return Game(**doc)
         return None
 
@@ -60,6 +64,8 @@ class GamesDAL:
 
         games = []
         for doc in self.col.find():
+            # Convert ObjectId to string for id field
+            doc['_id'] = str(doc['_id'])
             games.append(Game(**doc))
         return games
 
