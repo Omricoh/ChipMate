@@ -338,7 +338,7 @@ def create_buyin():
         data = request.get_json()
         game_id = data.get('game_id')
         user_id = data.get('user_id')
-        buyin_type = 'buyin_cash' if data.get('type') == 'cash' else 'buyin_register'
+        buyin_type = 'cash' if data.get('type') == 'cash' else 'register'
         amount = data.get('amount')
 
         if not all([game_id, user_id, amount]):
