@@ -58,7 +58,7 @@ import { Observable } from 'rxjs';
                 </li>
                 <li><hr class="dropdown-divider"></li>
                 <li>
-                  <a class="dropdown-item" href="#" (click)="logout()">
+                  <a class="dropdown-item" href="#" (click)="logout(); $event.preventDefault()">
                     <i class="bi bi-box-arrow-right me-2"></i>
                     Logout
                   </a>
