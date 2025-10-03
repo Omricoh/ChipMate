@@ -30,7 +30,7 @@ MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017/')
 logger = logging.getLogger("chipbot")
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:4200", "http://127.0.0.1:4200"])  # Allow Angular dev server
+CORS(app, origins=["https://chipmate.up.railway.app", "*"])  # Allow Railway deployment and all origins
 
 # Initialize services
 game_service = GameService(MONGO_URL)
