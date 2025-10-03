@@ -112,10 +112,11 @@ class GameService:
             # Calculate money in play
             active_player_ids = [p.user_id for p in players if p.active and not p.quit]
 
+            # Support both old and new transaction type formats
             all_buyins = self.db.transactions.find({
                 "game_id": game_id,
                 "user_id": {"$in": active_player_ids},
-                "type": {"$in": ["buyin_cash", "buyin_register"]},
+                "type": {"$in": ["buyin_cash", "buyin_register", "buyin_buyin_cash", "buyin_buyin_register"]},
                 "confirmed": True,
                 "rejected": False
             })
@@ -123,9 +124,9 @@ class GameService:
             total_cash = 0
             total_credit = 0
             for tx in all_buyins:
-                if tx["type"] == "buyin_cash":
+                if tx["type"] in ["buyin_cash", "buyin_buyin_cash"]:
                     total_cash += tx["amount"]
-                elif tx["type"] == "buyin_register":
+                elif tx["type"] in ["buyin_register", "buyin_buyin_register"]:
                     total_credit += tx["amount"]
 
             # Calculate cashed out amounts
@@ -166,11 +167,11 @@ class GameService:
 
             for p in players:
                 if p.final_chips is not None:
-                    # Calculate buyins
+                    # Calculate buyins (support both old and new transaction formats)
                     transactions = self.db.transactions.find({
                         "game_id": game_id,
                         "user_id": p.user_id,
-                        "type": {"$in": ["buyin_cash", "buyin_register"]},
+                        "type": {"$in": ["buyin_cash", "buyin_register", "buyin_buyin_cash", "buyin_buyin_register"]},
                         "confirmed": True,
                         "rejected": False
                     })

@@ -245,8 +245,9 @@ class TransactionService:
                 if '_id' in tx:
                     tx['_id'] = str(tx['_id'])
 
-            cash_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_cash")
-            credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_register")
+            # Support both old and new transaction type formats
+            cash_buyins = sum(tx["amount"] for tx in transactions if tx["type"] in ["buyin_cash", "buyin_buyin_cash"])
+            credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] in ["buyin_register", "buyin_buyin_register"])
             total_buyins = cash_buyins + credit_buyins
 
             # Get player's debt (both pending and assigned debts)
