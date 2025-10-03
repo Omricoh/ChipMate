@@ -16,4 +16,4 @@ cmds = [
 ]
 
 [start]
-cmd = "/opt/venv/bin/python src/api/simple_server.py"
+cmd = "/opt/venv/bin/python src/api/production_server.py"
