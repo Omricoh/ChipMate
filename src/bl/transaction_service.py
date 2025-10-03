@@ -240,6 +240,11 @@ class TransactionService:
                 "rejected": False
             }))
 
+            # Convert ObjectId to string for JSON serialization
+            for tx in transactions:
+                if '_id' in tx:
+                    tx['_id'] = str(tx['_id'])
+
             cash_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_cash")
             credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_register")
             total_buyins = cash_buyins + credit_buyins
