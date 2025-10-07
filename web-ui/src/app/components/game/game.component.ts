@@ -211,7 +211,19 @@ import { Subscription, interval } from 'rxjs';
             </div>
             <div class="card-body">
               <div class="d-grid gap-2">
-                <button class="btn btn-info" (click)="showSettlement = true">
+                <button class="btn btn-success" (click)="showHostBuyin = true">
+                  <i class="bi bi-plus-circle me-2"></i>
+                  Add Buy-in for Player
+                </button>
+                <button class="btn btn-warning" (click)="showHostCashout = true">
+                  <i class="bi bi-arrow-up-circle me-2"></i>
+                  Process Cashout for Player
+                </button>
+                <button class="btn btn-info" (click)="loadGameReport()">
+                  <i class="bi bi-file-earmark-text me-2"></i>
+                  Game Report
+                </button>
+                <button class="btn btn-secondary" (click)="showSettlement = true">
                   <i class="bi bi-calculator me-2"></i>
                   View Settlement
                 </button>
@@ -295,6 +307,201 @@ import { Subscription, interval } from 'rxjs';
     </div>
     <div class="modal-backdrop fade" [class.show]="showQrCode" *ngIf="showQrCode" (click)="showQrCode = false"></div>
 
+    <!-- Host Buy-in Modal -->
+    <div class="modal fade" [class.show]="showHostBuyin" [style.display]="showHostBuyin ? 'block' : 'none'" tabindex="-1" *ngIf="showHostBuyin">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-plus-circle me-2"></i>
+              Add Buy-in for Player
+            </h5>
+            <button type="button" class="btn-close" (click)="showHostBuyin = false"></button>
+          </div>
+          <form [formGroup]="hostBuyinForm" (ngSubmit)="submitHostBuyin()">
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Select Player</label>
+                <select class="form-control" formControlName="player">
+                  <option value="">Choose player...</option>
+                  <option *ngFor="let player of getActivePlayers()" [value]="player.user_id">
+                    {{ player.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Type</label>
+                <select class="form-control" formControlName="type">
+                  <option value="cash">Cash</option>
+                  <option value="register">Credit</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Amount</label>
+                <input type="number" class="form-control" formControlName="amount" placeholder="Enter amount" min="1">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showHostBuyin = false">Cancel</button>
+              <button type="submit" class="btn btn-success" [disabled]="hostBuyinForm.invalid || isLoading">
+                <i class="bi bi-check-circle me-1"></i>
+                Add Buy-in
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade" [class.show]="showHostBuyin" *ngIf="showHostBuyin" (click)="showHostBuyin = false"></div>
+
+    <!-- Host Cashout Modal -->
+    <div class="modal fade" [class.show]="showHostCashout" [style.display]="showHostCashout ? 'block' : 'none'" tabindex="-1" *ngIf="showHostCashout">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-arrow-up-circle me-2"></i>
+              Process Cashout for Player
+            </h5>
+            <button type="button" class="btn-close" (click)="showHostCashout = false"></button>
+          </div>
+          <form [formGroup]="hostCashoutForm" (ngSubmit)="submitHostCashout()">
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Select Player</label>
+                <select class="form-control" formControlName="player">
+                  <option value="">Choose player...</option>
+                  <option *ngFor="let player of getActivePlayers()" [value]="player.user_id">
+                    {{ player.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Chip Count</label>
+                <input type="number" class="form-control" formControlName="amount" placeholder="Enter chip count" min="1">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="showHostCashout = false">Cancel</button>
+              <button type="submit" class="btn btn-warning" [disabled]="hostCashoutForm.invalid || isLoading">
+                <i class="bi bi-check-circle me-1"></i>
+                Process Cashout
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade" [class.show]="showHostCashout" *ngIf="showHostCashout" (click)="showHostCashout = false"></div>
+
+    <!-- Game Report Modal -->
+    <div class="modal fade" [class.show]="showReport" [style.display]="showReport ? 'block' : 'none'" tabindex="-1" *ngIf="showReport">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-file-earmark-text me-2"></i>
+              Game Report - {{ game?.code }}
+            </h5>
+            <button type="button" class="btn-close" (click)="showReport = false"></button>
+          </div>
+          <div class="modal-body" *ngIf="gameReport" style="max-height: 70vh; overflow-y: auto;">
+            <!-- Game Summary -->
+            <div class="card mb-3">
+              <div class="card-header bg-primary text-white">
+                <h6 class="mb-0">Game Summary</h6>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-6"><strong>Total Players:</strong> {{ gameReport.summary.total_players }}</div>
+                  <div class="col-6"><strong>Active Players:</strong> {{ gameReport.summary.active_players }}</div>
+                  <div class="col-6"><strong>Total Cash:</strong> {{ gameReport.summary.total_cash }}</div>
+                  <div class="col-6"><strong>Total Credit:</strong> {{ gameReport.summary.total_credit }}</div>
+                  <div class="col-12 mt-2"><strong>Total Buy-ins:</strong> <span class="text-primary fs-5">{{ gameReport.summary.total_buyins }}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Player Details -->
+            <div class="card mb-3">
+              <div class="card-header bg-success text-white">
+                <h6 class="mb-0">Player Details</h6>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Player</th>
+                        <th>Cash</th>
+                        <th>Credit</th>
+                        <th>Total</th>
+                        <th>Debt</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let player of gameReport.players">
+                        <td>
+                          {{ player.name }}
+                          <i class="bi bi-crown-fill text-warning ms-1" *ngIf="player.is_host"></i>
+                        </td>
+                        <td>{{ player.cash_buyins }}</td>
+                        <td>{{ player.credit_buyins }}</td>
+                        <td><strong>{{ player.total_buyins }}</strong></td>
+                        <td class="text-danger">{{ player.pending_debt }}</td>
+                        <td>
+                          <span class="badge bg-success" *ngIf="player.active && !player.cashed_out">Active</span>
+                          <span class="badge bg-info" *ngIf="player.cashed_out">Cashed Out ({{ player.final_chips }})</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Debt Information -->
+            <div class="card mb-3" *ngIf="gameReport.debts && gameReport.debts.length > 0">
+              <div class="card-header bg-warning">
+                <h6 class="mb-0">Outstanding Debts</h6>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Debtor</th>
+                        <th>Creditor</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let debt of gameReport.debts">
+                        <td>{{ debt.debtor_name }}</td>
+                        <td>{{ debt.creditor_name || 'Unassigned' }}</td>
+                        <td>{{ debt.amount }}</td>
+                        <td>
+                          <span class="badge" [class]="debt.status === 'pending' ? 'bg-warning' : 'bg-success'">
+                            {{ debt.status | titlecase }}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" (click)="showReport = false">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade" [class.show]="showReport" *ngIf="showReport" (click)="showReport = false"></div>
+
     <!-- Messages -->
     <div class="position-fixed top-0 end-0 p-3" style="z-index: 11">
       <div class="toast align-items-center text-white bg-success border-0" [class.show]="showSuccessToast" role="alert">
@@ -335,12 +542,18 @@ export class GameComponent implements OnInit, OnDestroy {
   isLoading = false;
   showQrCode = false;
   showSettlement = false;
+  showReport = false;
+  showHostBuyin = false;
+  showHostCashout = false;
   qrCodeDataUrl = '';
   gameJoinUrl = '';
+  gameReport: any = null;
 
   // Forms
   buyinForm: FormGroup;
   cashoutForm: FormGroup;
+  hostBuyinForm: FormGroup;
+  hostCashoutForm: FormGroup;
 
   // Messages
   successMessage = '';
@@ -364,6 +577,17 @@ export class GameComponent implements OnInit, OnDestroy {
     });
 
     this.cashoutForm = this.formBuilder.group({
+      amount: ['', [Validators.required, Validators.min(1)]]
+    });
+
+    this.hostBuyinForm = this.formBuilder.group({
+      player: ['', [Validators.required]],
+      amount: ['', [Validators.required, Validators.min(1)]],
+      type: ['cash', [Validators.required]]
+    });
+
+    this.hostCashoutForm = this.formBuilder.group({
+      player: ['', [Validators.required]],
       amount: ['', [Validators.required, Validators.min(1)]]
     });
 
@@ -597,5 +821,69 @@ export class GameComponent implements OnInit, OnDestroy {
     setTimeout(() => {
       this.showErrorToast = false;
     }, 5000);
+  }
+
+  // Host Management Methods
+  submitHostBuyin(): void {
+    if (this.hostBuyinForm.valid && this.game) {
+      this.isLoading = true;
+      const userId = parseInt(this.hostBuyinForm.value.player, 10);
+      const amount = parseInt(this.hostBuyinForm.value.amount, 10);
+      const type = this.hostBuyinForm.value.type;
+
+      this.apiService.hostBuyin(this.game.id, userId, type, amount).subscribe({
+        next: (response) => {
+          this.isLoading = false;
+          this.hostBuyinForm.reset({ type: 'cash' });
+          this.showHostBuyin = false;
+          this.showSuccess('Buy-in added successfully');
+          this.refreshData();
+        },
+        error: (error) => {
+          this.isLoading = false;
+          this.showError(error.error?.message || 'Failed to add buy-in');
+        }
+      });
+    }
+  }
+
+  submitHostCashout(): void {
+    if (this.hostCashoutForm.valid && this.game) {
+      this.isLoading = true;
+      const userId = parseInt(this.hostCashoutForm.value.player, 10);
+      const amount = parseInt(this.hostCashoutForm.value.amount, 10);
+
+      this.apiService.hostCashout(this.game.id, userId, amount).subscribe({
+        next: (response) => {
+          this.isLoading = false;
+          this.hostCashoutForm.reset();
+          this.showHostCashout = false;
+          this.showSuccess('Cashout processed successfully');
+          this.refreshData();
+        },
+        error: (error) => {
+          this.isLoading = false;
+          this.showError(error.error?.message || 'Failed to process cashout');
+        }
+      });
+    }
+  }
+
+  loadGameReport(): void {
+    if (this.game) {
+      this.apiService.getGameReport(this.game.id).subscribe({
+        next: (report) => {
+          this.gameReport = report;
+          this.showReport = true;
+        },
+        error: (error) => {
+          this.showError('Failed to load game report');
+        }
+      });
+    }
+  }
+
+  getActivePlayers(): Player[] {
+    return this.players.filter(p => p.active && !p.quit);
   }
 }

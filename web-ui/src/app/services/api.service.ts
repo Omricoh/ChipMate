@@ -161,4 +161,50 @@ export class ApiService {
       headers: this.getHeaders()
     });
   }
+
+  // Host Management Endpoints
+  hostBuyin(gameId: string, userId: number, type: string, amount: number): Observable<{ transaction_id: string; message: string }> {
+    return this.http.post<{ transaction_id: string; message: string }>(`${this.baseUrl}/games/${gameId}/host-buyin`, {
+      user_id: userId,
+      type,
+      amount
+    }, { headers: this.getHeaders() });
+  }
+
+  hostCashout(gameId: string, userId: number, amount: number): Observable<{ transaction_id: string; message: string; debt_info: any }> {
+    return this.http.post<{ transaction_id: string; message: string; debt_info: any }>(`${this.baseUrl}/games/${gameId}/host-cashout`, {
+      user_id: userId,
+      amount
+    }, { headers: this.getHeaders() });
+  }
+
+  getGameReport(gameId: string): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/games/${gameId}/report`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  // Admin Endpoints
+  listAllGames(status?: string): Observable<{ games: Game[] }> {
+    let params = new HttpParams();
+    if (status) {
+      params = params.set('status', status);
+    }
+    return this.http.get<{ games: Game[] }>(`${this.baseUrl}/admin/games`, {
+      headers: this.getHeaders(),
+      params
+    });
+  }
+
+  getSystemStats(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/admin/stats`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  destroyGame(gameId: string): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(`${this.baseUrl}/admin/games/${gameId}/destroy`, {
+      headers: this.getHeaders()
+    });
+  }
 }

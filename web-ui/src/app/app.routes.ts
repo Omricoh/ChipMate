@@ -4,6 +4,7 @@ import { LoginComponent } from './components/auth/login/login.component';
 import { GameComponent } from './components/game/game.component';
 import { CreateGameComponent } from './components/game/create-game/create-game.component';
 import { JoinGameComponent } from './components/game/join-game/join-game.component';
+import { AdminDashboardComponent } from './components/admin/admin-dashboard.component';
 import { AuthGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
@@ -22,6 +23,11 @@ export const routes: Routes = [
   {
     path: 'game/:gameId',
     component: GameComponent,
+    canActivate: [AuthGuard]
+  },
+  {
+    path: 'admin',
+    component: AdminDashboardComponent,
     canActivate: [AuthGuard]
   },
   { path: '**', redirectTo: '/home' }

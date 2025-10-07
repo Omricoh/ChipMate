@@ -489,6 +489,239 @@ def get_settlement_data(game_id):
         logger.error(f"Get settlement data error: {e}")
         return jsonify({'error': 'Failed to get settlement data'}), 500
 
+# Admin endpoints
+@app.route('/api/admin/games', methods=['GET'])
+def list_all_games():
+    """List all games for admin"""
+    try:
+        # Get optional status filter
+        status = request.args.get('status')
+
+        query = {}
+        if status:
+            query['status'] = status
+
+        games = list(games_dal.col.find(query).sort('created_at', -1))
+
+        # Convert ObjectId to string and prepare response
+        for game in games:
+            game['_id'] = str(game['_id'])
+            game['id'] = game['_id']
+
+            # Add player count
+            player_count = players_dal.col.count_documents({'game_id': game['_id']})
+            game['player_count'] = player_count
+
+        return jsonify({'games': games})
+
+    except Exception as e:
+        logger.error(f"List all games error: {e}")
+        return jsonify({'error': 'Failed to list games'}), 500
+
+@app.route('/api/admin/stats', methods=['GET'])
+def get_system_stats():
+    """Get system statistics for admin"""
+    try:
+        total_games = games_dal.col.count_documents({})
+        active_games = games_dal.col.count_documents({'status': 'active'})
+        total_players = players_dal.col.count_documents({})
+        active_players = players_dal.col.count_documents({'active': True})
+        total_transactions = transactions_dal.col.count_documents({})
+        total_debts = debt_dal.col.count_documents({})
+
+        # Calculate averages
+        avg_players_per_game = total_players / total_games if total_games > 0 else 0
+        avg_transactions_per_game = total_transactions / total_games if total_games > 0 else 0
+
+        stats = {
+            'version': '1.0.0',
+            'total_games': total_games,
+            'active_games': active_games,
+            'total_players': total_players,
+            'active_players': active_players,
+            'total_transactions': total_transactions,
+            'total_debts': total_debts,
+            'avg_players_per_game': round(avg_players_per_game, 2),
+            'avg_transactions_per_game': round(avg_transactions_per_game, 2)
+        }
+
+        return jsonify(stats)
+
+    except Exception as e:
+        logger.error(f"Get system stats error: {e}")
+        return jsonify({'error': 'Failed to get stats'}), 500
+
+@app.route('/api/admin/games/<game_id>/destroy', methods=['DELETE'])
+def destroy_game(game_id):
+    """Permanently delete a game and all related data"""
+    try:
+        # Delete all players
+        players_dal.col.delete_many({'game_id': game_id})
+
+        # Delete all transactions
+        transactions_dal.col.delete_many({'game_id': game_id})
+
+        # Delete all debts
+        debt_dal.col.delete_many({'game_id': game_id})
+
+        # Delete the game
+        from bson import ObjectId
+        games_dal.col.delete_one({'_id': ObjectId(game_id)})
+
+        logger.info(f"Admin destroyed game {game_id}")
+        return jsonify({'message': 'Game destroyed successfully'})
+
+    except Exception as e:
+        logger.error(f"Destroy game error: {e}")
+        return jsonify({'error': 'Failed to destroy game'}), 500
+
+# Host endpoints for managing other players
+@app.route('/api/games/<game_id>/host-buyin', methods=['POST'])
+def host_buyin(game_id):
+    """Host adds buy-in for any player"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        buyin_type = data.get('type', 'cash')
+        amount = data.get('amount')
+
+        if not user_id or not amount:
+            return jsonify({'error': 'User ID and amount are required'}), 400
+
+        # Create transaction
+        tx_id = transaction_service.create_buyin_transaction(
+            game_id, user_id, buyin_type, amount
+        )
+
+        # Auto-approve for host transactions
+        transaction_service.approve_transaction(tx_id)
+
+        logger.info(f"Host added {buyin_type} buy-in of {amount} for user {user_id}")
+        return jsonify({
+            'transaction_id': tx_id,
+            'message': 'Buy-in added successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Host buy-in error: {e}")
+        return jsonify({'error': 'Failed to create buy-in'}), 500
+
+@app.route('/api/games/<game_id>/host-cashout', methods=['POST'])
+def host_cashout(game_id):
+    """Host processes cashout for any player"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        amount = data.get('amount')
+
+        if not user_id or not amount:
+            return jsonify({'error': 'User ID and amount are required'}), 400
+
+        # Create cashout transaction
+        tx_id = transaction_service.create_cashout_transaction(
+            game_id, user_id, amount
+        )
+
+        # Process debt settlement
+        debt_result = transaction_service.process_cashout_with_debt_settlement(tx_id)
+
+        # Auto-approve for host transactions
+        transaction_service.approve_transaction(tx_id)
+
+        # Execute debt operations
+        transaction_service.execute_cashout_debt_operations(tx_id)
+
+        # Mark player as cashed out
+        player_service.mark_player_cashed_out(game_id, user_id, amount)
+
+        logger.info(f"Host processed cashout of {amount} for user {user_id}")
+        return jsonify({
+            'transaction_id': tx_id,
+            'message': 'Cashout processed successfully',
+            'debt_info': debt_result
+        })
+
+    except Exception as e:
+        logger.error(f"Host cashout error: {e}")
+        return jsonify({'error': 'Failed to process cashout'}), 500
+
+@app.route('/api/games/<game_id>/report', methods=['GET'])
+def get_game_report(game_id):
+    """Get comprehensive game report"""
+    try:
+        # Get game details
+        game = games_dal.get_game(game_id)
+        if not game:
+            return jsonify({'error': 'Game not found'}), 404
+
+        # Get all players
+        players = players_dal.get_players(game_id)
+
+        # Get all transactions
+        all_transactions = list(transactions_dal.col.find({
+            'game_id': game_id,
+            'confirmed': True,
+            'rejected': False
+        }))
+
+        # Convert ObjectId to string
+        for tx in all_transactions:
+            tx['_id'] = str(tx['_id'])
+
+        # Calculate player summaries
+        player_summaries = []
+        for player in players:
+            summary = transaction_service.get_player_transaction_summary(game_id, player.user_id)
+            player_summaries.append({
+                'name': player.name,
+                'user_id': player.user_id,
+                'cash_buyins': summary['cash_buyins'],
+                'credit_buyins': summary['credit_buyins'],
+                'total_buyins': summary['total_buyins'],
+                'pending_debt': summary['pending_debt'],
+                'is_host': player.is_host,
+                'active': player.active,
+                'cashed_out': player.cashed_out,
+                'final_chips': player.final_chips
+            })
+
+        # Get debt information
+        all_debts = list(debt_dal.col.find({'game_id': game_id}))
+        for debt in all_debts:
+            debt['_id'] = str(debt['_id'])
+
+        # Calculate totals
+        total_cash = sum(p['cash_buyins'] for p in player_summaries)
+        total_credit = sum(p['credit_buyins'] for p in player_summaries)
+        total_buyins = total_cash + total_credit
+
+        report = {
+            'game': {
+                'id': game.id,
+                'code': game.code,
+                'host_name': game.host_name,
+                'status': game.status,
+                'created_at': game.created_at.isoformat() if game.created_at else None
+            },
+            'players': player_summaries,
+            'transactions': all_transactions,
+            'debts': all_debts,
+            'summary': {
+                'total_players': len(players),
+                'active_players': sum(1 for p in players if p.active),
+                'total_cash': total_cash,
+                'total_credit': total_credit,
+                'total_buyins': total_buyins,
+                'total_transactions': len(all_transactions)
+            }
+        }
+
+        return jsonify(report)
+
+    except Exception as e:
+        logger.error(f"Get game report error: {e}")
+        return jsonify({'error': 'Failed to get game report'}), 500
+
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
