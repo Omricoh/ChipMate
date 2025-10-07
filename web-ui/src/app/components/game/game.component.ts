@@ -757,7 +757,10 @@ export class GameComponent implements OnInit, OnDestroy {
             });
           } else {
             console.warn('Current player not found in players list. Username:', this.currentUser.username, 'Available players:', players.map(p => p.name));
+            this.showError(`Player "${this.currentUser.username}" not found in game. Please rejoin the game.`);
           }
+        } else {
+          console.warn('No current user logged in');
         }
       }
     });
@@ -803,6 +806,12 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   submitBuyin(): void {
+    if (!this.currentPlayerUserId) {
+      this.showError('Cannot submit buy-in. Player not found in game. Please refresh or rejoin.');
+      console.error('submitBuyin failed: currentPlayerUserId is null');
+      return;
+    }
+
     if (this.buyinForm.valid && this.game && this.currentPlayerUserId) {
       this.isLoading = true;
 
@@ -829,6 +838,12 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   submitCashout(): void {
+    if (!this.currentPlayerUserId) {
+      this.showError('Cannot submit cashout. Player not found in game. Please refresh or rejoin.');
+      console.error('submitCashout failed: currentPlayerUserId is null');
+      return;
+    }
+
     if (this.cashoutForm.valid && this.game && this.currentPlayerUserId) {
       this.isLoading = true;
 
