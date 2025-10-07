@@ -643,8 +643,12 @@ def host_cashout(game_id):
         # Execute debt operations
         transaction_service.execute_cashout_debt_operations(tx_id)
 
-        # Mark player as cashed out
-        player_service.mark_player_cashed_out(game_id, user_id, amount)
+        # Check if the player being cashed out is the host
+        player = players_dal.get_player(game_id, user_id)
+        is_host = player.is_host if player else False
+
+        # Mark player as cashed out (host stays active but loses host status)
+        player_service.cashout_player(game_id, user_id, amount, is_host_cashout=is_host)
 
         logger.info(f"Host processed cashout of {amount} for user {user_id}")
         return jsonify({

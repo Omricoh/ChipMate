@@ -103,7 +103,8 @@ class TransactionService:
             return False
 
     def process_cashout_with_debt_settlement(self, tx_id: str) -> Dict[str, Any]:
-        """Process cashout with automatic debt settlement and transfers"""
+        """Process cashout with automatic debt settlement and transfers
+        Order: 1) Pay own debt, 2) Take cash, 3) Take other players' debt"""
         try:
             tx = self.transactions_dal.get(tx_id)
             if not tx or tx["type"] != "cashout":
@@ -117,27 +118,29 @@ class TransactionService:
             if not player:
                 return {"success": False, "error": "Player not found"}
 
-            # STEP 1: Calculate debt transfers from inactive players
-            available_debts = self._get_available_debt_transfers(game_id, user_id)
-            transfer_amount = min(chip_count, sum(d["amount"] for d in available_debts))
+            remaining_chips = chip_count
 
-            debt_transfers = []
-            remaining_transfer = transfer_amount
-            for debt in available_debts:
-                if remaining_transfer <= 0:
+            # STEP 1: Pay own debt first (from credit buy-ins)
+            player_debts = self.debt_dal.get_player_debts(game_id, user_id)
+            player_pending_debts = [d for d in player_debts if d["status"] == "pending"]
+
+            player_debts_to_settle = []
+            for debt in player_pending_debts:
+                if remaining_chips <= 0:
                     break
 
-                debt_transfer_amount = min(debt["amount"], remaining_transfer)
-                if debt_transfer_amount > 0:
-                    debt_transfers.append({
-                        "debt_id": debt["debt_id"],
-                        "amount": debt_transfer_amount,
-                        "debtor_name": debt["debtor_name"]
-                    })
-                    remaining_transfer -= debt_transfer_amount
+                debt_amount = debt["amount"]
+                settle_amount = min(remaining_chips, debt_amount)
 
-            # STEP 2: Calculate final cash amount - only based on cash buy-ins
-            # Get cash buyins for this player
+                if settle_amount > 0:
+                    player_debts_to_settle.append({
+                        "debt_id": str(debt["_id"]),
+                        "amount": settle_amount,
+                        "original_debt": debt_amount
+                    })
+                    remaining_chips -= settle_amount
+
+            # STEP 2: Take cash from cash buy-ins
             cash_transactions = self.transactions_dal.col.find({
                 "game_id": game_id,
                 "user_id": user_id,
@@ -146,12 +149,31 @@ class TransactionService:
                 "type": "buyin_cash"
             })
             cash_buyins = sum(tx["amount"] for tx in cash_transactions)
-            final_cash = min(chip_count, cash_buyins)
+            final_cash = min(remaining_chips, cash_buyins)
+            remaining_chips -= final_cash
+
+            # STEP 3: Take debts from other players (inactive players)
+            available_debts = self._get_available_debt_transfers(game_id, user_id)
+
+            debt_transfers = []
+            for debt in available_debts:
+                if remaining_chips <= 0:
+                    break
+
+                debt_transfer_amount = min(debt["amount"], remaining_chips)
+                if debt_transfer_amount > 0:
+                    debt_transfers.append({
+                        "debt_id": debt["debt_id"],
+                        "amount": debt_transfer_amount,
+                        "debtor_name": debt["debtor_name"]
+                    })
+                    remaining_chips -= debt_transfer_amount
 
             # Store debt processing information in transaction
+            total_debt_settlement = sum(d["amount"] for d in player_debts_to_settle)
             debt_processing = {
-                "player_debt_settlement": 0,  # No debt settlement
-                "player_debts_to_settle": [],  # No debts settled
+                "player_debt_settlement": total_debt_settlement,
+                "player_debts_to_settle": player_debts_to_settle,
                 "debt_transfers": debt_transfers,
                 "final_cash_amount": final_cash
             }
@@ -164,7 +186,7 @@ class TransactionService:
             return {
                 "success": True,
                 "chip_count": chip_count,
-                "player_debt_settlement": 0,  # No debt settlement
+                "player_debt_settlement": total_debt_settlement,
                 "debt_transfers": debt_transfers,
                 "final_cash": final_cash,
                 "debt_processing": debt_processing
@@ -184,7 +206,27 @@ class TransactionService:
             user_id = tx["user_id"]
             player = self.players_dal.get_player(game_id, user_id)
 
-            # Execute debt transfers (no debt settlement anymore)
+            # STEP 1: Settle player's own debts
+            settlement_notifications = []
+            for debt_settlement in debt_processing.get("player_debts_to_settle", []):
+                debt_id = debt_settlement["debt_id"]
+                settle_amount = debt_settlement["amount"]
+                original_debt = debt_settlement["original_debt"]
+
+                if settle_amount >= original_debt:
+                    # Fully settle the debt
+                    success = self.debt_dal.settle_debt(debt_id)
+                    if success:
+                        settlement_notifications.append(debt_settlement)
+                else:
+                    # Partially settle the debt - reduce the amount
+                    self.debt_dal.col.update_one(
+                        {"_id": self.debt_dal.col.database.ObjectId(debt_id)},
+                        {"$inc": {"amount": -settle_amount}}
+                    )
+                    settlement_notifications.append(debt_settlement)
+
+            # STEP 2: Transfer debts from other players to this player
             transfer_notifications = []
             for transfer in debt_processing.get("debt_transfers", []):
                 success = self.debt_dal.assign_debt_to_creditor(
@@ -197,7 +239,7 @@ class TransactionService:
 
             return {
                 "success": True,
-                "settlement_notifications": [],  # No settlements anymore
+                "settlement_notifications": settlement_notifications,
                 "transfer_notifications": transfer_notifications
             }
 

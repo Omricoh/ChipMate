@@ -189,9 +189,11 @@ import { Subscription, interval } from 'rxjs';
                     <span [class.fw-bold]="player.is_host">{{ player.name }}</span>
                   </div>
                   <div>
-                    <span class="badge bg-success me-1" *ngIf="player.active && !player.quit">Active</span>
-                    <span class="badge bg-secondary me-1" *ngIf="player.quit">Quit</span>
-                    <span class="badge bg-info" *ngIf="player.cashed_out">Cashed Out</span>
+                    <span class="badge bg-info" *ngIf="player.cashed_out">
+                      Cashed Out ({{ player.final_chips || 0 }} chips)
+                    </span>
+                    <span class="badge bg-success" *ngIf="!player.cashed_out && player.active && !player.quit">Active</span>
+                    <span class="badge bg-secondary" *ngIf="!player.cashed_out && player.quit">Quit</span>
                   </div>
                 </div>
               </div>
