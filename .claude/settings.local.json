@@ -10,7 +10,10 @@
       "Bash(curl:*)",
       "Bash(python:*)",
       "WebFetch(domain:chipmate.up.railway.app)",
-      "Bash(npx ng build:*)"
+      "Bash(npx ng build:*)",
+      "Bash(export MONGO_URL=\"mongodb://localhost:27017/\")",
+      "Bash(tasklist)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []
