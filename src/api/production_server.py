@@ -50,7 +50,8 @@ try:
         get_game_players, end_game, generate_game_link, create_buyin,
         create_cashout, get_pending_transactions, approve_transaction,
         reject_transaction, get_player_summary, get_game_debts,
-        get_settlement_data
+        get_settlement_data, get_game_report, list_all_games,
+        get_system_stats, destroy_game, host_buyin, host_cashout
     )
     logger.info("Successfully imported API routes from web_api")
 except ImportError as e:
@@ -72,6 +73,12 @@ except ImportError as e:
     def get_player_summary(): return jsonify({'error': 'API not available'}), 500
     def get_game_debts(): return jsonify({'error': 'API not available'}), 500
     def get_settlement_data(): return jsonify({'error': 'API not available'}), 500
+    def get_game_report(game_id): return jsonify({'error': 'API not available'}), 500
+    def list_all_games(): return jsonify({'error': 'API not available'}), 500
+    def get_system_stats(): return jsonify({'error': 'API not available'}), 500
+    def destroy_game(game_id): return jsonify({'error': 'API not available'}), 500
+    def host_buyin(game_id): return jsonify({'error': 'API not available'}), 500
+    def host_cashout(game_id): return jsonify({'error': 'API not available'}), 500
 
 # Register API routes
 app.add_url_rule('/api/auth/login', 'login', login, methods=['POST'])
@@ -90,6 +97,14 @@ app.add_url_rule('/api/transactions/<transaction_id>/reject', 'reject_transactio
 app.add_url_rule('/api/games/<game_id>/players/<int:user_id>/summary', 'get_player_summary', get_player_summary, methods=['GET'])
 app.add_url_rule('/api/games/<game_id>/debts', 'get_game_debts', get_game_debts, methods=['GET'])
 app.add_url_rule('/api/games/<game_id>/settlement', 'get_settlement_data', get_settlement_data, methods=['GET'])
+
+# New endpoints - Admin and Host Management
+app.add_url_rule('/api/games/<game_id>/report', 'get_game_report', get_game_report, methods=['GET'])
+app.add_url_rule('/api/admin/games', 'list_all_games', list_all_games, methods=['GET'])
+app.add_url_rule('/api/admin/stats', 'get_system_stats', get_system_stats, methods=['GET'])
+app.add_url_rule('/api/admin/games/<game_id>/destroy', 'destroy_game', destroy_game, methods=['DELETE'])
+app.add_url_rule('/api/games/<game_id>/host-buyin', 'host_buyin', host_buyin, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/host-cashout', 'host_cashout', host_cashout, methods=['POST'])
 
 # Serve Angular static files
 @app.route('/', defaults={'path': ''})
