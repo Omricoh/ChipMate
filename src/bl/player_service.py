@@ -100,36 +100,29 @@ class PlayerService:
             return False
 
     def cashout_player(self, game_id: str, user_id: int, chip_count: int, is_host_cashout: bool = False) -> bool:
-        """Process player cashout"""
+        """Process player cashout - all cashed out players become inactive"""
         try:
             player = self.players_dal.get_player(game_id, user_id)
             if not player:
                 return False
 
-            # Update player status based on whether it's a host or regular player
+            # All cashed out players become inactive, including hosts
+            # This makes their debts available for transfer
+            update_fields = {
+                "cashed_out": True,
+                "cashout_time": datetime.now(timezone.utc),
+                "active": False,  # All cashed out players become inactive
+                "final_chips": chip_count
+            }
+
+            # If host is cashing out, they lose host status
             if is_host_cashout:
-                # Host stays active but loses host status
-                self.players_dal.col.update_one(
-                    {"game_id": game_id, "user_id": user_id},
-                    {"$set": {
-                        "cashed_out": True,
-                        "cashout_time": datetime.now(timezone.utc),
-                        "active": True,  # Host stays active
-                        "is_host": False,  # No longer host
-                        "final_chips": chip_count
-                    }}
-                )
-            else:
-                # Regular player becomes inactive
-                self.players_dal.col.update_one(
-                    {"game_id": game_id, "user_id": user_id},
-                    {"$set": {
-                        "cashed_out": True,
-                        "cashout_time": datetime.now(timezone.utc),
-                        "active": False,
-                        "final_chips": chip_count
-                    }}
-                )
+                update_fields["is_host"] = False
+
+            self.players_dal.col.update_one(
+                {"game_id": game_id, "user_id": user_id},
+                {"$set": update_fields}
+            )
 
             logger.info(f"Player {user_id} cashed out {chip_count} chips from game {game_id}")
             return True
