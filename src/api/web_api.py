@@ -337,7 +337,7 @@ def create_buyin():
     try:
         data = request.get_json()
         game_id = data.get('game_id')
-        user_id = data.get('user_id')
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         buyin_type = 'cash' if data.get('type') == 'cash' else 'register'
         amount = data.get('amount')
 
@@ -362,7 +362,7 @@ def create_cashout():
     try:
         data = request.get_json()
         game_id = data.get('game_id')
-        user_id = data.get('user_id')
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         amount = data.get('amount')
 
         if not all([game_id, user_id, amount]):
@@ -581,7 +581,7 @@ def host_buyin(game_id):
     """Host adds buy-in for any player"""
     try:
         data = request.get_json()
-        user_id = data.get('user_id')
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         buyin_type = data.get('type', 'cash')
         amount = data.get('amount')
 
@@ -611,7 +611,7 @@ def host_cashout(game_id):
     """Host processes cashout for any player"""
     try:
         data = request.get_json()
-        user_id = data.get('user_id')
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         amount = data.get('amount')
 
         if not user_id or not amount:
