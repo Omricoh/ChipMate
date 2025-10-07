@@ -251,10 +251,10 @@ import { Subscription, interval } from 'rxjs';
                       <div>
                         <strong>{{ getPlayerName(tx.user_id) }}</strong>
                         <br>
-                        <small class="text-muted">{{ tx.type | titlecase }} - {{ tx.amount }} chips</small>
+                        <small class="text-muted">{{ getTransactionTypeName(tx.type) }} - {{ tx.amount }} chips</small>
                       </div>
                       <span class="badge" [class]="getTransactionBadgeClass(tx.type)">
-                        {{ tx.type | titlecase }}
+                        {{ getTransactionTypeName(tx.type) }}
                       </span>
                     </div>
                     <div class="d-grid gap-1">
@@ -785,8 +785,35 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   getPlayerName(userId: number): string {
-    const player = this.players.find(p => p.user_id === userId);
-    return player ? player.name : 'Unknown Player';
+    // Try to find player by user_id with type conversion
+    const player = this.players.find(p => p.user_id == userId); // Use == for loose comparison
+    if (player) {
+      return player.name;
+    }
+    // If not found, log for debugging
+    console.warn(`Player not found for user_id: ${userId}`, 'Available players:', this.players);
+    return 'Unknown Player';
+  }
+
+  getTransactionTypeName(type: string): string {
+    // Format transaction type for display
+    if (!type) return 'Unknown';
+
+    // Remove 'buyin_' prefix if present
+    const cleanType = type.replace('buyin_', '');
+
+    // Convert to readable format
+    switch (cleanType) {
+      case 'cash':
+        return 'Cash Buy-in';
+      case 'register':
+        return 'Credit Buy-in';
+      case 'cashout':
+        return 'Cashout';
+      default:
+        // Fallback to title case
+        return cleanType.charAt(0).toUpperCase() + cleanType.slice(1);
+    }
   }
 
   getStatusClass(status: string): string {
