@@ -119,7 +119,7 @@ import { Subscription, interval } from 'rxjs';
               <form [formGroup]="cashoutForm" (ngSubmit)="submitCashout()">
                 <h6>Cashout</h6>
                 <div class="mb-2">
-                  <input type="number" class="form-control" formControlName="amount" placeholder="Chip count" min="1">
+                  <input type="number" class="form-control" formControlName="amount" placeholder="Chip count (0 if lost all)" min="0">
                 </div>
                 <button type="submit" class="btn btn-warning w-100" [disabled]="cashoutForm.invalid || isLoading">
                   <i class="bi bi-arrow-up-right-circle me-1"></i>
@@ -378,7 +378,7 @@ import { Subscription, interval } from 'rxjs';
               </div>
               <div class="mb-3">
                 <label class="form-label">Chip Count</label>
-                <input type="number" class="form-control" formControlName="amount" placeholder="Enter chip count" min="1">
+                <input type="number" class="form-control" formControlName="amount" placeholder="Enter chip count (0 if lost all)" min="0">
               </div>
             </div>
             <div class="modal-footer">
@@ -670,7 +670,7 @@ export class GameComponent implements OnInit, OnDestroy {
     });
 
     this.cashoutForm = this.formBuilder.group({
-      amount: ['', [Validators.required, Validators.min(1)]]
+      amount: ['', [Validators.required, Validators.min(0)]]
     });
 
     this.hostBuyinForm = this.formBuilder.group({
@@ -681,7 +681,7 @@ export class GameComponent implements OnInit, OnDestroy {
 
     this.hostCashoutForm = this.formBuilder.group({
       player: ['', [Validators.required]],
-      amount: ['', [Validators.required, Validators.min(1)]]
+      amount: ['', [Validators.required, Validators.min(0)]]
     });
 
     this.currentUser = this.apiService.getCurrentUser();
