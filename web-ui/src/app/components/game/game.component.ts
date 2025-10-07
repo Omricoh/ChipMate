@@ -1040,6 +1040,10 @@ export class GameComponent implements OnInit, OnDestroy {
               detailedMsg += `Debt paid: ${breakdown.debt_paid} chips\n`;
             }
 
+            if (breakdown.remaining_debt > 0) {
+              detailedMsg += `⚠ Remaining debt: $${breakdown.remaining_debt}\n`;
+            }
+
             if (breakdown.cash_received > 0) {
               detailedMsg += `Cash received: $${breakdown.cash_received}\n`;
             }

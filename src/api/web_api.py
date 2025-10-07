@@ -658,11 +658,19 @@ def host_cashout(game_id):
         cash_received = cashout_details.get('final_cash_amount', 0)
         debt_transfers = cashout_details.get('debt_transfers', [])
 
+        # Check for remaining debt after cashout
+        remaining_debts = debt_dal.get_player_debts(game_id, user_id)
+        remaining_debt_amount = sum(d['amount'] for d in remaining_debts if d['status'] in ['pending', 'assigned'])
+
         # Build message with breakdown
         message_parts = [f"{player_name} cashed out {amount} chips"]
 
         if debt_paid > 0:
             message_parts.append(f"✓ Paid own debt: {debt_paid} chips")
+
+        # Show remaining debt if any
+        if remaining_debt_amount > 0:
+            message_parts.append(f"⚠ Remaining debt: ${remaining_debt_amount}")
 
         if cash_received > 0:
             message_parts.append(f"✓ Cash received: ${cash_received}")
@@ -683,6 +691,7 @@ def host_cashout(game_id):
             'cashout_breakdown': {
                 'total_chips': amount,
                 'debt_paid': debt_paid,
+                'remaining_debt': remaining_debt_amount,
                 'cash_received': cash_received,
                 'debts_assigned': debt_transfers
             }
