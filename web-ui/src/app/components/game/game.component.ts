@@ -730,9 +730,10 @@ export class GameComponent implements OnInit, OnDestroy {
         // Debug: log players
         console.log('Loaded players:', players);
 
-        // Find current player by name match
+        // Find current player by name match (try both username and name)
         if (this.currentUser) {
-          const currentPlayer = players.find(p => p.name === this.currentUser!.username);
+          const nameToMatch = this.currentUser.username || this.currentUser.name;
+          const currentPlayer = players.find(p => p.name === nameToMatch);
           if (currentPlayer) {
             this.currentPlayerUserId = currentPlayer.user_id;
             console.log('Current player user_id:', this.currentPlayerUserId);
@@ -756,8 +757,9 @@ export class GameComponent implements OnInit, OnDestroy {
               }
             });
           } else {
-            console.warn('Current player not found in players list. Username:', this.currentUser.username, 'Available players:', players.map(p => p.name));
-            this.showError(`Player "${this.currentUser.username}" not found in game. Please rejoin the game.`);
+            const attemptedName = this.currentUser.username || this.currentUser.name;
+            console.warn('Current player not found in players list. Name:', attemptedName, 'Available players:', players.map(p => p.name));
+            this.showError(`Player "${attemptedName}" not found in game. Please rejoin the game.`);
           }
         } else {
           console.warn('No current user logged in');
