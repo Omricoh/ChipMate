@@ -8,7 +8,8 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(curl:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebFetch(domain:chipmate.up.railway.app)"
     ],
     "deny": [],
     "ask": []

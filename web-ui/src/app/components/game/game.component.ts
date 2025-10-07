@@ -538,6 +538,7 @@ export class GameComponent implements OnInit, OnDestroy {
   pendingTransactions: Transaction[] = [];
   playerSummary: PlayerSummary | null = null;
   currentUser: User | null = null;
+  currentPlayerUserId: number | null = null;  // The user_id from the Player table
   isHost = false;
   isLoading = false;
   showQrCode = false;
@@ -636,6 +637,22 @@ export class GameComponent implements OnInit, OnDestroy {
         this.players = players;
         // Debug: log players
         console.log('Loaded players:', players);
+
+        // Find current player by name match
+        if (this.currentUser) {
+          const currentPlayer = players.find(p => p.name === this.currentUser!.username);
+          if (currentPlayer) {
+            this.currentPlayerUserId = currentPlayer.user_id;
+            console.log('Current player user_id:', this.currentPlayerUserId);
+
+            // Load player summary using the correct user_id
+            this.apiService.getPlayerSummary(gameId, this.currentPlayerUserId).subscribe({
+              next: (summary) => {
+                this.playerSummary = summary;
+              }
+            });
+          }
+        }
       }
     });
 
@@ -646,15 +663,6 @@ export class GameComponent implements OnInit, OnDestroy {
           this.pendingTransactions = transactions;
           // Debug: log transactions
           console.log('Pending transactions:', transactions);
-        }
-      });
-    }
-
-    // Load player summary
-    if (this.currentUser) {
-      this.apiService.getPlayerSummary(gameId, this.currentUser.id).subscribe({
-        next: (summary) => {
-          this.playerSummary = summary;
         }
       });
     }
@@ -685,12 +693,12 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   submitBuyin(): void {
-    if (this.buyinForm.valid && this.game && this.currentUser) {
+    if (this.buyinForm.valid && this.game && this.currentPlayerUserId) {
       this.isLoading = true;
 
       const buyinRequest = {
         game_id: this.game.id,
-        user_id: this.currentUser.id,
+        user_id: this.currentPlayerUserId,
         type: this.buyinForm.value.type,
         amount: parseInt(this.buyinForm.value.amount, 10)
       };
@@ -711,12 +719,12 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   submitCashout(): void {
-    if (this.cashoutForm.valid && this.game && this.currentUser) {
+    if (this.cashoutForm.valid && this.game && this.currentPlayerUserId) {
       this.isLoading = true;
 
       const cashoutRequest = {
         game_id: this.game.id,
-        user_id: this.currentUser.id,
+        user_id: this.currentPlayerUserId,
         amount: parseInt(this.cashoutForm.value.amount, 10)
       };
 
