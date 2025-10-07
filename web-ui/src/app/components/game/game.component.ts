@@ -520,7 +520,7 @@ import { Subscription, interval } from 'rxjs';
             </div>
 
             <!-- Cashed Out Players -->
-            <div class="card mb-3" *ngIf="getCashedOutPlayers().length > 0">
+            <div class="card mb-3" *ngIf="settlementData.cashouts && settlementData.cashouts.length > 0">
               <div class="card-header bg-success text-white">
                 <h6 class="mb-0">Cashed Out Players</h6>
               </div>
@@ -530,19 +530,19 @@ import { Subscription, interval } from 'rxjs';
                     <thead>
                       <tr>
                         <th>Player</th>
-                        <th>Chips Cashed Out</th>
-                        <th>Cash Paid</th>
-                        <th>Credit Remaining</th>
-                        <th>Time</th>
+                        <th>Chips</th>
+                        <th>Cash</th>
+                        <th>Credit</th>
+                        <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr *ngFor="let player of getCashedOutPlayers()">
-                        <td>{{ player.name }}</td>
-                        <td>{{ player.final_chips }}</td>
-                        <td class="text-success">{{ player.cash_paid || 0 }}</td>
-                        <td class="text-warning">{{ player.credit_balance || 0 }}</td>
-                        <td><small>{{ player.cashout_time ? (player.cashout_time | date:'short') : 'N/A' }}</small></td>
+                      <tr *ngFor="let cashout of settlementData.cashouts">
+                        <td>{{ cashout.player_name }}</td>
+                        <td>{{ cashout.amount }}</td>
+                        <td class="text-success">{{ cashout.cash_component || 0 }}</td>
+                        <td class="text-warning">{{ cashout.credit_component || 0 }}</td>
+                        <td><span class="badge bg-success">Cashed Out</span></td>
                       </tr>
                     </tbody>
                   </table>
@@ -580,7 +580,7 @@ import { Subscription, interval } from 'rxjs';
             </div>
 
             <!-- No Settlement Data -->
-            <div class="alert alert-warning" *ngIf="getCashedOutPlayers().length === 0 && (!settlementData.settled_debts || settlementData.settled_debts.length === 0)">
+            <div class="alert alert-warning" *ngIf="(!settlementData.cashouts || settlementData.cashouts.length === 0) && (!settlementData.settled_debts || settlementData.settled_debts.length === 0)">
               <i class="bi bi-exclamation-triangle me-2"></i>
               No settlement data available yet. Players need to cash out first.
             </div>
@@ -1026,10 +1026,6 @@ export class GameComponent implements OnInit, OnDestroy {
         }
       });
     }
-  }
-
-  getCashedOutPlayers(): Player[] {
-    return this.players.filter(p => p.cashed_out);
   }
 
   getActivePlayers(): Player[] {
