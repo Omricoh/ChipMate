@@ -656,6 +656,7 @@ def get_game_report(game_id):
 
         # Get all players
         players = players_dal.get_players(game_id)
+        logger.info(f"Game report for {game_id}: Found {len(players)} players")
 
         # Get all transactions
         all_transactions = list(transactions_dal.col.find({
