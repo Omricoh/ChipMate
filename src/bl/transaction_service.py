@@ -140,16 +140,33 @@ class TransactionService:
                     })
                     remaining_chips -= settle_amount
 
-            # STEP 2: Take cash from cash buy-ins
-            cash_transactions = self.transactions_dal.col.find({
+            # STEP 2: Calculate available cash from cashier
+            # Total cash in cashier = all cash buy-ins from all players
+            all_cash_buyins = self.transactions_dal.col.find({
                 "game_id": game_id,
-                "user_id": user_id,
                 "confirmed": True,
                 "rejected": False,
                 "type": "buyin_cash"
             })
-            cash_buyins = sum(tx["amount"] for tx in cash_transactions)
-            final_cash = min(remaining_chips, cash_buyins)
+            total_cash_in_cashier = sum(tx["amount"] for tx in all_cash_buyins)
+
+            # Total cash already paid out = sum of all previous cashouts
+            previous_cashouts = self.transactions_dal.col.find({
+                "game_id": game_id,
+                "confirmed": True,
+                "type": "cashout"
+            })
+            total_cash_paid_out = 0
+            for cashout_tx in previous_cashouts:
+                debt_proc = cashout_tx.get("debt_processing", {})
+                total_cash_paid_out += debt_proc.get("final_cash_amount", 0)
+
+            # Available cash in cashier
+            cashier_available_cash = total_cash_in_cashier - total_cash_paid_out
+
+            # Final cash = min of (remaining chips, cashier available)
+            # Cashier is a shared pool - any player can take cash from it
+            final_cash = min(remaining_chips, cashier_available_cash)
             remaining_chips -= final_cash
 
             # STEP 3: Take debts from other players (inactive players)
@@ -175,13 +192,23 @@ class TransactionService:
                 "player_debt_settlement": total_debt_settlement,
                 "player_debts_to_settle": player_debts_to_settle,
                 "debt_transfers": debt_transfers,
-                "final_cash_amount": final_cash
+                "final_cash_amount": final_cash,
+                "cashier_info": {
+                    "total_cash_in": total_cash_in_cashier,
+                    "total_paid_out": total_cash_paid_out,
+                    "available_cash": cashier_available_cash,
+                    "cash_paid_this_transaction": final_cash
+                }
             }
 
             self.transactions_dal.col.update_one(
                 {"_id": self.transactions_dal.col.database.ObjectId(tx_id)},
                 {"$set": {"debt_processing": debt_processing}}
             )
+
+            logger.info(f"Cashout processed: chip_count={chip_count}, debt_paid={total_debt_settlement}, "
+                       f"cash_paid={final_cash}, cashier_before={cashier_available_cash}, "
+                       f"cashier_after={cashier_available_cash - final_cash}")
 
             return {
                 "success": True,

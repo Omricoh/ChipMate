@@ -650,11 +650,42 @@ def host_cashout(game_id):
         # Mark player as cashed out (host stays active but loses host status)
         player_service.cashout_player(game_id, user_id, amount, is_host_cashout=is_host)
 
+        # Build detailed cashout message
+        player_name = player.name if player else "Player"
+        cashout_details = debt_result.get('debt_processing', {})
+
+        debt_paid = cashout_details.get('player_debt_settlement', 0)
+        cash_received = cashout_details.get('final_cash_amount', 0)
+        debt_transfers = cashout_details.get('debt_transfers', [])
+
+        # Build message with breakdown
+        message_parts = [f"{player_name} cashed out {amount} chips"]
+
+        if debt_paid > 0:
+            message_parts.append(f"✓ Paid own debt: {debt_paid} chips")
+
+        if cash_received > 0:
+            message_parts.append(f"✓ Cash received: ${cash_received}")
+
+        if debt_transfers:
+            message_parts.append(f"✓ Credited with debts from other players:")
+            for transfer in debt_transfers:
+                debtor_name = transfer.get('debtor_name', 'Unknown')
+                debt_amount = transfer.get('amount', 0)
+                message_parts.append(f"  • {debtor_name} owes you ${debt_amount}")
+
+        detailed_message = "\n".join(message_parts)
+
         logger.info(f"Host processed cashout of {amount} for user {user_id}")
         return jsonify({
             'transaction_id': tx_id,
-            'message': 'Cashout processed successfully',
-            'debt_info': debt_result
+            'message': detailed_message,
+            'cashout_breakdown': {
+                'total_chips': amount,
+                'debt_paid': debt_paid,
+                'cash_received': cash_received,
+                'debts_assigned': debt_transfers
+            }
         })
 
     except Exception as e:

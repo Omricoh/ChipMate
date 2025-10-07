@@ -171,8 +171,8 @@ export class ApiService {
     }, { headers: this.getHeaders() });
   }
 
-  hostCashout(gameId: string, userId: number, amount: number): Observable<{ transaction_id: string; message: string; debt_info: any }> {
-    return this.http.post<{ transaction_id: string; message: string; debt_info: any }>(`${this.baseUrl}/games/${gameId}/host-cashout`, {
+  hostCashout(gameId: string, userId: number, amount: number): Observable<{ transaction_id: string; message: string; cashout_breakdown?: any }> {
+    return this.http.post<{ transaction_id: string; message: string; cashout_breakdown?: any }>(`${this.baseUrl}/games/${gameId}/host-cashout`, {
       user_id: userId,
       amount
     }, { headers: this.getHeaders() });

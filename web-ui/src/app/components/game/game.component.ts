@@ -1026,7 +1026,36 @@ export class GameComponent implements OnInit, OnDestroy {
           this.isLoading = false;
           this.hostCashoutForm.reset();
           this.showHostCashout = false;
-          this.showSuccess('Cashout processed successfully');
+
+          // Show detailed cashout breakdown
+          const message = response.message || 'Cashout processed successfully';
+          const breakdown = response.cashout_breakdown;
+
+          if (breakdown) {
+            // Format detailed message
+            let detailedMsg = `Cashout Complete!\n\n`;
+            detailedMsg += `Total chips: ${breakdown.total_chips}\n`;
+
+            if (breakdown.debt_paid > 0) {
+              detailedMsg += `Debt paid: ${breakdown.debt_paid} chips\n`;
+            }
+
+            if (breakdown.cash_received > 0) {
+              detailedMsg += `Cash received: $${breakdown.cash_received}\n`;
+            }
+
+            if (breakdown.debts_assigned && breakdown.debts_assigned.length > 0) {
+              detailedMsg += `\nDebts assigned:\n`;
+              breakdown.debts_assigned.forEach((debt: any) => {
+                detailedMsg += `  • ${debt.debtor_name} owes $${debt.amount}\n`;
+              });
+            }
+
+            alert(detailedMsg);
+          } else {
+            this.showSuccess(message);
+          }
+
           this.refreshData();
         },
         error: (error) => {
