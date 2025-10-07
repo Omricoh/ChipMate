@@ -341,8 +341,12 @@ def create_buyin():
         buyin_type = 'cash' if data.get('type') == 'cash' else 'register'
         amount = data.get('amount')
 
-        if not all([game_id, user_id, amount]):
+        if game_id is None or user_id is None or amount is None:
             return jsonify({'error': 'Missing required fields'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
+        if amount <= 0:
+            return jsonify({'error': 'Buy-in amount must be greater than 0'}), 400
 
         # Create transaction using existing service
         tx_id = transaction_service.create_buyin_transaction(game_id, user_id, buyin_type, amount)
@@ -365,8 +369,10 @@ def create_cashout():
         user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         amount = data.get('amount')
 
-        if not all([game_id, user_id, amount]):
+        if game_id is None or user_id is None or amount is None:
             return jsonify({'error': 'Missing required fields'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
 
         # Create transaction using existing service
         tx_id = transaction_service.create_cashout_transaction(game_id, user_id, amount)
@@ -585,8 +591,12 @@ def host_buyin(game_id):
         buyin_type = data.get('type', 'cash')
         amount = data.get('amount')
 
-        if not user_id or not amount:
+        if user_id is None or amount is None:
             return jsonify({'error': 'User ID and amount are required'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
+        if amount <= 0:
+            return jsonify({'error': 'Buy-in amount must be greater than 0'}), 400
 
         # Create transaction
         tx_id = transaction_service.create_buyin_transaction(
@@ -614,8 +624,10 @@ def host_cashout(game_id):
         user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         amount = data.get('amount')
 
-        if not user_id or not amount:
+        if user_id is None or amount is None:
             return jsonify({'error': 'User ID and amount are required'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
 
         # Create cashout transaction
         tx_id = transaction_service.create_cashout_transaction(
