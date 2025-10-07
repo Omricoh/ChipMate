@@ -672,19 +672,35 @@ def get_game_report(game_id):
         # Calculate player summaries
         player_summaries = []
         for player in players:
-            summary = transaction_service.get_player_transaction_summary(game_id, player.user_id)
-            player_summaries.append({
-                'name': player.name,
-                'user_id': player.user_id,
-                'cash_buyins': summary['cash_buyins'],
-                'credit_buyins': summary['credit_buyins'],
-                'total_buyins': summary['total_buyins'],
-                'pending_debt': summary['pending_debt'],
-                'is_host': player.is_host,
-                'active': player.active,
-                'cashed_out': player.cashed_out,
-                'final_chips': player.final_chips
-            })
+            try:
+                summary = transaction_service.get_player_transaction_summary(game_id, player.user_id)
+                player_summaries.append({
+                    'name': player.name,
+                    'user_id': player.user_id,
+                    'cash_buyins': summary['cash_buyins'],
+                    'credit_buyins': summary['credit_buyins'],
+                    'total_buyins': summary['total_buyins'],
+                    'pending_debt': summary['pending_debt'],
+                    'is_host': player.is_host,
+                    'active': player.active,
+                    'cashed_out': player.cashed_out,
+                    'final_chips': player.final_chips
+                })
+            except Exception as e:
+                logger.error(f"Error getting summary for player {player.name} (user_id={player.user_id}): {e}")
+                # Add player with zero values if summary fails
+                player_summaries.append({
+                    'name': player.name,
+                    'user_id': player.user_id,
+                    'cash_buyins': 0,
+                    'credit_buyins': 0,
+                    'total_buyins': 0,
+                    'pending_debt': 0,
+                    'is_host': player.is_host,
+                    'active': player.active,
+                    'cashed_out': player.cashed_out,
+                    'final_chips': player.final_chips
+                })
 
         # Get debt information
         all_debts = list(debt_dal.col.find({'game_id': game_id}))
