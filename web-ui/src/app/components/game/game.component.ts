@@ -741,8 +741,22 @@ export class GameComponent implements OnInit, OnDestroy {
             this.apiService.getPlayerSummary(gameId, this.currentPlayerUserId).subscribe({
               next: (summary) => {
                 this.playerSummary = summary;
+                console.log('Player summary loaded:', summary);
+              },
+              error: (error) => {
+                console.error('Failed to load player summary:', error);
+                // Set empty summary to show the card
+                this.playerSummary = {
+                  cash_buyins: 0,
+                  credit_buyins: 0,
+                  total_buyins: 0,
+                  pending_debt: 0,
+                  transactions: []
+                };
               }
             });
+          } else {
+            console.warn('Current player not found in players list. Username:', this.currentUser.username, 'Available players:', players.map(p => p.name));
           }
         }
       }
@@ -755,6 +769,10 @@ export class GameComponent implements OnInit, OnDestroy {
           this.pendingTransactions = transactions;
           // Debug: log transactions
           console.log('Pending transactions:', transactions);
+        },
+        error: (error) => {
+          console.error('Failed to load pending transactions:', error);
+          this.pendingTransactions = [];
         }
       });
     }
