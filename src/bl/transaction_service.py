@@ -232,10 +232,10 @@ class TransactionService:
     def get_player_transaction_summary(self, game_id: str, user_id: int) -> Dict[str, Any]:
         """Get transaction summary for a player"""
         try:
-            # Get all transactions - try both int and string user_id for compatibility
+            # Get all transactions
             transactions = list(self.db.transactions.find({
                 "game_id": game_id,
-                "user_id": {"$in": [user_id, str(user_id)]},
+                "user_id": user_id,
                 "confirmed": True,
                 "rejected": False
             }))
