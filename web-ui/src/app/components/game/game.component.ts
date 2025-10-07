@@ -634,6 +634,8 @@ export class GameComponent implements OnInit, OnDestroy {
     this.apiService.getGamePlayers(gameId).subscribe({
       next: (players) => {
         this.players = players;
+        // Debug: log players
+        console.log('Loaded players:', players);
       }
     });
 
@@ -642,6 +644,8 @@ export class GameComponent implements OnInit, OnDestroy {
       this.apiService.getPendingTransactions(gameId).subscribe({
         next: (transactions) => {
           this.pendingTransactions = transactions;
+          // Debug: log transactions
+          console.log('Pending transactions:', transactions);
         }
       });
     }
