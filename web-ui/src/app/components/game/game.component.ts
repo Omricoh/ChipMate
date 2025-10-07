@@ -223,7 +223,7 @@ import { Subscription, interval } from 'rxjs';
                   <i class="bi bi-file-earmark-text me-2"></i>
                   Game Report
                 </button>
-                <button class="btn btn-secondary" (click)="showSettlement = true">
+                <button class="btn btn-secondary" (click)="loadSettlement()">
                   <i class="bi bi-calculator me-2"></i>
                   View Settlement
                 </button>
@@ -502,6 +502,97 @@ import { Subscription, interval } from 'rxjs';
     </div>
     <div class="modal-backdrop fade" [class.show]="showReport" *ngIf="showReport" (click)="showReport = false"></div>
 
+    <!-- Settlement Modal -->
+    <div class="modal fade" [class.show]="showSettlement" [style.display]="showSettlement ? 'block' : 'none'" tabindex="-1" *ngIf="showSettlement">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-calculator me-2"></i>
+              Settlement - {{ game?.code }}
+            </h5>
+            <button type="button" class="btn-close" (click)="showSettlement = false"></button>
+          </div>
+          <div class="modal-body" *ngIf="settlementData" style="max-height: 70vh; overflow-y: auto;">
+            <div class="alert alert-info">
+              <i class="bi bi-info-circle me-2"></i>
+              Settlement shows who owes whom and how cashed-out players received their payouts.
+            </div>
+
+            <!-- Cashed Out Players -->
+            <div class="card mb-3" *ngIf="getCashedOutPlayers().length > 0">
+              <div class="card-header bg-success text-white">
+                <h6 class="mb-0">Cashed Out Players</h6>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Player</th>
+                        <th>Chips Cashed Out</th>
+                        <th>Cash Paid</th>
+                        <th>Credit Remaining</th>
+                        <th>Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let player of getCashedOutPlayers()">
+                        <td>{{ player.name }}</td>
+                        <td>{{ player.final_chips }}</td>
+                        <td class="text-success">{{ player.cash_paid || 0 }}</td>
+                        <td class="text-warning">{{ player.credit_balance || 0 }}</td>
+                        <td><small>{{ player.cashout_time ? (player.cashout_time | date:'short') : 'N/A' }}</small></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Settled Debts -->
+            <div class="card mb-3" *ngIf="settlementData.settled_debts && settlementData.settled_debts.length > 0">
+              <div class="card-header bg-info text-white">
+                <h6 class="mb-0">Settled Debts</h6>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Debtor</th>
+                        <th>Creditor</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let debt of settlementData.settled_debts">
+                        <td>{{ debt.debtor_name }}</td>
+                        <td>{{ debt.creditor_name }}</td>
+                        <td>{{ debt.amount }}</td>
+                        <td><span class="badge bg-success">Settled</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- No Settlement Data -->
+            <div class="alert alert-warning" *ngIf="getCashedOutPlayers().length === 0 && (!settlementData.settled_debts || settlementData.settled_debts.length === 0)">
+              <i class="bi bi-exclamation-triangle me-2"></i>
+              No settlement data available yet. Players need to cash out first.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" (click)="showSettlement = false">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade" [class.show]="showSettlement" *ngIf="showSettlement" (click)="showSettlement = false"></div>
+
     <!-- Messages -->
     <div class="position-fixed top-0 end-0 p-3" style="z-index: 11">
       <div class="toast align-items-center text-white bg-success border-0" [class.show]="showSuccessToast" role="alert">
@@ -549,6 +640,7 @@ export class GameComponent implements OnInit, OnDestroy {
   qrCodeDataUrl = '';
   gameJoinUrl = '';
   gameReport: any = null;
+  settlementData: any = null;
 
   // Forms
   buyinForm: FormGroup;
@@ -920,6 +1012,24 @@ export class GameComponent implements OnInit, OnDestroy {
         }
       });
     }
+  }
+
+  loadSettlement(): void {
+    if (this.game) {
+      this.apiService.getSettlementData(this.game.id).subscribe({
+        next: (data) => {
+          this.settlementData = data;
+          this.showSettlement = true;
+        },
+        error: (error) => {
+          this.showError('Failed to load settlement data');
+        }
+      });
+    }
+  }
+
+  getCashedOutPlayers(): Player[] {
+    return this.players.filter(p => p.cashed_out);
   }
 
   getActivePlayers(): Player[] {
