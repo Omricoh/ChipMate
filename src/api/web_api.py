@@ -16,7 +16,6 @@ from src.services.admin_service import AdminService
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
-from src.dal.debt_dal import DebtDAL
 from src.models.game import Game
 from src.models.player import Player
 
@@ -41,7 +40,6 @@ db = client.chipbot
 games_dal = GamesDAL(db)
 players_dal = PlayersDAL(db)
 transactions_dal = TransactionsDAL(db)
-debt_dal = DebtDAL(db)
 
 @app.errorhandler(404)
 def not_found(error):
@@ -242,7 +240,7 @@ def get_game_status(game_id):
             'total_credit': status['total_credit'],
             'total_buyins': status['total_buyins'],
             'total_cashed_out': status['total_cashed_out'],
-            'total_debt_settled': status['total_debt_settled'],
+            'total_credits_repaid': status['total_credits_repaid'],
             'bank': status.get('bank')
         })
 
@@ -427,17 +425,17 @@ def get_player_summary(game_id, user_id):
         logger.error(f"Get player summary error: {e}")
         return jsonify({'error': 'Failed to get player summary'}), 500
 
-# Debt endpoints
-@app.route('/api/games/<game_id>/debts', methods=['GET'])
-def get_game_debts(game_id):
-    """Get all debts for a game"""
+# Credits endpoints
+@app.route('/api/games/<game_id>/credits', methods=['GET'])
+def get_game_credits(game_id):
+    """Get all player credits for a game"""
     try:
-        result = transaction_service.get_game_debts_formatted(game_id)
+        result = transaction_service.get_game_credits_formatted(game_id)
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Get game debts error: {e}")
-        return jsonify({'error': 'Failed to get game debts'}), 500
+        logger.error(f"Get game credits error: {e}")
+        return jsonify({'error': 'Failed to get game credits'}), 500
 
 @app.route('/api/games/<game_id>/settlement', methods=['GET'])
 def get_settlement_data(game_id):
@@ -488,7 +486,12 @@ def get_system_stats():
         total_players = players_dal.col.count_documents({})
         active_players = players_dal.col.count_documents({'active': True})
         total_transactions = transactions_dal.col.count_documents({})
-        total_debts = debt_dal.col.count_documents({})
+
+        # Calculate total credits owed across all players
+        total_credits_owed = 0
+        players_with_credits = players_dal.col.find({'credits_owed': {'$gt': 0}})
+        for player in players_with_credits:
+            total_credits_owed += player.get('credits_owed', 0)
 
         # Calculate averages
         avg_players_per_game = total_players / total_games if total_games > 0 else 0
@@ -501,7 +504,7 @@ def get_system_stats():
             'total_players': total_players,
             'active_players': active_players,
             'total_transactions': total_transactions,
-            'total_debts': total_debts,
+            'total_credits_owed': total_credits_owed,
             'avg_players_per_game': round(avg_players_per_game, 2),
             'avg_transactions_per_game': round(avg_transactions_per_game, 2)
         }
@@ -516,21 +519,13 @@ def get_system_stats():
 def destroy_game(game_id):
     """Permanently delete a game and all related data"""
     try:
-        # Delete all players
-        players_dal.col.delete_many({'game_id': game_id})
+        # Use admin service to completely destroy the game
+        success = admin_service.destroy_game_completely(game_id)
 
-        # Delete all transactions
-        transactions_dal.col.delete_many({'game_id': game_id})
-
-        # Delete all debts
-        debt_dal.col.delete_many({'game_id': game_id})
-
-        # Delete the game
-        from bson import ObjectId
-        games_dal.col.delete_one({'_id': ObjectId(game_id)})
-
-        logger.info(f"Admin destroyed game {game_id}")
-        return jsonify({'message': 'Game destroyed successfully'})
+        if success:
+            return jsonify({'message': 'Game destroyed successfully'})
+        else:
+            return jsonify({'error': 'Failed to destroy game'}), 500
 
     except Exception as e:
         logger.error(f"Destroy game error: {e}")
@@ -639,7 +634,7 @@ def get_game_report(game_id):
                     'cash_buyins': summary['cash_buyins'],
                     'credit_buyins': summary['credit_buyins'],
                     'total_buyins': summary['total_buyins'],
-                    'pending_debt': summary['pending_debt'],
+                    'credits_owed': summary['credits_owed'],
                     'is_host': player.is_host,
                     'active': player.active,
                     'cashed_out': player.cashed_out,
@@ -654,22 +649,21 @@ def get_game_report(game_id):
                     'cash_buyins': 0,
                     'credit_buyins': 0,
                     'total_buyins': 0,
-                    'pending_debt': 0,
+                    'credits_owed': 0,
                     'is_host': player.is_host,
                     'active': player.active,
                     'cashed_out': player.cashed_out,
                     'final_chips': player.final_chips
                 })
 
-        # Get debt information
-        all_debts = list(debt_dal.col.find({'game_id': game_id}))
-        for debt in all_debts:
-            debt['_id'] = str(debt['_id'])
+        # Get credits information
+        all_credits = transaction_service.get_game_credits_formatted(game_id)
 
         # Calculate totals
         total_cash = sum(p['cash_buyins'] for p in player_summaries)
         total_credit = sum(p['credit_buyins'] for p in player_summaries)
         total_buyins = total_cash + total_credit
+        total_credits_owed = sum(p['credits_owed'] for p in player_summaries)
 
         report = {
             'game': {
@@ -681,13 +675,14 @@ def get_game_report(game_id):
             },
             'players': player_summaries,
             'transactions': all_transactions,
-            'debts': all_debts,
+            'credits': all_credits,
             'summary': {
                 'total_players': len(players),
                 'active_players': sum(1 for p in players if p.active),
                 'total_cash': total_cash,
                 'total_credit': total_credit,
                 'total_buyins': total_buyins,
+                'total_credits_owed': total_credits_owed,
                 'total_transactions': len(all_transactions)
             }
         }

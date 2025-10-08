@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
-from src.dal.debt_dal import DebtDAL
 from src.dal.bank_dal import BankDAL
 from src.models.game import Game
 
@@ -28,7 +27,6 @@ class AdminService:
         self.games_dal = GamesDAL(self.db)
         self.players_dal = PlayersDAL(self.db)
         self.transactions_dal = TransactionsDAL(self.db)
-        self.debt_dal = DebtDAL(self.db)
         self.bank_dal = BankDAL(self.db)
 
         # Admin credentials
@@ -105,18 +103,15 @@ class AdminService:
     def destroy_game_completely(self, game_id: str) -> bool:
         """Completely destroy a game and all related data"""
         try:
-            # Delete in order: bank, debts, transactions, players, then game
+            # Delete in order: bank, transactions, players, then game
 
             # Delete bank
             bank_deleted = self.bank_dal.delete_by_game(game_id)
 
-            # Delete debts
-            debt_result = self.debt_dal.col.delete_many({"game_id": game_id})
-
             # Delete transactions
             tx_result = self.transactions_dal.col.delete_many({"game_id": game_id})
 
-            # Delete players
+            # Delete players (includes their credits_owed)
             player_result = self.players_dal.col.delete_many({"game_id": game_id})
 
             # Delete game
@@ -130,7 +125,6 @@ class AdminService:
                     f"{game_result.deleted_count} game, "
                     f"{player_result.deleted_count} players, "
                     f"{tx_result.deleted_count} transactions, "
-                    f"{debt_result.deleted_count} debts, "
                     f"bank deleted: {bank_deleted}"
                 )
                 return True

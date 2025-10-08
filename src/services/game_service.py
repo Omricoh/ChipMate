@@ -9,7 +9,6 @@ from typing import Optional, List, Dict, Any
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
-from src.dal.debt_dal import DebtDAL
 from src.dal.bank_dal import BankDAL
 from src.bl.game_bl import create_game as create_game_bl
 from src.models.game import Game
@@ -27,7 +26,6 @@ class GameService:
         self.games_dal = GamesDAL(self.db)
         self.players_dal = PlayersDAL(self.db)
         self.transactions_dal = TransactionsDAL(self.db)
-        self.debt_dal = DebtDAL(self.db)
         self.bank_dal = BankDAL(self.db)
 
     def create_game(self, host_id: int, host_name: str) -> tuple[str, str]:
@@ -145,16 +143,12 @@ class GameService:
             })
             total_cashed_out = sum(tx["amount"] for tx in cashouts)
 
-            # Calculate settled debt
-            settled_debts = self.debt_dal.col.find({
-                "game_id": game_id,
-                "status": "settled"
-            })
-            total_debt_settled = sum(debt["amount"] for debt in settled_debts)
-
             # Get bank status
             bank = self.bank_dal.get_by_game(game_id)
             bank_status = bank.get_summary() if bank else None
+
+            # Calculate total credits repaid (from bank)
+            total_credits_repaid = bank.total_credits_repaid if bank else 0
 
             return {
                 "game": game,
@@ -163,7 +157,7 @@ class GameService:
                 "total_credit": total_credit,
                 "total_buyins": total_cash + total_credit,
                 "total_cashed_out": total_cashed_out,
-                "total_debt_settled": total_debt_settled,
+                "total_credits_repaid": total_credits_repaid,
                 "bank": bank_status
             }
 
@@ -198,21 +192,21 @@ class GameService:
                         "net": net
                     })
 
-            # Get debt information
-            all_debts = self.debt_dal.col.find({"game_id": game_id})
-            debt_info = []
+            # Get player credits information
+            all_players = self.players_dal.get_players(game_id)
+            credits_info = []
 
-            for debt in all_debts:
-                if debt["status"] == "assigned":
-                    debt_info.append({
-                        "debtor": debt["debtor_name"],
-                        "creditor": debt["creditor_name"],
-                        "amount": debt["amount"]
+            for player in all_players:
+                if player.credits_owed > 0:
+                    credits_info.append({
+                        "player_name": player.name,
+                        "player_id": player.user_id,
+                        "credits_owed": player.credits_owed
                     })
 
             return {
                 "settlements": settlements,
-                "debts": debt_info
+                "credits": credits_info
             }
 
         except Exception as e:

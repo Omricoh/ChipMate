@@ -1,5 +1,5 @@
 """
-Test cashout scenarios with debt settlement
+Test cashout scenarios with simplified credit system
 Background: Player A: 200 cash + 100 credit, Player B: 200 cash + 500 credit
 
 Uses mongomock for in-memory testing without requiring MongoDB
@@ -26,7 +26,7 @@ from src.services.game_service import GameService
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
-from src.dal.debt_dal import DebtDAL
+from src.dal.bank_dal import BankDAL
 from src.models.player import Player
 
 # Use mongomock instead of real MongoDB
@@ -41,7 +41,7 @@ game_service = GameService(MONGO_URL)
 games_dal = GamesDAL(db)
 players_dal = PlayersDAL(db)
 transactions_dal = TransactionsDAL(db)
-debt_dal = DebtDAL(db)
+bank_dal = BankDAL(db)
 
 def setup_test_game():
     """Create test game with players A and B and their buy-ins"""
@@ -68,7 +68,7 @@ def create_buyins(game_id, player_a_id, player_b_id):
     # Player A: 100 credit
     tx_id = transaction_service.create_buyin_transaction(game_id, player_a_id, "register", 100)
     transaction_service.approve_transaction(tx_id)
-    print(f"Player A: 100 credit buy-in approved (creates 100 debt)")
+    print(f"Player A: 100 credit buy-in approved (A now owes 100 to bank)")
 
     # Player B: 200 cash
     tx_id = transaction_service.create_buyin_transaction(game_id, player_b_id, "cash", 200)
@@ -78,7 +78,7 @@ def create_buyins(game_id, player_a_id, player_b_id):
     # Player B: 500 credit
     tx_id = transaction_service.create_buyin_transaction(game_id, player_b_id, "register", 500)
     transaction_service.approve_transaction(tx_id)
-    print(f"Player B: 500 credit buy-in approved (creates 500 debt)")
+    print(f"Player B: 500 credit buy-in approved (B now owes 500 to bank)")
 
 def print_game_state(game_id, title):
     """Print current game state"""
@@ -86,36 +86,25 @@ def print_game_state(game_id, title):
     print(f"{title}")
     print(f"{'='*60}")
 
-    # Cash in cashier
-    cash_buyins = list(transactions_dal.col.find({
-        "game_id": game_id,
-        "confirmed": True,
-        "type": "buyin_cash"
-    }))
-    total_cash = sum(tx["amount"] for tx in cash_buyins)
+    # Get bank status
+    bank = bank_dal.get_by_game(game_id)
+    if bank:
+        print(f"Bank: {bank.cash_balance} cash available (total in: {bank.total_cash_in}, paid out: {bank.total_cash_out})")
+        print(f"Bank: {bank.total_credits_issued} credits issued, {bank.total_credits_repaid} repaid")
 
-    # Cash paid out
-    cashouts = list(transactions_dal.col.find({
-        "game_id": game_id,
-        "confirmed": True,
-        "type": "cashout"
-    }))
-    cash_paid = sum(tx.get("debt_processing", {}).get("final_cash_amount", 0) for tx in cashouts)
-
-    print(f"Cashier: {total_cash - cash_paid} cash available (total in: {total_cash}, paid out: {cash_paid})")
-
-    # Debts
-    debts = list(debt_dal.col.find({"game_id": game_id}))
-    for debt in debts:
-        status = debt.get('status', 'unknown')
-        creditor = debt.get('creditor_name', 'unassigned')
-        print(f"Debt: {debt['debtor_name']} owes {debt['amount']} (status: {status}, creditor: {creditor})")
+    # Player credits
+    players = players_dal.get_players(game_id)
+    for player in players:
+        if player.credits_owed > 0:
+            print(f"Player {player.name} owes {player.credits_owed} credits to bank")
 
 def test_scenario_a():
     """
-    Test A:
-    - B cashes out for 0 -> still in debt of 500, cashier has 400 cash
-    - A cashes out for 1000 -> B owes him 500 + receives 400 cash
+    Test A (SIMPLIFIED):
+    - B cashes out for 0 -> still owes 500 to bank, gets nothing
+    - A cashes out for 1000 -> repays own 100 credits, gets 400 cash from bank
+
+    NOTE: In new system, no automatic debt transfers. A does NOT get B's debt.
     """
     print("\n" + "="*60)
     print("TEST SCENARIO A")
@@ -131,17 +120,20 @@ def test_scenario_a():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by B: {result['player_debt_settlement']}")
+    print(f"Credits repaid by B: {result['credits_repaid']}")
     print(f"Cash received by B: {result['final_cash']}")
-    print(f"Expected: B still in debt of 500")
+    print(f"Expected: B still owes 500 to bank")
 
-    # Check B's remaining debt
-    b_debts = debt_dal.get_player_debts(game_id, player_b_id)
-    b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] == 'pending')
-    print(f"OK B's remaining debt: {b_pending_debt} (expected: 500)")
+    assert result['credits_repaid'] == 0, f"Expected 0 credits repaid, got {result['credits_repaid']}"
+    assert result['final_cash'] == 0, f"Expected 0 cash, got {result['final_cash']}"
 
     transaction_service.execute_cashout_debt_operations(tx_id)
     player_service.cashout_player(game_id, player_b_id, 0)
+
+    # Check B's remaining credits owed
+    player_b = players_dal.get_player(game_id, player_b_id)
+    print(f"B's remaining credits owed: {player_b.credits_owed} (expected: 500)")
+    assert player_b.credits_owed == 500, f"Expected 500 credits owed, got {player_b.credits_owed}"
 
     print_game_state(game_id, "After B cashout")
 
@@ -151,14 +143,14 @@ def test_scenario_a():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by A: {result['player_debt_settlement']}")
+    print(f"Credits repaid by A: {result['credits_repaid']}")
     print(f"Cash received by A: {result['final_cash']}")
-    print(f"Debts transferred to A: {result['debt_transfers']}")
-    print(f"Expected: A gets 400 cash + B owes him 500")
+    print(f"Chips not covered: {result['chips_not_covered']}")
+    print(f"Expected: A repays 100 credits, gets 400 cash, 500 chips uncovered")
 
+    assert result['credits_repaid'] == 100, f"Expected 100 credits repaid, got {result['credits_repaid']}"
     assert result['final_cash'] == 400, f"Expected 400 cash, got {result['final_cash']}"
-    assert len(result['debt_transfers']) == 1, f"Expected 1 debt transfer"
-    assert result['debt_transfers'][0]['amount'] == 500, f"Expected 500 debt transfer"
+    assert result['chips_not_covered'] == 500, f"Expected 500 uncovered chips, got {result['chips_not_covered']}"
 
     print("OK TEST A PASSED")
 
@@ -166,13 +158,13 @@ def test_scenario_a():
     games_dal.col.delete_one({"_id": game_id})
     players_dal.col.delete_many({"game_id": game_id})
     transactions_dal.col.delete_many({"game_id": game_id})
-    debt_dal.col.delete_many({"game_id": game_id})
+    bank_dal.col.delete_many({"game_id": game_id})
 
 def test_scenario_b():
     """
-    Test B:
-    - B cashes out for 100 -> still in 400 debt
-    - A cashes out for 900 -> B owes him 400 + 400 cash
+    Test B (SIMPLIFIED):
+    - B cashes out for 100 -> repays 100 credits, still owes 400
+    - A cashes out for 900 -> repays own 100 credits, gets 400 cash, 400 chips uncovered
     """
     print("\n" + "="*60)
     print("TEST SCENARIO B")
@@ -188,17 +180,20 @@ def test_scenario_b():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by B: {result['player_debt_settlement']}")
+    print(f"Credits repaid by B: {result['credits_repaid']}")
     print(f"Cash received by B: {result['final_cash']}")
-    print(f"Expected: B pays 100 debt, still in 400 debt")
+    print(f"Expected: B repays 100 credits, still owes 400")
+
+    assert result['credits_repaid'] == 100, f"Expected 100 credits repaid, got {result['credits_repaid']}"
+    assert result['final_cash'] == 0, f"Expected 0 cash, got {result['final_cash']}"
 
     transaction_service.execute_cashout_debt_operations(tx_id)
     player_service.cashout_player(game_id, player_b_id, 100)
 
-    # Check B's remaining debt
-    b_debts = debt_dal.get_player_debts(game_id, player_b_id)
-    b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] == 'pending')
-    print(f"OK B's remaining debt: {b_pending_debt} (expected: 400)")
+    # Check B's remaining credits
+    player_b = players_dal.get_player(game_id, player_b_id)
+    print(f"B's remaining credits owed: {player_b.credits_owed} (expected: 400)")
+    assert player_b.credits_owed == 400, f"Expected 400 credits owed, got {player_b.credits_owed}"
 
     print_game_state(game_id, "After B cashout")
 
@@ -208,14 +203,14 @@ def test_scenario_b():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by A: {result['player_debt_settlement']}")
+    print(f"Credits repaid by A: {result['credits_repaid']}")
     print(f"Cash received by A: {result['final_cash']}")
-    print(f"Debts transferred to A: {result['debt_transfers']}")
-    print(f"Expected: A gets 400 cash + B owes him 400")
+    print(f"Chips not covered: {result['chips_not_covered']}")
+    print(f"Expected: A repays 100 credits, gets 400 cash, 400 chips uncovered")
 
+    assert result['credits_repaid'] == 100, f"Expected 100 credits repaid, got {result['credits_repaid']}"
     assert result['final_cash'] == 400, f"Expected 400 cash, got {result['final_cash']}"
-    assert len(result['debt_transfers']) == 1, f"Expected 1 debt transfer"
-    assert result['debt_transfers'][0]['amount'] == 400, f"Expected 400 debt transfer"
+    assert result['chips_not_covered'] == 400, f"Expected 400 uncovered chips, got {result['chips_not_covered']}"
 
     print("OK TEST B PASSED")
 
@@ -223,13 +218,13 @@ def test_scenario_b():
     games_dal.col.delete_one({"_id": game_id})
     players_dal.col.delete_many({"game_id": game_id})
     transactions_dal.col.delete_many({"game_id": game_id})
-    debt_dal.col.delete_many({"game_id": game_id})
+    bank_dal.col.delete_many({"game_id": game_id})
 
 def test_scenario_c():
     """
-    Test C:
-    - B cashes out for 500 -> no debt
-    - A cashes out for 500 -> 400 cash
+    Test C (SIMPLIFIED):
+    - B cashes out for 500 -> repays all 500 credits
+    - A cashes out for 500 -> repays 100 credits, gets 400 cash
     """
     print("\n" + "="*60)
     print("TEST SCENARIO C")
@@ -245,17 +240,20 @@ def test_scenario_c():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by B: {result['player_debt_settlement']}")
+    print(f"Credits repaid by B: {result['credits_repaid']}")
     print(f"Cash received by B: {result['final_cash']}")
-    print(f"Expected: B pays all 500 debt, no remaining debt")
+    print(f"Expected: B repays all 500 credits")
+
+    assert result['credits_repaid'] == 500, f"Expected 500 credits repaid, got {result['credits_repaid']}"
+    assert result['final_cash'] == 0, f"Expected 0 cash, got {result['final_cash']}"
 
     transaction_service.execute_cashout_debt_operations(tx_id)
     player_service.cashout_player(game_id, player_b_id, 500)
 
-    # Check B's remaining debt
-    b_debts = debt_dal.get_player_debts(game_id, player_b_id)
-    b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] in ['pending', 'assigned'])
-    print(f"OK B's remaining debt: {b_pending_debt} (expected: 0)")
+    # Check B's remaining credits
+    player_b = players_dal.get_player(game_id, player_b_id)
+    print(f"B's remaining credits owed: {player_b.credits_owed} (expected: 0)")
+    assert player_b.credits_owed == 0, f"Expected 0 credits owed, got {player_b.credits_owed}"
 
     print_game_state(game_id, "After B cashout")
 
@@ -265,13 +263,13 @@ def test_scenario_c():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by A: {result['player_debt_settlement']}")
+    print(f"Credits repaid by A: {result['credits_repaid']}")
     print(f"Cash received by A: {result['final_cash']}")
-    print(f"Debts transferred to A: {result['debt_transfers']}")
-    print(f"Expected: A gets 400 cash, no debt transfers")
+    print(f"Expected: A repays 100 credits, gets 400 cash")
 
+    assert result['credits_repaid'] == 100, f"Expected 100 credits repaid, got {result['credits_repaid']}"
     assert result['final_cash'] == 400, f"Expected 400 cash, got {result['final_cash']}"
-    assert len(result['debt_transfers']) == 0, f"Expected 0 debt transfers"
+    assert result['chips_not_covered'] == 0, f"Expected 0 uncovered chips, got {result['chips_not_covered']}"
 
     print("OK TEST C PASSED")
 
@@ -279,13 +277,13 @@ def test_scenario_c():
     games_dal.col.delete_one({"_id": game_id})
     players_dal.col.delete_many({"game_id": game_id})
     transactions_dal.col.delete_many({"game_id": game_id})
-    debt_dal.col.delete_many({"game_id": game_id})
+    bank_dal.col.delete_many({"game_id": game_id})
 
 def test_scenario_d():
     """
-    Test D:
-    - B cashes out for 600 -> no debt + 100 cash
-    - A cashes out for 400 -> 300 cash
+    Test D (SIMPLIFIED):
+    - B cashes out for 600 -> repays 500 credits + gets 100 cash
+    - A cashes out for 400 -> repays 100 credits + gets 300 cash
     """
     print("\n" + "="*60)
     print("TEST SCENARIO D")
@@ -301,20 +299,20 @@ def test_scenario_d():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by B: {result['player_debt_settlement']}")
+    print(f"Credits repaid by B: {result['credits_repaid']}")
     print(f"Cash received by B: {result['final_cash']}")
-    print(f"Expected: B pays all 500 debt + gets 100 cash")
+    print(f"Expected: B repays 500 credits + gets 100 cash")
 
-    assert result['player_debt_settlement'] == 500, f"Expected 500 debt paid, got {result['player_debt_settlement']}"
+    assert result['credits_repaid'] == 500, f"Expected 500 credits repaid, got {result['credits_repaid']}"
     assert result['final_cash'] == 100, f"Expected 100 cash, got {result['final_cash']}"
 
     transaction_service.execute_cashout_debt_operations(tx_id)
     player_service.cashout_player(game_id, player_b_id, 600)
 
-    # Check B's remaining debt
-    b_debts = debt_dal.get_player_debts(game_id, player_b_id)
-    b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] in ['pending', 'assigned'])
-    print(f"B's remaining debt: {b_pending_debt} (expected: 0)")
+    # Check B's remaining credits
+    player_b = players_dal.get_player(game_id, player_b_id)
+    print(f"B's remaining credits owed: {player_b.credits_owed} (expected: 0)")
+    assert player_b.credits_owed == 0, f"Expected 0 credits owed, got {player_b.credits_owed}"
 
     print_game_state(game_id, "After B cashout")
 
@@ -324,14 +322,13 @@ def test_scenario_d():
     transaction_service.approve_transaction(tx_id)
     result = transaction_service.process_cashout_with_debt_settlement(tx_id)
 
-    print(f"Debt paid by A: {result['player_debt_settlement']}")
+    print(f"Credits repaid by A: {result['credits_repaid']}")
     print(f"Cash received by A: {result['final_cash']}")
-    print(f"Debts transferred to A: {result['debt_transfers']}")
-    print(f"Expected: A pays 100 debt + gets 300 cash")
+    print(f"Expected: A repays 100 credits + gets 300 cash")
 
-    assert result['player_debt_settlement'] == 100, f"Expected 100 debt paid, got {result['player_debt_settlement']}"
+    assert result['credits_repaid'] == 100, f"Expected 100 credits repaid, got {result['credits_repaid']}"
     assert result['final_cash'] == 300, f"Expected 300 cash, got {result['final_cash']}"
-    assert len(result['debt_transfers']) == 0, f"Expected 0 debt transfers"
+    assert result['chips_not_covered'] == 0, f"Expected 0 uncovered chips, got {result['chips_not_covered']}"
 
     print("TEST D PASSED")
 
@@ -339,7 +336,7 @@ def test_scenario_d():
     games_dal.col.delete_one({"_id": game_id})
     players_dal.col.delete_many({"game_id": game_id})
     transactions_dal.col.delete_many({"game_id": game_id})
-    debt_dal.col.delete_many({"game_id": game_id})
+    bank_dal.col.delete_many({"game_id": game_id})
 
 if __name__ == "__main__":
     try:
