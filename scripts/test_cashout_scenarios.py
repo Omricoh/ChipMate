@@ -3,6 +3,10 @@ Test cashout scenarios with debt settlement
 Background: Player A: 200 cash + 100 credit, Player B: 200 cash + 500 credit
 """
 import os
+import sys
+# Add parent directory to path to import from src
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from pymongo import MongoClient
 from datetime import datetime, timezone
 from src.services.transaction_service import TransactionService
