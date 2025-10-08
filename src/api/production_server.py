@@ -49,7 +49,7 @@ try:
         login, create_game, join_game, get_game, get_game_status,
         get_game_players, end_game, generate_game_link, create_buyin,
         create_cashout, get_pending_transactions, approve_transaction,
-        reject_transaction, get_player_summary, get_game_debts,
+        reject_transaction, get_player_summary, get_game_credits,
         get_settlement_data, get_game_report, list_all_games,
         get_system_stats, destroy_game, host_buyin, host_cashout
     )
@@ -71,7 +71,7 @@ except ImportError as e:
     def approve_transaction(): return jsonify({'error': 'API not available'}), 500
     def reject_transaction(): return jsonify({'error': 'API not available'}), 500
     def get_player_summary(): return jsonify({'error': 'API not available'}), 500
-    def get_game_debts(): return jsonify({'error': 'API not available'}), 500
+    def get_game_credits(): return jsonify({'error': 'API not available'}), 500
     def get_settlement_data(): return jsonify({'error': 'API not available'}), 500
     def get_game_report(game_id): return jsonify({'error': 'API not available'}), 500
     def list_all_games(): return jsonify({'error': 'API not available'}), 500
@@ -95,7 +95,7 @@ app.add_url_rule('/api/games/<game_id>/transactions/pending', 'get_pending_trans
 app.add_url_rule('/api/transactions/<transaction_id>/approve', 'approve_transaction', approve_transaction, methods=['POST'])
 app.add_url_rule('/api/transactions/<transaction_id>/reject', 'reject_transaction', reject_transaction, methods=['POST'])
 app.add_url_rule('/api/games/<game_id>/players/<int:user_id>/summary', 'get_player_summary', get_player_summary, methods=['GET'])
-app.add_url_rule('/api/games/<game_id>/debts', 'get_game_debts', get_game_debts, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/credits', 'get_game_credits', get_game_credits, methods=['GET'])
 app.add_url_rule('/api/games/<game_id>/settlement', 'get_settlement_data', get_settlement_data, methods=['GET'])
 
 # New endpoints - Admin and Host Management
