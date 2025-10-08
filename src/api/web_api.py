@@ -12,11 +12,11 @@ import io
 import qrcode
 from PIL import Image
 
-# Import existing services
-from src.bl.game_service import GameService
-from src.bl.player_service import PlayerService
-from src.bl.transaction_service import TransactionService
-from src.bl.admin_service import AdminService
+# Import services
+from src.services.game_service import GameService
+from src.services.player_service import PlayerService
+from src.services.transaction_service import TransactionService
+from src.services.admin_service import AdminService
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
@@ -648,7 +648,7 @@ def host_cashout(game_id):
         is_host = player.is_host if player else False
 
         # Mark player as cashed out (host stays active but loses host status)
-        player_service.cashout_player(game_id, user_id, amount, is_host_cashout=is_host)
+        player_service.cashout_player(game_id, user_id, amount)
 
         # Build detailed cashout message
         player_name = player.name if player else "Player"

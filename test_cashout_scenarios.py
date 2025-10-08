@@ -5,9 +5,9 @@ Background: Player A: 200 cash + 100 credit, Player B: 200 cash + 500 credit
 import os
 from pymongo import MongoClient
 from datetime import datetime, timezone
-from src.bl.transaction_service import TransactionService
-from src.bl.player_service import PlayerService
-from src.bl.game_service import GameService
+from src.services.transaction_service import TransactionService
+from src.services.player_service import PlayerService
+from src.services.game_service import GameService
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL

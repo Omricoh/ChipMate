@@ -43,42 +43,6 @@ class PlayerService:
         """Get all players in game"""
         return self.players_dal.get_players(game_id)
 
-    def add_manual_player(self, game_id: str, player_name: str, host_user_id: int) -> bool:
-        """Add player manually by host"""
-        try:
-            # Verify host permission
-            host = self.players_dal.get_player(game_id, host_user_id)
-            if not host or not host.is_host:
-                return False
-
-            # Use a fake user ID for manual players (negative numbers)
-            # Find the lowest unused negative ID
-            existing_manual_players = [
-                p for p in self.players_dal.get_players(game_id)
-                if p.user_id < 0
-            ]
-
-            if existing_manual_players:
-                fake_user_id = min(p.user_id for p in existing_manual_players) - 1
-            else:
-                fake_user_id = -1
-
-            # Create manual player
-            manual_player = Player(
-                game_id=game_id,
-                user_id=fake_user_id,
-                name=player_name,
-                is_host=False
-            )
-
-            self.players_dal.add_player(manual_player)
-            logger.info(f"Manual player {player_name} added to game {game_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error adding manual player: {e}")
-            return False
-
     def quit_game(self, user_id: int) -> bool:
         """Player quits the game"""
         try:
@@ -99,7 +63,7 @@ class PlayerService:
             logger.error(f"Error quitting game: {e}")
             return False
 
-    def cashout_player(self, game_id: str, user_id: int, chip_count: int, is_host_cashout: bool = False) -> bool:
+    def cashout_player(self, game_id: str, user_id: int, chip_count: int) -> bool:
         """Process player cashout - all cashed out players become inactive"""
         try:
             player = self.players_dal.get_player(game_id, user_id)
@@ -114,10 +78,6 @@ class PlayerService:
                 "active": False,  # All cashed out players become inactive
                 "final_chips": chip_count
             }
-
-            # If host is cashing out, they lose host status
-            if is_host_cashout:
-                update_fields["is_host"] = False
 
             self.players_dal.col.update_one(
                 {"game_id": game_id, "user_id": user_id},

@@ -8,10 +8,10 @@ from telegram.ext import Application
 from src.ui.handlers.command_handlers import CommandHandlers
 from src.ui.handlers.conversation_handlers import ConversationHandlers
 from src.ui.handlers.callback_handlers import CallbackHandlers
-from src.bl.game_service import GameService
-from src.bl.player_service import PlayerService
-from src.bl.transaction_service import TransactionService
-from src.bl.admin_service import AdminService
+from src.services.game_service import GameService
+from src.services.player_service import PlayerService
+from src.services.transaction_service import TransactionService
+from src.services.admin_service import AdminService
 
 logger = logging.getLogger("chipbot")
 

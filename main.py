@@ -3262,7 +3262,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "approve":
         # Use transaction service to handle approval (includes debt creation)
-        from src.bl.transaction_service import TransactionService
+        from src.services.transaction_service import TransactionService
         transaction_service = TransactionService(MONGO_URL)
         transaction_service.approve_transaction(tx_id)
 
