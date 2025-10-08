@@ -13,7 +13,11 @@
       "Bash(npx ng build:*)",
       "Bash(export MONGO_URL=\"mongodb://localhost:27017/\")",
       "Bash(tasklist)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(cat:*)",
+      "Bash(git mv:*)",
+      "Bash(awk:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

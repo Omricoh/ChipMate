@@ -242,7 +242,8 @@ def get_game_status(game_id):
             'total_credit': status['total_credit'],
             'total_buyins': status['total_buyins'],
             'total_cashed_out': status['total_cashed_out'],
-            'total_debt_settled': status['total_debt_settled']
+            'total_debt_settled': status['total_debt_settled'],
+            'bank': status.get('bank')
         })
 
     except Exception as e:
@@ -274,6 +275,20 @@ def get_game_players(game_id):
     except Exception as e:
         logger.error(f"Get game players error: {e}")
         return jsonify({'error': 'Failed to get players'}), 500
+
+@app.route('/api/games/<game_id>/bank', methods=['GET'])
+def get_game_bank(game_id):
+    """Get bank status for a game"""
+    try:
+        bank = game_service.bank_dal.get_by_game(game_id)
+        if not bank:
+            return jsonify({'error': 'Bank not found'}), 404
+
+        return jsonify(bank.get_summary())
+
+    except Exception as e:
+        logger.error(f"Get bank status error: {e}")
+        return jsonify({'error': 'Failed to get bank status'}), 500
 
 @app.route('/api/games/<game_id>/end', methods=['POST'])
 def end_game(game_id):

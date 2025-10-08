@@ -4,6 +4,7 @@ Handles all player-related business operations
 """
 import logging
 from pymongo import MongoClient
+from bson import ObjectId
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 
@@ -111,7 +112,7 @@ class PlayerService:
                 new_host_player = self.players_dal.get_player(game_id, new_host_user_id)
                 if new_host_player:
                     self.games_dal.col.update_one(
-                        {"_id": self.games_dal.col.database.ObjectId(game_id)},
+                        {"_id": ObjectId(game_id) if isinstance(game_id, str) else game_id},
                         {"$set": {"host_id": new_host_user_id, "host_name": new_host_player.name}}
                     )
 

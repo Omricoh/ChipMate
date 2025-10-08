@@ -10,8 +10,10 @@ from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
 from src.dal.debt_dal import DebtDAL
+from src.dal.bank_dal import BankDAL
 from src.bl.game_bl import create_game as create_game_bl
 from src.models.game import Game
+from src.models.bank import Bank
 
 logger = logging.getLogger("chipbot")
 
@@ -26,6 +28,7 @@ class GameService:
         self.players_dal = PlayersDAL(self.db)
         self.transactions_dal = TransactionsDAL(self.db)
         self.debt_dal = DebtDAL(self.db)
+        self.bank_dal = BankDAL(self.db)
 
     def create_game(self, host_id: int, host_name: str) -> tuple[str, str]:
         """Create a new game and return game_id and code"""
@@ -38,7 +41,11 @@ class GameService:
             host_player.game_id = game_id
             self.players_dal.add_player(host_player)
 
-            logger.info(f"Created game {game.code} with ID {game_id}")
+            # Create bank for the game
+            bank = Bank(game_id=game_id)
+            self.bank_dal.create(bank)
+
+            logger.info(f"Created game {game.code} with ID {game_id} and initialized bank")
             return game_id, game.code
 
         except Exception as e:
@@ -145,6 +152,10 @@ class GameService:
             })
             total_debt_settled = sum(debt["amount"] for debt in settled_debts)
 
+            # Get bank status
+            bank = self.bank_dal.get_by_game(game_id)
+            bank_status = bank.get_summary() if bank else None
+
             return {
                 "game": game,
                 "active_players": active_players,
@@ -152,7 +163,8 @@ class GameService:
                 "total_credit": total_credit,
                 "total_buyins": total_cash + total_credit,
                 "total_cashed_out": total_cashed_out,
-                "total_debt_settled": total_debt_settled
+                "total_debt_settled": total_debt_settled,
+                "bank": bank_status
             }
 
         except Exception as e:

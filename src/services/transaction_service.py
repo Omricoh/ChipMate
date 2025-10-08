@@ -4,12 +4,13 @@ Handles all transaction and debt-related business operations
 """
 import logging
 from pymongo import MongoClient
+from bson import ObjectId
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 
 from src.dal.transactions_dal import TransactionsDAL
-from src.dal.debt_dal import DebtDAL
 from src.dal.players_dal import PlayersDAL
+from src.dal.bank_dal import BankDAL
 from src.bl.transaction_bl import create_buyin, create_cashout
 from src.models.transaction import Transaction
 
@@ -23,8 +24,8 @@ class TransactionService:
         self.db = self.client.chipbot
 
         self.transactions_dal = TransactionsDAL(self.db)
-        self.debt_dal = DebtDAL(self.db)
         self.players_dal = PlayersDAL(self.db)
+        self.bank_dal = BankDAL(self.db)
 
     def create_buyin_transaction(self, game_id: str, user_id: int, buyin_type: str, amount: int) -> str:
         """Create a new buyin transaction"""
@@ -50,7 +51,7 @@ class TransactionService:
             # Mark as former host cashout if applicable
             if is_former_host:
                 self.transactions_dal.col.update_one(
-                    {"_id": self.transactions_dal.col.database.ObjectId(tx_id)},
+                    {"_id": ObjectId(tx_id) if isinstance(tx_id, str) else tx_id},
                     {"$set": {"former_host_cashout": True}}
                 )
 
@@ -62,29 +63,58 @@ class TransactionService:
             raise
 
     def approve_transaction(self, tx_id: str) -> bool:
-        """Approve a transaction and handle side effects"""
+        """
+        Approve a transaction and execute bank operations.
+
+        *** HOST APPROVAL REQUIRED ***
+        This method should ONLY be called when the host approves a transaction.
+        The bank will ONLY accept/pay money when this is called.
+
+        Flow:
+        1. HOST approves the transaction (by calling this method)
+        2. Transaction marked as approved in database
+        3. Bank executes the operation:
+           - CASH BUY-IN: Bank takes player's cash, issues chips
+           - CREDIT BUY-IN: Bank issues chips on credit, records debt
+        4. Money enters bank ONLY here for buy-ins
+
+        Returns:
+            bool: True if approved successfully, False otherwise
+        """
         try:
             # Get transaction details
             tx = self.transactions_dal.get(tx_id)
             if not tx:
+                logger.error(f"Transaction {tx_id} not found")
                 return False
 
-            # Approve the transaction
+            # Check if already processed
+            if tx.get("confirmed"):
+                logger.warning(f"Transaction {tx_id} already approved")
+                return True
+
+            # Approve the transaction in database
             self.transactions_dal.update_status(tx_id, True, False)
 
-            # Handle register buyin - create debt
+            # CASH BUY-IN: Player gives cash → Bank takes it → Issues chips
+            if tx["type"] == "buyin_cash":
+                self.bank_dal.record_cash_buyin(tx["game_id"], tx["amount"])
+                logger.info(f"✓ HOST APPROVED: Bank received {tx['amount']} cash, issued {tx['amount']} chips")
+
+            # CREDIT BUY-IN: Bank issues chips on credit → Player owes credit
             if tx["type"] == "buyin_register":
                 player = self.players_dal.get_player(tx["game_id"], tx["user_id"])
                 if player:
-                    self.debt_dal.create_debt(
-                        game_id=tx["game_id"],
-                        debtor_user_id=tx["user_id"],
-                        debtor_name=player.name,
-                        amount=tx["amount"],
-                        transaction_id=tx_id
+                    # Update player's credit owed
+                    self.players_dal.col.update_one(
+                        {"game_id": tx["game_id"], "user_id": tx["user_id"]},
+                        {"$inc": {"credits_owed": tx["amount"]}}
                     )
+                    # Bank issues chips on credit
+                    self.bank_dal.record_credit_buyin(tx["game_id"], tx["amount"])
+                    logger.info(f"✓ HOST APPROVED: Bank issued {tx['amount']} chips on credit, player now owes {player.credits_owed + tx['amount']}")
 
-            logger.info(f"Approved transaction {tx_id}")
+            logger.info(f"Transaction {tx_id} approved by host")
             return True
 
         except Exception as e:
@@ -103,8 +133,15 @@ class TransactionService:
             return False
 
     def process_cashout_with_debt_settlement(self, tx_id: str) -> Dict[str, Any]:
-        """Process cashout with automatic debt settlement and transfers
-        Order: 1) Pay own debt, 2) Take cash, 3) Take other players' debt"""
+        """
+        SIMPLIFIED CASHOUT PROCESSING
+
+        Flow:
+        1. Player returns chips to bank
+        2. Chips used to repay player's own credits
+        3. Remaining chips converted to cash (if bank has it)
+        4. No automatic debt transfers - player chooses what to take
+        """
         try:
             tx = self.transactions_dal.get(tx_id)
             if not tx or tx["type"] != "cashout":
@@ -118,185 +155,114 @@ class TransactionService:
             if not player:
                 return {"success": False, "error": "Player not found"}
 
+            # Get player's credits owed
+            credits_owed = player.credits_owed
             remaining_chips = chip_count
 
-            # STEP 1: Pay own debt first (from credit buy-ins)
-            player_debts = self.debt_dal.get_player_debts(game_id, user_id)
-            player_pending_debts = [d for d in player_debts if d["status"] == "pending"]
+            # STEP 1: Repay own credits first
+            credits_repaid = min(remaining_chips, credits_owed)
+            remaining_chips -= credits_repaid
 
-            player_debts_to_settle = []
-            for debt in player_pending_debts:
-                if remaining_chips <= 0:
-                    break
-
-                debt_amount = debt["amount"]
-                settle_amount = min(remaining_chips, debt_amount)
-
-                if settle_amount > 0:
-                    player_debts_to_settle.append({
-                        "debt_id": str(debt["_id"]),
-                        "amount": settle_amount,
-                        "original_debt": debt_amount
-                    })
-                    remaining_chips -= settle_amount
-
-            # STEP 2: Calculate available cash from cashier
-            # Total cash in cashier = all cash buy-ins from all players
-            all_cash_buyins = self.transactions_dal.col.find({
-                "game_id": game_id,
-                "confirmed": True,
-                "rejected": False,
-                "type": "buyin_cash"
-            })
-            total_cash_in_cashier = sum(tx["amount"] for tx in all_cash_buyins)
-
-            # Total cash already paid out = sum of all previous cashouts
-            previous_cashouts = self.transactions_dal.col.find({
-                "game_id": game_id,
-                "confirmed": True,
-                "type": "cashout"
-            })
-            total_cash_paid_out = 0
-            for cashout_tx in previous_cashouts:
-                debt_proc = cashout_tx.get("debt_processing", {})
-                total_cash_paid_out += debt_proc.get("final_cash_amount", 0)
-
-            # Available cash in cashier
-            cashier_available_cash = total_cash_in_cashier - total_cash_paid_out
+            # STEP 2: Get available cash from bank
+            cashier_available_cash = self.bank_dal.get_available_cash(game_id)
 
             # Final cash = min of (remaining chips, cashier available)
-            # Cashier is a shared pool - any player can take cash from it
             final_cash = min(remaining_chips, cashier_available_cash)
             remaining_chips -= final_cash
 
-            # STEP 3: Take debts from other players (inactive players)
-            available_debts = self._get_available_debt_transfers(game_id, user_id)
-
-            debt_transfers = []
-            for debt in available_debts:
-                if remaining_chips <= 0:
-                    break
-
-                debt_transfer_amount = min(debt["amount"], remaining_chips)
-                if debt_transfer_amount > 0:
-                    debt_transfers.append({
-                        "debt_id": debt["debt_id"],
-                        "amount": debt_transfer_amount,
-                        "debtor_name": debt["debtor_name"]
-                    })
-                    remaining_chips -= debt_transfer_amount
-
-            # Store debt processing information in transaction
-            total_debt_settlement = sum(d["amount"] for d in player_debts_to_settle)
-            debt_processing = {
-                "player_debt_settlement": total_debt_settlement,
-                "player_debts_to_settle": player_debts_to_settle,
-                "debt_transfers": debt_transfers,
+            # Store processing information in transaction
+            cashout_processing = {
+                "credits_repaid": credits_repaid,
                 "final_cash_amount": final_cash,
-                "cashier_info": {
-                    "total_cash_in": total_cash_in_cashier,
-                    "total_paid_out": total_cash_paid_out,
+                "chips_not_covered": remaining_chips,  # Chips that can't be converted
+                "bank_info": {
                     "available_cash": cashier_available_cash,
-                    "cash_paid_this_transaction": final_cash
+                    "cash_paid": final_cash
                 }
             }
 
             self.transactions_dal.col.update_one(
-                {"_id": self.transactions_dal.col.database.ObjectId(tx_id)},
-                {"$set": {"debt_processing": debt_processing}}
+                {"_id": ObjectId(tx_id) if isinstance(tx_id, str) else tx_id},
+                {"$set": {"cashout_processing": cashout_processing}}
             )
 
-            logger.info(f"Cashout processed: chip_count={chip_count}, debt_paid={total_debt_settlement}, "
-                       f"cash_paid={final_cash}, cashier_before={cashier_available_cash}, "
-                       f"cashier_after={cashier_available_cash - final_cash}")
+            logger.info(f"Cashout calculated: chips={chip_count}, credits_repaid={credits_repaid}, "
+                       f"cash={final_cash}, uncovered={remaining_chips}")
 
             return {
                 "success": True,
                 "chip_count": chip_count,
-                "player_debt_settlement": total_debt_settlement,
-                "debt_transfers": debt_transfers,
+                "credits_repaid": credits_repaid,
                 "final_cash": final_cash,
-                "debt_processing": debt_processing
+                "chips_not_covered": remaining_chips,
+                "cashout_processing": cashout_processing
             }
 
         except Exception as e:
-            logger.error(f"Error processing cashout with debt settlement: {e}")
+            logger.error(f"Error processing cashout: {e}")
             return {"success": False, "error": str(e)}
 
     def execute_cashout_debt_operations(self, tx_id: str) -> Dict[str, Any]:
-        """Execute the actual debt settlement and transfer operations"""
+        """
+        SIMPLIFIED: Execute cashout - update player credits and bank
+
+        *** HOST APPROVAL REQUIRED ***
+        This method should ONLY be called after host approves the cashout.
+
+        Flow:
+        1. Player returns CHIPS to bank
+        2. Reduce player's credits_owed
+        3. Bank pays CASH (if available)
+        4. Done - no debt transfers
+
+        Returns:
+            Dict with success status
+        """
         try:
             tx = self.transactions_dal.get(tx_id)
-            debt_processing = tx.get("debt_processing", {})
+            if not tx:
+                return {"success": False, "error": "Transaction not found"}
 
+            # Verify transaction is approved (host approved it)
+            if not tx.get("confirmed"):
+                return {"success": False, "error": "Transaction not approved by host"}
+
+            cashout_processing = tx.get("cashout_processing", {})
             game_id = tx["game_id"]
             user_id = tx["user_id"]
             player = self.players_dal.get_player(game_id, user_id)
 
-            # STEP 1: Settle player's own debts
-            settlement_notifications = []
-            for debt_settlement in debt_processing.get("player_debts_to_settle", []):
-                debt_id = debt_settlement["debt_id"]
-                settle_amount = debt_settlement["amount"]
-                original_debt = debt_settlement["original_debt"]
+            # Verify chips are being returned
+            chips_returned = tx["amount"]
+            if chips_returned <= 0:
+                return {"success": False, "error": "Cannot cashout without returning chips"}
 
-                if settle_amount >= original_debt:
-                    # Fully settle the debt
-                    success = self.debt_dal.settle_debt(debt_id)
-                    if success:
-                        settlement_notifications.append(debt_settlement)
-                else:
-                    # Partially settle the debt - reduce the amount
-                    self.debt_dal.col.update_one(
-                        {"_id": self.debt_dal.col.database.ObjectId(debt_id)},
-                        {"$inc": {"amount": -settle_amount}}
-                    )
-                    settlement_notifications.append(debt_settlement)
+            # Get values from processing
+            credits_repaid = cashout_processing.get("credits_repaid", 0)
+            cash_paid = cashout_processing.get("final_cash_amount", 0)
 
-            # STEP 2: Transfer debts from other players to this player
-            transfer_notifications = []
-            for transfer in debt_processing.get("debt_transfers", []):
-                success = self.debt_dal.assign_debt_to_creditor(
-                    transfer["debt_id"],
-                    user_id,
-                    player.name if player else "Unknown"
+            # STEP 1: Reduce player's credits owed
+            if credits_repaid > 0:
+                self.players_dal.col.update_one(
+                    {"game_id": game_id, "user_id": user_id},
+                    {"$inc": {"credits_owed": -credits_repaid}}
                 )
-                if success:
-                    transfer_notifications.append(transfer)
+                logger.info(f"Player repaid {credits_repaid} credits, now owes {max(0, player.credits_owed - credits_repaid)}")
+
+            # STEP 2: Record in bank (chips returned, cash paid, credits repaid)
+            self.bank_dal.record_cashout(game_id, chips_returned, cash_paid, credits_repaid)
+            logger.info(f"✓ HOST APPROVED CASHOUT: Player returned {chips_returned} chips → "
+                       f"Repaid {credits_repaid} credits, received {cash_paid} cash")
 
             return {
                 "success": True,
-                "settlement_notifications": settlement_notifications,
-                "transfer_notifications": transfer_notifications
+                "credits_repaid": credits_repaid,
+                "cash_paid": cash_paid
             }
 
         except Exception as e:
-            logger.error(f"Error executing debt operations: {e}")
+            logger.error(f"Error executing cashout: {e}")
             return {"success": False, "error": str(e)}
-
-    def _get_available_debt_transfers(self, game_id: str, requesting_user_id: int) -> List[Dict]:
-        """Get available debt transfers from inactive players"""
-        try:
-            # Get all pending debts
-            pending_debts = self.debt_dal.get_pending_debts(game_id)
-
-            # Filter for debts from inactive/cashed out players
-            available_transfers = []
-            for debt in pending_debts:
-                debtor = self.players_dal.get_player(game_id, debt["debtor_user_id"])
-                # Only allow transfers from inactive players or cashed out players
-                if debtor and (not debtor.active or debtor.cashed_out):
-                    available_transfers.append({
-                        "debt_id": str(debt["_id"]),
-                        "amount": debt["amount"],
-                        "debtor_name": debt["debtor_name"]
-                    })
-
-            return available_transfers
-
-        except Exception as e:
-            logger.error(f"Error getting available debt transfers: {e}")
-            return []
 
     def get_player_transaction_summary(self, game_id: str, user_id: int) -> Dict[str, Any]:
         """Get transaction summary for a player"""
@@ -319,15 +285,15 @@ class TransactionService:
             credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] in ["buyin_register", "buyin_buyin_register"])
             total_buyins = cash_buyins + credit_buyins
 
-            # Get player's debt (both pending and assigned debts)
-            player_debts = self.debt_dal.get_player_debts(game_id, user_id)
-            pending_debt = sum(debt["amount"] for debt in player_debts if debt["status"] in ["pending", "assigned"])
+            # Get player's credits owed
+            player = self.players_dal.get_player(game_id, user_id)
+            credits_owed = player.credits_owed if player else 0
 
             return {
                 "cash_buyins": cash_buyins,
                 "credit_buyins": credit_buyins,
                 "total_buyins": total_buyins,
-                "pending_debt": pending_debt,
+                "credits_owed": credits_owed,
                 "transactions": transactions
             }
 

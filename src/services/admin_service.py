@@ -5,6 +5,7 @@ Handles all admin-related business operations
 import logging
 import os
 from pymongo import MongoClient
+from bson import ObjectId
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 
@@ -12,6 +13,7 @@ from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
 from src.dal.debt_dal import DebtDAL
+from src.dal.bank_dal import BankDAL
 from src.models.game import Game
 
 logger = logging.getLogger("chipbot")
@@ -27,6 +29,7 @@ class AdminService:
         self.players_dal = PlayersDAL(self.db)
         self.transactions_dal = TransactionsDAL(self.db)
         self.debt_dal = DebtDAL(self.db)
+        self.bank_dal = BankDAL(self.db)
 
         # Admin credentials
         self.admin_user = os.getenv("ADMIN_USER")
@@ -102,7 +105,10 @@ class AdminService:
     def destroy_game_completely(self, game_id: str) -> bool:
         """Completely destroy a game and all related data"""
         try:
-            # Delete in order: debts, transactions, players, then game
+            # Delete in order: bank, debts, transactions, players, then game
+
+            # Delete bank
+            bank_deleted = self.bank_dal.delete_by_game(game_id)
 
             # Delete debts
             debt_result = self.debt_dal.col.delete_many({"game_id": game_id})
@@ -115,7 +121,7 @@ class AdminService:
 
             # Delete game
             game_result = self.games_dal.col.delete_one(
-                {"_id": self.games_dal.col.database.ObjectId(game_id)}
+                {"_id": ObjectId(game_id) if isinstance(game_id, str) else game_id}
             )
 
             if game_result.deleted_count > 0:
@@ -124,7 +130,8 @@ class AdminService:
                     f"{game_result.deleted_count} game, "
                     f"{player_result.deleted_count} players, "
                     f"{tx_result.deleted_count} transactions, "
-                    f"{debt_result.deleted_count} debts"
+                    f"{debt_result.deleted_count} debts, "
+                    f"bank deleted: {bank_deleted}"
                 )
                 return True
 
@@ -263,7 +270,7 @@ class AdminService:
 
             # Set ended timestamp if not already set
             self.games_dal.col.update_one(
-                {"_id": self.games_dal.col.database.ObjectId(game_id)},
+                {"_id": ObjectId(game_id) if isinstance(game_id, str) else game_id},
                 {"$set": {"ended_at": datetime.now(timezone.utc)}}
             )
 

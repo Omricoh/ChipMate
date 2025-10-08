@@ -1,14 +1,25 @@
 """
 Test cashout scenarios with debt settlement
 Background: Player A: 200 cash + 100 credit, Player B: 200 cash + 500 credit
+
+Uses mongomock for in-memory testing without requiring MongoDB
 """
 import os
 import sys
 # Add parent directory to path to import from src
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pymongo import MongoClient
+import mongomock
 from datetime import datetime, timezone
+
+# Create a single shared mock client that all services will use
+shared_mock_client = mongomock.MongoClient()
+
+# Mock pymongo.MongoClient before importing services to always return the same instance
+import pymongo
+original_client = pymongo.MongoClient
+pymongo.MongoClient = lambda *args, **kwargs: shared_mock_client
+
 from src.services.transaction_service import TransactionService
 from src.services.player_service import PlayerService
 from src.services.game_service import GameService
@@ -16,16 +27,14 @@ from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
 from src.dal.debt_dal import DebtDAL
+from src.models.player import Player
 
-MONGO_URL = os.getenv('MONGO_URL')
-if not MONGO_URL:
-    print("ERROR: MONGO_URL environment variable not set")
-    exit(1)
-
-client = MongoClient(MONGO_URL)
+# Use mongomock instead of real MongoDB
+MONGO_URL = "mongodb://localhost:27017/"
+client = shared_mock_client
 db = client.chipbot
 
-# Initialize services
+# Initialize services with mock MongoDB
 transaction_service = TransactionService(MONGO_URL)
 player_service = PlayerService(MONGO_URL)
 game_service = GameService(MONGO_URL)
@@ -43,7 +52,8 @@ def setup_test_game():
 
     # Add Player B
     player_b_id = int(datetime.now().timestamp() * 1000) + 1
-    players_dal.add_player(game_id, player_b_id, "Player B", is_host=False)
+    player_b = Player(game_id=game_id, user_id=player_b_id, name="Player B", is_host=False)
+    players_dal.add_player(player_b)
     print(f"Added Player B (id={player_b_id})")
 
     return game_id, player_a_id, player_b_id
@@ -51,22 +61,22 @@ def setup_test_game():
 def create_buyins(game_id, player_a_id, player_b_id):
     """Create buy-ins: A: 200 cash + 100 credit, B: 200 cash + 500 credit"""
     # Player A: 200 cash
-    tx_id = transaction_service.create_buyin_transaction(game_id, player_a_id, "buyin_cash", 200)
+    tx_id = transaction_service.create_buyin_transaction(game_id, player_a_id, "cash", 200)
     transaction_service.approve_transaction(tx_id)
     print(f"Player A: 200 cash buy-in approved")
 
     # Player A: 100 credit
-    tx_id = transaction_service.create_buyin_transaction(game_id, player_a_id, "buyin_register", 100)
+    tx_id = transaction_service.create_buyin_transaction(game_id, player_a_id, "register", 100)
     transaction_service.approve_transaction(tx_id)
     print(f"Player A: 100 credit buy-in approved (creates 100 debt)")
 
     # Player B: 200 cash
-    tx_id = transaction_service.create_buyin_transaction(game_id, player_b_id, "buyin_cash", 200)
+    tx_id = transaction_service.create_buyin_transaction(game_id, player_b_id, "cash", 200)
     transaction_service.approve_transaction(tx_id)
     print(f"Player B: 200 cash buy-in approved")
 
     # Player B: 500 credit
-    tx_id = transaction_service.create_buyin_transaction(game_id, player_b_id, "buyin_register", 500)
+    tx_id = transaction_service.create_buyin_transaction(game_id, player_b_id, "register", 500)
     transaction_service.approve_transaction(tx_id)
     print(f"Player B: 500 credit buy-in approved (creates 500 debt)")
 
@@ -128,10 +138,10 @@ def test_scenario_a():
     # Check B's remaining debt
     b_debts = debt_dal.get_player_debts(game_id, player_b_id)
     b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] == 'pending')
-    print(f"✓ B's remaining debt: {b_pending_debt} (expected: 500)")
+    print(f"OK B's remaining debt: {b_pending_debt} (expected: 500)")
 
     transaction_service.execute_cashout_debt_operations(tx_id)
-    player_service.cashout_player(game_id, player_b_id, 0, is_host_cashout=False)
+    player_service.cashout_player(game_id, player_b_id, 0)
 
     print_game_state(game_id, "After B cashout")
 
@@ -150,7 +160,7 @@ def test_scenario_a():
     assert len(result['debt_transfers']) == 1, f"Expected 1 debt transfer"
     assert result['debt_transfers'][0]['amount'] == 500, f"Expected 500 debt transfer"
 
-    print("✓ TEST A PASSED")
+    print("OK TEST A PASSED")
 
     # Cleanup
     games_dal.col.delete_one({"_id": game_id})
@@ -183,12 +193,12 @@ def test_scenario_b():
     print(f"Expected: B pays 100 debt, still in 400 debt")
 
     transaction_service.execute_cashout_debt_operations(tx_id)
-    player_service.cashout_player(game_id, player_b_id, 100, is_host_cashout=False)
+    player_service.cashout_player(game_id, player_b_id, 100)
 
     # Check B's remaining debt
     b_debts = debt_dal.get_player_debts(game_id, player_b_id)
     b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] == 'pending')
-    print(f"✓ B's remaining debt: {b_pending_debt} (expected: 400)")
+    print(f"OK B's remaining debt: {b_pending_debt} (expected: 400)")
 
     print_game_state(game_id, "After B cashout")
 
@@ -207,7 +217,7 @@ def test_scenario_b():
     assert len(result['debt_transfers']) == 1, f"Expected 1 debt transfer"
     assert result['debt_transfers'][0]['amount'] == 400, f"Expected 400 debt transfer"
 
-    print("✓ TEST B PASSED")
+    print("OK TEST B PASSED")
 
     # Cleanup
     games_dal.col.delete_one({"_id": game_id})
@@ -240,12 +250,12 @@ def test_scenario_c():
     print(f"Expected: B pays all 500 debt, no remaining debt")
 
     transaction_service.execute_cashout_debt_operations(tx_id)
-    player_service.cashout_player(game_id, player_b_id, 500, is_host_cashout=False)
+    player_service.cashout_player(game_id, player_b_id, 500)
 
     # Check B's remaining debt
     b_debts = debt_dal.get_player_debts(game_id, player_b_id)
     b_pending_debt = sum(d['amount'] for d in b_debts if d['status'] in ['pending', 'assigned'])
-    print(f"✓ B's remaining debt: {b_pending_debt} (expected: 0)")
+    print(f"OK B's remaining debt: {b_pending_debt} (expected: 0)")
 
     print_game_state(game_id, "After B cashout")
 
@@ -263,7 +273,7 @@ def test_scenario_c():
     assert result['final_cash'] == 400, f"Expected 400 cash, got {result['final_cash']}"
     assert len(result['debt_transfers']) == 0, f"Expected 0 debt transfers"
 
-    print("✓ TEST C PASSED")
+    print("OK TEST C PASSED")
 
     # Cleanup
     games_dal.col.delete_one({"_id": game_id})
@@ -299,7 +309,7 @@ def test_scenario_d():
     assert result['final_cash'] == 100, f"Expected 100 cash, got {result['final_cash']}"
 
     transaction_service.execute_cashout_debt_operations(tx_id)
-    player_service.cashout_player(game_id, player_b_id, 600, is_host_cashout=False)
+    player_service.cashout_player(game_id, player_b_id, 600)
 
     # Check B's remaining debt
     b_debts = debt_dal.get_player_debts(game_id, player_b_id)
