@@ -207,43 +207,6 @@ class GameService:
             logger.error(f"Error getting settlement data: {e}")
             raise
 
-    def generate_qr_code(self, game_code: str, bot_username: str):
-        """Generate QR code for game joining"""
-        try:
-            import qrcode
-            from PIL import Image
-            import io
-
-            # Create join URL
-            join_url = f"https://t.me/{bot_username}?start=join_{game_code}"
-
-            # Generate QR code
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(join_url)
-            qr.make(fit=True)
-
-            # Create image
-            img = qr.make_image(fill_color="black", back_color="white")
-
-            # Convert to bytes for Telegram
-            img_buffer = io.BytesIO()
-            img.save(img_buffer, format='PNG')
-            img_buffer.seek(0)
-
-            return img_buffer, join_url
-
-        except ImportError:
-            logger.warning("QR code libraries not available")
-            raise ImportError("QR code libraries not available")
-        except Exception as e:
-            logger.error(f"Error generating QR code: {e}")
-            raise
-
     def generate_game_link_with_qr(self, game_code: str, base_url: str) -> Dict[str, str]:
         """Generate game link with QR code as base64 data URL for web API"""
         try:
