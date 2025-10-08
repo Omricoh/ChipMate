@@ -163,9 +163,6 @@ class AdminService:
                     elif tx["type"] == "cashout":
                         total_cashouts += tx["amount"]
 
-            # Get debt information
-            all_debts = list(self.debt_dal.col.find({"game_id": game_id}))
-
             # Calculate settlements
             settlements = []
             for player in all_players:
@@ -183,25 +180,19 @@ class AdminService:
                         "buyins": player_buyins,
                         "final_chips": player.final_chips,
                         "net_result": net_result,
+                        "credits_owed": player.credits_owed,
                         "status": "cashed_out" if player.cashed_out else "active"
                     })
 
-            # Debt summary
-            debt_summary = {
-                "total_pending": sum(d["amount"] for d in all_debts if d["status"] == "pending"),
-                "total_assigned": sum(d["amount"] for d in all_debts if d["status"] == "assigned"),
-                "total_settled": sum(d["amount"] for d in all_debts if d["status"] == "settled")
+            # Credits summary (replaces debt summary)
+            total_credits_owed = sum(p.credits_owed for p in all_players)
+            credits_summary = {
+                "total_credits_owed": total_credits_owed,
+                "players_with_credits": [
+                    {"name": p.name, "credits_owed": p.credits_owed}
+                    for p in all_players if p.credits_owed > 0
+                ]
             }
-
-            # Who owes whom
-            debt_relationships = []
-            for debt in all_debts:
-                if debt["status"] == "assigned" and debt.get("creditor_name"):
-                    debt_relationships.append({
-                        "debtor": debt["debtor_name"],
-                        "creditor": debt["creditor_name"],
-                        "amount": debt["amount"]
-                    })
 
             # Game duration
             duration = None
@@ -227,8 +218,7 @@ class AdminService:
                     "total_cashouts": total_cashouts
                 },
                 "settlements": settlements,
-                "debt_summary": debt_summary,
-                "debt_relationships": debt_relationships,
+                "credits_summary": credits_summary,
                 "transactions": [
                     {
                         "user_id": tx["user_id"],
