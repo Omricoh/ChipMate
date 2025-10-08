@@ -7,10 +7,6 @@ from flask_cors import CORS
 import os
 import logging
 from datetime import datetime, timezone
-import base64
-import io
-import qrcode
-from PIL import Image
 
 # Import services
 from src.services.game_service import GameService
@@ -297,34 +293,13 @@ def end_game(game_id):
 def generate_game_link(game_code):
     """Generate game join link with QR code"""
     try:
-        # Get base URL for join link
+        # Get base URL
         base_url = request.host_url.rstrip('/')
-        join_url = f"{base_url}/join/{game_code}"
 
-        # Generate QR code
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(join_url)
-        qr.make(fit=True)
+        # Generate link with QR code through service
+        result = game_service.generate_game_link_with_qr(game_code, base_url)
 
-        # Create QR code image
-        img = qr.make_image(fill_color="black", back_color="white")
-
-        # Convert to base64 data URL
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        img_data = base64.b64encode(img_buffer.getvalue()).decode()
-        qr_code_data_url = f"data:image/png;base64,{img_data}"
-
-        return jsonify({
-            'url': join_url,
-            'qr_code_data_url': qr_code_data_url
-        })
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"Generate game link error: {e}")
@@ -390,26 +365,7 @@ def create_cashout():
 def get_pending_transactions(game_id):
     """Get pending transactions for a game"""
     try:
-        # Get pending transactions from database
-        pending_txs = list(transactions_dal.col.find({
-            'game_id': game_id,
-            'confirmed': False,
-            'rejected': False
-        }).sort('created_at', 1))
-
-        result = []
-        for tx in pending_txs:
-            result.append({
-                'id': str(tx['_id']),
-                'game_id': tx['game_id'],
-                'user_id': tx['user_id'],
-                'type': tx['type'],
-                'amount': tx['amount'],
-                'confirmed': tx.get('confirmed', False),
-                'rejected': tx.get('rejected', False),
-                'created_at': tx.get('created_at').isoformat() if tx.get('created_at') else None
-            })
-
+        result = transaction_service.get_pending_transactions_formatted(game_id)
         return jsonify(result)
 
     except Exception as e:
@@ -461,23 +417,7 @@ def get_player_summary(game_id, user_id):
 def get_game_debts(game_id):
     """Get all debts for a game"""
     try:
-        debts = list(debt_dal.col.find({'game_id': game_id}))
-
-        result = []
-        for debt in debts:
-            result.append({
-                'id': str(debt['_id']),
-                'game_id': debt['game_id'],
-                'debtor_user_id': debt['debtor_user_id'],
-                'debtor_name': debt['debtor_name'],
-                'amount': debt['amount'],
-                'status': debt['status'],
-                'creditor_user_id': debt.get('creditor_user_id'),
-                'creditor_name': debt.get('creditor_name'),
-                'created_at': debt.get('created_at').isoformat() if debt.get('created_at') else None,
-                'transferred_at': debt.get('transferred_at').isoformat() if debt.get('transferred_at') else None
-            })
-
+        result = transaction_service.get_game_debts_formatted(game_id)
         return jsonify(result)
 
     except Exception as e:
@@ -620,81 +560,29 @@ def host_buyin(game_id):
 def host_cashout(game_id):
     """Host processes cashout for any player"""
     try:
+        # Parse request data
         data = request.get_json()
-        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
+        user_id = int(data.get('user_id'))
         amount = data.get('amount')
 
         if user_id is None or amount is None:
             return jsonify({'error': 'User ID and amount are required'}), 400
 
-        amount = int(amount)  # Ensure amount is an integer
+        amount = int(amount)
 
-        # Create cashout transaction
-        tx_id = transaction_service.create_cashout_transaction(
-            game_id, user_id, amount
-        )
+        # Process host cashout through service
+        result = transaction_service.process_host_cashout(game_id, user_id, amount)
 
-        # Process debt settlement
-        debt_result = transaction_service.process_cashout_with_debt_settlement(tx_id)
+        if not result.get('success'):
+            return jsonify({'error': result.get('error', 'Failed to process cashout')}), 500
 
-        # Auto-approve for host transactions
-        transaction_service.approve_transaction(tx_id)
-
-        # Execute debt operations
-        transaction_service.execute_cashout_debt_operations(tx_id)
-
-        # Check if the player being cashed out is the host
-        player = players_dal.get_player(game_id, user_id)
-        is_host = player.is_host if player else False
-
-        # Mark player as cashed out (host stays active but loses host status)
+        # Mark player as cashed out
         player_service.cashout_player(game_id, user_id, amount)
 
-        # Build detailed cashout message
-        player_name = player.name if player else "Player"
-        cashout_details = debt_result.get('debt_processing', {})
-
-        debt_paid = cashout_details.get('player_debt_settlement', 0)
-        cash_received = cashout_details.get('final_cash_amount', 0)
-        debt_transfers = cashout_details.get('debt_transfers', [])
-
-        # Check for remaining debt after cashout
-        remaining_debts = debt_dal.get_player_debts(game_id, user_id)
-        remaining_debt_amount = sum(d['amount'] for d in remaining_debts if d['status'] in ['pending', 'assigned'])
-
-        # Build message with breakdown
-        message_parts = [f"{player_name} cashed out {amount} chips"]
-
-        if debt_paid > 0:
-            message_parts.append(f"✓ Paid own debt: {debt_paid} chips")
-
-        # Show remaining debt if any
-        if remaining_debt_amount > 0:
-            message_parts.append(f"⚠ Remaining debt: ${remaining_debt_amount}")
-
-        if cash_received > 0:
-            message_parts.append(f"✓ Cash received: ${cash_received}")
-
-        if debt_transfers:
-            message_parts.append(f"✓ Credited with debts from other players:")
-            for transfer in debt_transfers:
-                debtor_name = transfer.get('debtor_name', 'Unknown')
-                debt_amount = transfer.get('amount', 0)
-                message_parts.append(f"  • {debtor_name} owes you ${debt_amount}")
-
-        detailed_message = "\n".join(message_parts)
-
-        logger.info(f"Host processed cashout of {amount} for user {user_id}")
         return jsonify({
-            'transaction_id': tx_id,
-            'message': detailed_message,
-            'cashout_breakdown': {
-                'total_chips': amount,
-                'debt_paid': debt_paid,
-                'remaining_debt': remaining_debt_amount,
-                'cash_received': cash_received,
-                'debts_assigned': debt_transfers
-            }
+            'transaction_id': result['transaction_id'],
+            'message': result['message'],
+            'cashout_breakdown': result['cashout_breakdown']
         })
 
     except Exception as e:

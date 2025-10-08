@@ -359,3 +359,129 @@ class TransactionService:
         except Exception as e:
             logger.error(f"Error generating cashout suggestions: {e}")
             return ["🗣️ Talk to the host about your cashout request"]
+
+    def get_pending_transactions_formatted(self, game_id: str) -> List[Dict[str, Any]]:
+        """Get pending transactions formatted for API response"""
+        try:
+            pending_txs = list(self.transactions_dal.col.find({
+                'game_id': game_id,
+                'confirmed': False,
+                'rejected': False
+            }).sort('created_at', 1))
+
+            result = []
+            for tx in pending_txs:
+                result.append({
+                    'id': str(tx['_id']),
+                    'game_id': tx['game_id'],
+                    'user_id': tx['user_id'],
+                    'type': tx['type'],
+                    'amount': tx['amount'],
+                    'confirmed': tx.get('confirmed', False),
+                    'rejected': tx.get('rejected', False),
+                    'created_at': tx.get('created_at').isoformat() if tx.get('created_at') else None
+                })
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error getting pending transactions: {e}")
+            raise
+
+    def get_game_debts_formatted(self, game_id: str) -> List[Dict[str, Any]]:
+        """Get all game debts formatted for API response"""
+        try:
+            debts = list(self.debt_dal.col.find({'game_id': game_id}))
+
+            result = []
+            for debt in debts:
+                result.append({
+                    'id': str(debt['_id']),
+                    'game_id': debt['game_id'],
+                    'debtor_user_id': debt['debtor_user_id'],
+                    'debtor_name': debt['debtor_name'],
+                    'amount': debt['amount'],
+                    'status': debt['status'],
+                    'creditor_user_id': debt.get('creditor_user_id'),
+                    'creditor_name': debt.get('creditor_name'),
+                    'created_at': debt.get('created_at').isoformat() if debt.get('created_at') else None,
+                    'transferred_at': debt.get('transferred_at').isoformat() if debt.get('transferred_at') else None
+                })
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error getting game debts: {e}")
+            raise
+
+    def process_host_cashout(self, game_id: str, user_id: int, amount: int) -> Dict[str, Any]:
+        """Process complete host cashout flow with debt settlement"""
+        try:
+            # Create cashout transaction
+            tx_id = self.create_cashout_transaction(game_id, user_id, amount)
+
+            # Process debt settlement
+            debt_result = self.process_cashout_with_debt_settlement(tx_id)
+
+            # Auto-approve for host transactions
+            self.approve_transaction(tx_id)
+
+            # Execute debt operations
+            self.execute_cashout_debt_operations(tx_id)
+
+            # Get player info
+            player = self.players_dal.get_player(game_id, user_id)
+            player_name = player.name if player else "Player"
+
+            # Get cashout details
+            cashout_details = debt_result.get('debt_processing', {})
+            debt_paid = cashout_details.get('player_debt_settlement', 0)
+            cash_received = cashout_details.get('final_cash_amount', 0)
+            debt_transfers = cashout_details.get('debt_transfers', [])
+
+            # Check for remaining debt
+            remaining_debts = self.debt_dal.get_player_debts(game_id, user_id)
+            remaining_debt_amount = sum(d['amount'] for d in remaining_debts if d['status'] in ['pending', 'assigned'])
+
+            # Build detailed message
+            message_parts = [f"{player_name} cashed out {amount} chips"]
+
+            if debt_paid > 0:
+                message_parts.append(f"✓ Paid own debt: {debt_paid} chips")
+
+            if remaining_debt_amount > 0:
+                message_parts.append(f"⚠ Remaining debt: ${remaining_debt_amount}")
+
+            if cash_received > 0:
+                message_parts.append(f"✓ Cash received: ${cash_received}")
+
+            if debt_transfers:
+                message_parts.append(f"✓ Credited with debts from other players:")
+                for transfer in debt_transfers:
+                    debtor_name = transfer.get('debtor_name', 'Unknown')
+                    debt_amount = transfer.get('amount', 0)
+                    message_parts.append(f"  • {debtor_name} owes you ${debt_amount}")
+
+            detailed_message = "\n".join(message_parts)
+
+            logger.info(f"Host processed cashout of {amount} for user {user_id}")
+
+            return {
+                'success': True,
+                'transaction_id': tx_id,
+                'message': detailed_message,
+                'cashout_breakdown': {
+                    'total_chips': amount,
+                    'debt_paid': debt_paid,
+                    'remaining_debt': remaining_debt_amount,
+                    'cash_received': cash_received,
+                    'debts_assigned': debt_transfers
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error processing host cashout: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
