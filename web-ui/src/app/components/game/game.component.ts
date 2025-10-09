@@ -269,7 +269,7 @@ import { Subscription, interval } from 'rxjs';
         <!-- Right Column - Host Actions / Pending Transactions -->
         <div class="col-lg-4">
           <!-- Host Actions Card -->
-          <div class="card game-card mb-4" *ngIf="isHost && game.status === 'active'">
+          <div class="card game-card mb-4" *ngIf="isHost && (game.status === 'active' || game.status === 'ending' || game.status === 'settled')">
             <div class="card-header">
               <h6 class="mb-0">
                 <i class="bi bi-shield-check me-2"></i>
@@ -278,11 +278,11 @@ import { Subscription, interval } from 'rxjs';
             </div>
             <div class="card-body">
               <div class="d-grid gap-2">
-                <button class="btn btn-success" (click)="showHostBuyin = true">
+                <button class="btn btn-success" (click)="showHostBuyin = true" *ngIf="game.status === 'active'">
                   <i class="bi bi-plus-circle me-2"></i>
                   Add Buy-in for Player
                 </button>
-                <button class="btn btn-warning" (click)="showHostCashout = true">
+                <button class="btn btn-warning" (click)="showHostCashout = true" *ngIf="game.status === 'active'">
                   <i class="bi bi-arrow-up-circle me-2"></i>
                   Process Cashout for Player
                 </button>
@@ -290,11 +290,11 @@ import { Subscription, interval } from 'rxjs';
                   <i class="bi bi-file-earmark-text me-2"></i>
                   Game Report
                 </button>
-                <button class="btn btn-secondary" (click)="loadSettlement()">
+                <button class="btn btn-secondary" (click)="loadSettlement()" *ngIf="game.status === 'ending' || game.status === 'settled'">
                   <i class="bi bi-calculator me-2"></i>
                   View Settlement
                 </button>
-                <button class="btn btn-danger" (click)="startSettlement()">
+                <button class="btn btn-danger" (click)="startSettlement()" *ngIf="game.status === 'active' || game.status === 'ending'">
                   <i [class]="game?.settlement_phase ? 'bi bi-folder-open me-2' : 'bi bi-stop-circle me-2'"></i>
                   {{ game?.settlement_phase ? 'Continue Settlement' : 'Start Settlement' }}
                 </button>
