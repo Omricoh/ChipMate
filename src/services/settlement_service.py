@@ -168,8 +168,40 @@ class SettlementService:
     def complete_credit_settlement(self, game_id: str) -> Dict[str, Any]:
         """
         Complete Phase 1 and move to Phase 2: Final Cashout
+
+        For any players who still have credits_owed > 0, create UnpaidCredit records
+        so that other players can claim them in Phase 2.
         """
         try:
+            # First, create UnpaidCredit records for any remaining credits_owed
+            players = self.players_dal.get_players(game_id)
+            for player in players:
+                if player.credits_owed > 0:
+                    # Check if unpaid credit already exists
+                    existing_unpaid = self.unpaid_credits_dal.get_by_debtor(game_id, player.user_id)
+
+                    if existing_unpaid:
+                        # Update existing record with current credits_owed
+                        self.unpaid_credits_dal.col.update_one(
+                            {"game_id": game_id, "debtor_user_id": player.user_id},
+                            {"$set": {
+                                "amount": player.credits_owed,
+                                "amount_available": player.credits_owed - existing_unpaid.amount_claimed
+                            }}
+                        )
+                        logger.info(f"Updated unpaid credit for player {player.user_id}: {player.credits_owed}")
+                    else:
+                        # Create new unpaid credit
+                        unpaid_credit = UnpaidCredit(
+                            game_id=game_id,
+                            debtor_user_id=player.user_id,
+                            debtor_name=player.name,
+                            amount=player.credits_owed,
+                            amount_available=player.credits_owed
+                        )
+                        self.unpaid_credits_dal.create(unpaid_credit)
+                        logger.info(f"Created unpaid credit for player {player.user_id}: {player.credits_owed}")
+
             # Move to next phase
             self.games_dal.col.update_one(
                 {"_id": ObjectId(game_id) if isinstance(game_id, str) else game_id},
@@ -220,6 +252,23 @@ class SettlementService:
                 }
 
             elif game.settlement_phase == "final_cashout":
+                # Ensure UnpaidCredit records exist for all players with credits_owed > 0
+                # (This handles cases where Phase 1 was skipped or completed without creating records)
+                players = self.players_dal.get_players(game_id)
+                for player in players:
+                    if player.credits_owed > 0:
+                        existing_unpaid = self.unpaid_credits_dal.get_by_debtor(game_id, player.user_id)
+                        if not existing_unpaid:
+                            unpaid_credit = UnpaidCredit(
+                                game_id=game_id,
+                                debtor_user_id=player.user_id,
+                                debtor_name=player.name,
+                                amount=player.credits_owed,
+                                amount_available=player.credits_owed
+                            )
+                            self.unpaid_credits_dal.create(unpaid_credit)
+                            logger.info(f"Auto-created unpaid credit in Phase 2 for player {player.user_id}: {player.credits_owed}")
+
                 bank = self.bank_dal.get_by_game(game_id)
                 unpaid_credits = self.unpaid_credits_dal.get_available_by_game(game_id)
 
