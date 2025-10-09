@@ -114,6 +114,30 @@ class TransactionService:
                     self.bank_dal.record_credit_buyin(tx["game_id"], tx["amount"])
                     logger.info(f"✓ HOST APPROVED: Bank issued {tx['amount']} chips on credit, player now owes {player.credits_owed + tx['amount']}")
 
+            # CASHOUT: Player returns chips → Repays credits → Gets cash
+            if tx["type"] == "cashout":
+                # Process cashout settlement
+                cashout_result = self.process_cashout_with_debt_settlement(tx_id)
+
+                if cashout_result.get("success"):
+                    # Execute cashout operations (update player credits and bank)
+                    self.execute_cashout_debt_operations(tx_id)
+
+                    # Mark player as cashed out
+                    self.players_dal.col.update_one(
+                        {"game_id": tx["game_id"], "user_id": tx["user_id"]},
+                        {"$set": {
+                            "cashed_out": True,
+                            "final_chips": tx["amount"],
+                            "cashout_time": datetime.now(timezone.utc)
+                        }}
+                    )
+
+                    logger.info(f"✓ HOST APPROVED CASHOUT: Player {tx['user_id']} cashed out {tx['amount']} chips")
+                else:
+                    logger.error(f"Failed to process cashout settlement: {cashout_result.get('error')}")
+                    return False
+
             logger.info(f"Transaction {tx_id} approved by host")
             return True
 

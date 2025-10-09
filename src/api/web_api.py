@@ -389,9 +389,56 @@ def get_pending_transactions(game_id):
 def approve_transaction(transaction_id):
     """Approve a transaction"""
     try:
+        # Get transaction to check type
+        tx = transaction_service.transactions_dal.get(transaction_id)
+        if not tx:
+            return jsonify({'error': 'Transaction not found'}), 404
+
         success = transaction_service.approve_transaction(transaction_id)
         if success:
-            return jsonify({'message': 'Transaction approved'})
+            # For cashouts, return detailed breakdown
+            if tx.get('type') == 'cashout':
+                # Get updated player info
+                player = player_service.players_dal.get_player(tx['game_id'], tx['user_id'])
+
+                # Get cashout processing info from transaction
+                tx_updated = transaction_service.transactions_dal.get(transaction_id)
+                cashout_processing = tx_updated.get('cashout_processing', {})
+
+                credits_repaid = cashout_processing.get('credits_repaid', 0)
+                cash_received = cashout_processing.get('final_cash_amount', 0)
+                chips_not_covered = cashout_processing.get('chips_not_covered', 0)
+                remaining_credits = player.credits_owed if player else 0
+
+                # Build detailed message
+                message_parts = [f"Cashout approved: {tx['amount']} chips"]
+
+                if credits_repaid > 0:
+                    message_parts.append(f"✓ Repaid credits: {credits_repaid} chips")
+
+                if remaining_credits > 0:
+                    message_parts.append(f"⚠ Still owes bank: {remaining_credits} credits")
+
+                if cash_received > 0:
+                    message_parts.append(f"✓ Cash received: ${cash_received}")
+
+                if chips_not_covered > 0:
+                    message_parts.append(f"⚠ {chips_not_covered} chips could not be converted (bank out of cash)")
+
+                detailed_message = "\n".join(message_parts)
+
+                return jsonify({
+                    'message': detailed_message,
+                    'cashout_breakdown': {
+                        'total_chips': tx['amount'],
+                        'credits_repaid': credits_repaid,
+                        'remaining_credits': remaining_credits,
+                        'cash_received': cash_received,
+                        'chips_not_covered': chips_not_covered
+                    }
+                })
+            else:
+                return jsonify({'message': 'Transaction approved'})
         else:
             return jsonify({'error': 'Failed to approve transaction'}), 500
 
