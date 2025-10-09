@@ -193,6 +193,103 @@ import { Subscription, interval } from 'rxjs';
               </form>
             </div>
           </div>
+
+          <!-- Player Settlement Summary Card -->
+          <div class="card game-card mb-4" *ngIf="!isHost && (game.status === 'ending' || game.status === 'settled') && playerSettlementSummary">
+            <div class="card-header">
+              <h6 class="mb-0">
+                <i class="bi bi-file-text me-2"></i>
+                Your Settlement Summary
+              </h6>
+            </div>
+            <div class="card-body">
+              <!-- Player Totals -->
+              <div class="mb-3">
+                <h6 class="text-muted mb-2">Your Totals</h6>
+                <div class="row g-2">
+                  <div class="col-6">
+                    <small class="text-muted">Cash Buy-ins:</small>
+                    <div class="fw-bold text-success">{{ playerSettlementSummary.totals.cash_buyins }}</div>
+                  </div>
+                  <div class="col-6">
+                    <small class="text-muted">Credit Buy-ins:</small>
+                    <div class="fw-bold text-warning">{{ playerSettlementSummary.totals.credit_buyins }}</div>
+                  </div>
+                  <div class="col-6">
+                    <small class="text-muted">Cashouts:</small>
+                    <div class="fw-bold">{{ playerSettlementSummary.totals.cashouts }}</div>
+                  </div>
+                  <div class="col-6">
+                    <small class="text-muted">Net:</small>
+                    <div class="fw-bold" [class.text-success]="playerSettlementSummary.totals.net >= 0" [class.text-danger]="playerSettlementSummary.totals.net < 0">
+                      {{ playerSettlementSummary.totals.net > 0 ? '+' : '' }}{{ playerSettlementSummary.totals.net }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Who Owes You -->
+              <div class="mb-3" *ngIf="playerSettlementSummary.owes_to_me && playerSettlementSummary.owes_to_me.length > 0">
+                <h6 class="text-muted mb-2">Who Owes You</h6>
+                <div class="list-group list-group-flush">
+                  <div class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center" *ngFor="let debt of playerSettlementSummary.owes_to_me">
+                    <span>{{ debt.debtor_name }}</span>
+                    <span class="badge bg-warning">{{ debt.amount }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mb-3" *ngIf="!playerSettlementSummary.owes_to_me || playerSettlementSummary.owes_to_me.length === 0">
+                <h6 class="text-muted mb-2">Who Owes You</h6>
+                <p class="text-muted small mb-0">No one owes you money</p>
+              </div>
+
+              <!-- What You Owe -->
+              <div class="mb-3" *ngIf="playerSettlementSummary.i_owe && playerSettlementSummary.i_owe.length > 0">
+                <h6 class="text-muted mb-2">What You Owe</h6>
+                <div class="list-group list-group-flush">
+                  <div class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center" *ngFor="let owed of playerSettlementSummary.i_owe">
+                    <span class="small">{{ owed.note }}</span>
+                    <span class="badge bg-danger">{{ owed.amount }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mb-3" *ngIf="!playerSettlementSummary.i_owe || playerSettlementSummary.i_owe.length === 0">
+                <h6 class="text-muted mb-2">What You Owe</h6>
+                <p class="text-muted small mb-0">You don't owe anything</p>
+              </div>
+
+              <!-- Transaction History -->
+              <div *ngIf="playerSettlementSummary.transactions && playerSettlementSummary.transactions.length > 0">
+                <h6 class="text-muted mb-2">Your Transactions</h6>
+                <div style="max-height: 200px; overflow-y: auto;">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let tx of playerSettlementSummary.transactions">
+                        <td>
+                          <span *ngIf="tx.type === 'buyin_cash'" class="badge bg-success">Cash</span>
+                          <span *ngIf="tx.type === 'buyin_register'" class="badge bg-warning">Credit</span>
+                          <span *ngIf="tx.type === 'cashout'" class="badge bg-info">Cashout</span>
+                        </td>
+                        <td>{{ tx.amount }}</td>
+                        <td>
+                          <span *ngIf="tx.confirmed" class="badge bg-success">✓</span>
+                          <span *ngIf="tx.rejected" class="badge bg-danger">✗</span>
+                          <span *ngIf="!tx.confirmed && !tx.rejected" class="badge bg-secondary">Pending</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Middle Column - Game Status -->
@@ -860,6 +957,7 @@ export class GameComponent implements OnInit, OnDestroy {
   settlementData: any = null;
   settlementStatus: SettlementStatus | null = null;
   settlementSummary: AllSettlementSummaries | null = null;
+  playerSettlementSummary: SettlementSummary | null = null;
 
   // Forms
   buyinForm: FormGroup;
@@ -998,6 +1096,19 @@ export class GameComponent implements OnInit, OnDestroy {
                 };
               }
             });
+
+            // Load player settlement summary if game is ending or settled
+            if (this.game && (this.game.status === 'ending' || this.game.status === 'settled')) {
+              this.apiService.getPlayerSettlementSummary(gameId, this.currentPlayerUserId).subscribe({
+                next: (summary) => {
+                  this.playerSettlementSummary = summary;
+                  console.log('Player settlement summary loaded:', summary);
+                },
+                error: (error) => {
+                  console.error('Failed to load player settlement summary:', error);
+                }
+              });
+            }
           } else {
             const attemptedName = this.currentUser.username || this.currentUser.name;
             console.warn('Current player not found in players list. Name:', attemptedName, 'Available players:', players.map(p => p.name));
@@ -1498,7 +1609,12 @@ export class GameComponent implements OnInit, OnDestroy {
 
   loadSettlement(): void {
     if (this.game) {
-      this.loadSettlementStatus();
+      // If game is settled but no settlement phase (old games), show summary directly
+      if (this.game.status === 'settled' && !this.game.settlement_phase) {
+        this.viewSettlementSummary();
+      } else {
+        this.loadSettlementStatus();
+      }
       this.showSettlement = true;
     }
   }
@@ -1510,11 +1626,21 @@ export class GameComponent implements OnInit, OnDestroy {
           this.settlementStatus = status;
           // Clear summary when loading status
           this.settlementSummary = null;
+
+          // If game is settled but no phase in status, show summary instead
+          if (this.game?.status === 'settled' && !status.phase) {
+            this.viewSettlementSummary();
+          }
         },
         error: (error) => {
-          // If no settlement started yet, that's okay
-          console.log('No settlement status available:', error);
-          this.settlementStatus = null;
+          // If no settlement started yet and game is settled, show summary
+          if (this.game?.status === 'settled') {
+            console.log('Game is settled but no settlement data, showing summary');
+            this.viewSettlementSummary();
+          } else {
+            console.log('No settlement status available:', error);
+            this.settlementStatus = null;
+          }
         }
       });
     }
