@@ -295,8 +295,8 @@ import { Subscription, interval } from 'rxjs';
                   View Settlement
                 </button>
                 <button class="btn btn-danger" (click)="startSettlement()">
-                  <i class="bi bi-stop-circle me-2"></i>
-                  Start Settlement
+                  <i [class]="game?.settlement_phase ? 'bi bi-folder-open me-2' : 'bi bi-stop-circle me-2'"></i>
+                  {{ game?.settlement_phase ? 'Continue Settlement' : 'Start Settlement' }}
                 </button>
               </div>
             </div>
@@ -1145,6 +1145,26 @@ export class GameComponent implements OnInit, OnDestroy {
 
     const gameId = this.game.id;
 
+    // First check if settlement is already started
+    this.apiService.getSettlementStatus(gameId).subscribe({
+      next: (status) => {
+        // Settlement already exists - just open the modal
+        if (status.phase) {
+          this.settlementStatus = status;
+          this.showSettlement = true;
+        } else {
+          // No settlement yet - confirm and start it
+          this.confirmAndStartNewSettlement(gameId);
+        }
+      },
+      error: (error) => {
+        // No settlement exists yet - confirm and start it
+        this.confirmAndStartNewSettlement(gameId);
+      }
+    });
+  }
+
+  private confirmAndStartNewSettlement(gameId: string): void {
     if (confirm('Are you sure you want to start settlement? This will begin the settlement process.')) {
         this.apiService.startSettlement(gameId).subscribe({
           next: (response) => {
