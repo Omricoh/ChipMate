@@ -1139,9 +1139,14 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   startSettlement(): void {
+    if (!this.game) {
+      return;
+    }
+
+    const gameId = this.game.id;
+
     if (confirm('Are you sure you want to start settlement? This will begin the settlement process.')) {
-      if (this.game) {
-        this.apiService.startSettlement(this.game.id).subscribe({
+        this.apiService.startSettlement(gameId).subscribe({
           next: (response) => {
             this.settlementStatus = response;
             this.showSuccess('Settlement started successfully');
@@ -1152,7 +1157,6 @@ export class GameComponent implements OnInit, OnDestroy {
             this.showError(error.error?.message || 'Failed to start settlement');
           }
         });
-      }
     }
   }
 
@@ -1162,8 +1166,10 @@ export class GameComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const gameId = this.game.id;
+
     this.isLoading = true;
-    this.apiService.repayCredit(this.game.id, userId, chips).subscribe({
+    this.apiService.repayCredit(gameId, userId, chips).subscribe({
       next: (response) => {
         this.isLoading = false;
         this.showSuccess('Credit repayment processed successfully');
@@ -1177,9 +1183,14 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   completeCreditSettlement(): void {
+    if (!this.game) {
+      return;
+    }
+
+    const gameId = this.game.id;
+
     if (confirm('Complete credit settlement and move to final cashout phase?')) {
-      if (this.game) {
-        this.apiService.completeCreditSettlement(this.game.id).subscribe({
+        this.apiService.completeCreditSettlement(gameId).subscribe({
           next: (response) => {
             this.settlementStatus = response;
             this.showSuccess('Credit settlement complete. Moving to final cashout phase.');
@@ -1189,7 +1200,6 @@ export class GameComponent implements OnInit, OnDestroy {
             this.showError(error.error?.message || 'Failed to complete credit settlement');
           }
         });
-      }
     }
   }
 
@@ -1198,6 +1208,7 @@ export class GameComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const gameId = this.game.id;
     const userId = parseInt(this.finalCashoutForm.value.userId, 10);
     const chips = parseInt(this.finalCashoutForm.value.chips, 10);
     const cashRequested = parseInt(this.finalCashoutForm.value.cashRequested, 10);
@@ -1220,7 +1231,7 @@ export class GameComponent implements OnInit, OnDestroy {
     }
 
     this.isLoading = true;
-    this.apiService.finalCashout(this.game.id, userId, chips, cashRequested, unpaidCreditsClaimed).subscribe({
+    this.apiService.finalCashout(gameId, userId, chips, cashRequested, unpaidCreditsClaimed).subscribe({
       next: (response) => {
         this.isLoading = false;
         this.finalCashoutForm.reset();
@@ -1239,12 +1250,14 @@ export class GameComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const gameId = this.game.id;
+
     // First check if settlement can be completed
-    this.apiService.checkSettlementComplete(this.game.id).subscribe({
+    this.apiService.checkSettlementComplete(gameId).subscribe({
       next: (checkResult) => {
         if (checkResult.can_complete) {
           if (confirm('Complete settlement and end the game? This cannot be undone.')) {
-            this.apiService.completeSettlement(this.game.id).subscribe({
+            this.apiService.completeSettlement(gameId).subscribe({
               next: (response) => {
                 this.showSuccess('Settlement completed successfully. Game ended.');
                 this.showSettlement = false;
@@ -1266,8 +1279,13 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   viewSettlementSummary(): void {
-    if (this.game) {
-      this.apiService.getAllSettlementSummaries(this.game.id).subscribe({
+    if (!this.game) {
+      return;
+    }
+
+    const gameId = this.game.id;
+
+    this.apiService.getAllSettlementSummaries(gameId).subscribe({
         next: (summary) => {
           this.settlementSummary = summary;
           this.settlementStatus = null; // Switch to summary view
@@ -1276,7 +1294,6 @@ export class GameComponent implements OnInit, OnDestroy {
           this.showError('Failed to load settlement summary');
         }
       });
-    }
   }
 
   getRepayAmount(userId: number): number {
