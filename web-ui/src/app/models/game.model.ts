@@ -99,6 +99,17 @@ export interface GameStatus {
   total_credits_repaid: number;
 }
 
+export interface BankStatus {
+  cash_balance: number;
+  available_cash: number;
+  outstanding_credits: number;
+  chips_in_play: number;
+  total_cash_in: number;
+  total_cash_out: number;
+  total_credits_issued: number;
+  total_credits_repaid: number;
+}
+
 export interface PlayerSummary {
   cash_buyins: number;
   credit_buyins: number;

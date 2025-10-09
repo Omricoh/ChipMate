@@ -4,7 +4,7 @@ import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angula
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { QrCodeService } from '../../services/qr-code.service';
-import { Game, GameStatus, Player, Transaction, PlayerSummary, SettlementStatus, AllSettlementSummaries, UnpaidCredit } from '../../models/game.model';
+import { Game, GameStatus, Player, Transaction, PlayerSummary, SettlementStatus, AllSettlementSummaries, UnpaidCredit, BankStatus } from '../../models/game.model';
 import { User } from '../../models/user.model';
 import { Subscription, interval } from 'rxjs';
 
@@ -38,6 +38,71 @@ import { Subscription, interval } from 'rxjs';
                   <i class="bi bi-arrow-clockwise me-1"></i>
                   Refresh
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bank Status Card (Host Only) -->
+      <div class="row mb-4" *ngIf="isHost && bankStatus">
+        <div class="col-12">
+          <div class="card game-card">
+            <div class="card-header">
+              <h6 class="mb-0">
+                <i class="bi bi-bank me-2"></i>
+                Bank Status
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="row text-center">
+                <div class="col-md-3 col-6 mb-3">
+                  <div class="mb-2">
+                    <i class="bi bi-cash-stack text-success" style="font-size: 1.5rem;"></i>
+                  </div>
+                  <h6>Cash Balance</h6>
+                  <span class="badge bg-success fs-6">{{ bankStatus.cash_balance }}</span>
+                </div>
+                <div class="col-md-3 col-6 mb-3">
+                  <div class="mb-2">
+                    <i class="bi bi-wallet2 text-info" style="font-size: 1.5rem;"></i>
+                  </div>
+                  <h6>Available Cash</h6>
+                  <span class="badge bg-info fs-6">{{ bankStatus.available_cash }}</span>
+                </div>
+                <div class="col-md-3 col-6 mb-3">
+                  <div class="mb-2">
+                    <i class="bi bi-exclamation-triangle text-warning" style="font-size: 1.5rem;"></i>
+                  </div>
+                  <h6>Outstanding Credits</h6>
+                  <span class="badge bg-warning fs-6">{{ bankStatus.outstanding_credits }}</span>
+                </div>
+                <div class="col-md-3 col-6 mb-3">
+                  <div class="mb-2">
+                    <i class="bi bi-disc text-primary" style="font-size: 1.5rem;"></i>
+                  </div>
+                  <h6>Chips in Play</h6>
+                  <span class="badge bg-primary fs-6">{{ bankStatus.chips_in_play }}</span>
+                </div>
+              </div>
+              <hr>
+              <div class="row text-center">
+                <div class="col-md-3 col-6">
+                  <h6>Total Cash In</h6>
+                  <span class="badge bg-success">{{ bankStatus.total_cash_in }}</span>
+                </div>
+                <div class="col-md-3 col-6">
+                  <h6>Total Cash Out</h6>
+                  <span class="badge bg-secondary">{{ bankStatus.total_cash_out }}</span>
+                </div>
+                <div class="col-md-3 col-6">
+                  <h6>Total Credits Issued</h6>
+                  <span class="badge bg-warning">{{ bankStatus.total_credits_issued }}</span>
+                </div>
+                <div class="col-md-3 col-6">
+                  <h6>Total Credits Repaid</h6>
+                  <span class="badge bg-info">{{ bankStatus.total_credits_repaid }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -776,6 +841,7 @@ import { Subscription, interval } from 'rxjs';
 export class GameComponent implements OnInit, OnDestroy {
   game: Game | null = null;
   gameStatus: GameStatus | null = null;
+  bankStatus: BankStatus | null = null;
   players: Player[] = [];
   pendingTransactions: Transaction[] = [];
   playerSummary: PlayerSummary | null = null;
@@ -862,6 +928,19 @@ export class GameComponent implements OnInit, OnDestroy {
     }
   }
 
+  loadBankStatus(): void {
+    if (this.game) {
+      this.apiService.getBank(this.game.id).subscribe({
+        next: (status) => {
+          this.bankStatus = status;
+        },
+        error: (error) => {
+          console.error('Failed to load bank status:', error);
+        }
+      });
+    }
+  }
+
   loadGameData(gameId: string): void {
     // Load game details
     this.apiService.getGame(gameId).subscribe({
@@ -882,6 +961,9 @@ export class GameComponent implements OnInit, OnDestroy {
         this.gameStatus = status;
       }
     });
+
+    // Load bank status
+    this.loadBankStatus();
 
     // Load players
     this.apiService.getGamePlayers(gameId).subscribe({
@@ -1034,6 +1116,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.apiService.approveTransaction(transactionId).subscribe({
       next: (response) => {
         this.showSuccess('Transaction approved');
+        this.loadBankStatus();
         this.refreshData();
       },
       error: (error) => {
@@ -1046,6 +1129,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.apiService.rejectTransaction(transactionId).subscribe({
       next: (response) => {
         this.showSuccess('Transaction rejected');
+        this.loadBankStatus();
         this.refreshData();
       },
       error: (error) => {

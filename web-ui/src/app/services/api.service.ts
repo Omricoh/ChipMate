@@ -7,6 +7,7 @@ import {
   Player,
   Transaction,
   GameStatus,
+  BankStatus,
   PlayerSummary,
   CashoutRequest,
   BuyinRequest,
@@ -97,6 +98,12 @@ export class ApiService {
 
   getGamePlayers(gameId: string): Observable<Player[]> {
     return this.http.get<Player[]>(`${this.baseUrl}/games/${gameId}/players`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getBank(gameId: string): Observable<BankStatus> {
+    return this.http.get<BankStatus>(`${this.baseUrl}/games/${gameId}/bank`, {
       headers: this.getHeaders()
     });
   }
