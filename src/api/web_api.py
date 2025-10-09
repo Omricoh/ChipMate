@@ -13,6 +13,7 @@ from src.services.game_service import GameService
 from src.services.player_service import PlayerService
 from src.services.transaction_service import TransactionService
 from src.services.admin_service import AdminService
+from src.services.settlement_service import SettlementService
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
@@ -32,6 +33,7 @@ game_service = GameService(MONGO_URL)
 player_service = PlayerService(MONGO_URL)
 transaction_service = TransactionService(MONGO_URL)
 admin_service = AdminService(MONGO_URL)
+settlement_service = SettlementService(MONGO_URL)
 
 # Initialize DALs for direct access
 from pymongo import MongoClient
@@ -739,6 +741,224 @@ def get_game_report(game_id):
     except Exception as e:
         logger.error(f"Get game report error: {e}")
         return jsonify({'error': 'Failed to get game report'}), 500
+
+# Settlement endpoints
+@app.route('/api/games/<game_id>/settlement/start', methods=['POST'])
+def start_settlement(game_id):
+    """Start two-phase settlement - Phase 1: Credit Settlement"""
+    try:
+        result = settlement_service.start_settlement(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Start settlement error: {e}")
+        return jsonify({'error': 'Failed to start settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/status', methods=['GET'])
+def get_settlement_status(game_id):
+    """Get current settlement status and phase"""
+    try:
+        result = settlement_service.get_settlement_status(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Get settlement status error: {e}")
+        return jsonify({'error': 'Failed to get settlement status'}), 500
+
+@app.route('/api/games/<game_id>/settlement/repay-credit', methods=['POST'])
+def repay_credit(game_id):
+    """Phase 1: Repay credits (full or partial)"""
+    try:
+        data = request.get_json()
+        user_id = int(data.get('user_id'))
+        chips_repaid = int(data.get('chips_repaid'))
+
+        if user_id is None or chips_repaid is None:
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        result = settlement_service.repay_credit(game_id, user_id, chips_repaid)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Repay credit error: {e}")
+        return jsonify({'error': 'Failed to repay credit'}), 500
+
+@app.route('/api/games/<game_id>/settlement/complete-phase1', methods=['POST'])
+def complete_credit_settlement(game_id):
+    """Complete Phase 1 and move to Phase 2: Final Cashout"""
+    try:
+        result = settlement_service.complete_credit_settlement(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Complete credit settlement error: {e}")
+        return jsonify({'error': 'Failed to complete credit settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/final-cashout', methods=['POST'])
+def final_cashout(game_id):
+    """Phase 2: Final cashout with player choices (cash or unpaid credits)"""
+    try:
+        data = request.get_json()
+        user_id = int(data.get('user_id'))
+        chips = int(data.get('chips'))
+        cash_requested = int(data.get('cash_requested', 0))
+        unpaid_credits_claimed = data.get('unpaid_credits_claimed', [])
+
+        if user_id is None or chips is None:
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        result = settlement_service.process_final_cashout(
+            game_id, user_id, chips, cash_requested, unpaid_credits_claimed
+        )
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Final cashout error: {e}")
+        return jsonify({'error': 'Failed to process final cashout'}), 500
+
+@app.route('/api/games/<game_id>/settlement/check-complete', methods=['GET'])
+def check_settlement_complete(game_id):
+    """Check if settlement can be completed (all cash/credit distributed)"""
+    try:
+        bank = game_service.bank_dal.get_by_game(game_id)
+        unpaid_credits = settlement_service.unpaid_credits_dal.get_available_by_game(game_id)
+
+        cash_remaining = bank.cash_balance if bank else 0
+        unpaid_credits_remaining = sum(uc.amount_available for uc in unpaid_credits)
+
+        can_complete = (cash_remaining == 0 and unpaid_credits_remaining == 0)
+
+        return jsonify({
+            'can_complete': can_complete,
+            'cash_remaining': cash_remaining,
+            'unpaid_credits_remaining': unpaid_credits_remaining,
+            'message': 'All cash and credits distributed' if can_complete else 'Cash or credits still available'
+        })
+
+    except Exception as e:
+        logger.error(f"Check settlement complete error: {e}")
+        return jsonify({'error': 'Failed to check settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/complete', methods=['POST'])
+def complete_settlement(game_id):
+    """Complete settlement and show final summary"""
+    try:
+        result = settlement_service.complete_settlement(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Complete settlement error: {e}")
+        return jsonify({'error': 'Failed to complete settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/summary/<int:user_id>', methods=['GET'])
+def get_player_settlement_summary(game_id, user_id):
+    """Get player's settlement summary: totals, who owes them, who they owe, transactions"""
+    try:
+        player = players_dal.get_player(game_id, user_id)
+        if not player:
+            return jsonify({'error': 'Player not found'}), 404
+
+        # Get player's transactions
+        transactions = list(transactions_dal.col.find({
+            'game_id': game_id,
+            'user_id': user_id,
+            'confirmed': True,
+            'rejected': False
+        }).sort('created_at', 1))
+
+        # Convert ObjectId to string
+        for tx in transactions:
+            tx['_id'] = str(tx['_id'])
+            if tx.get('created_at'):
+                tx['created_at'] = tx['created_at'].isoformat()
+
+        # Calculate player totals
+        cash_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_cash')
+        credit_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_register')
+        cashouts = sum(tx['amount'] for tx in transactions if tx['type'] == 'cashout')
+
+        # Get unpaid credits this player claimed (others owe them)
+        unpaid_credits = settlement_service.unpaid_credits_dal.get_by_game(game_id)
+        owes_to_player = []
+        for uc in unpaid_credits:
+            if uc.amount_claimed > 0:
+                # Check if this player claimed any of it (we'd need to track this)
+                # For now, just show all unpaid credits
+                owes_to_player.append({
+                    'debtor_name': uc.debtor_name,
+                    'amount': uc.amount_available
+                })
+
+        # Get if player owes any unpaid credit
+        player_unpaid = settlement_service.unpaid_credits_dal.get_by_debtor(game_id, user_id)
+        player_owes = []
+        if player_unpaid and player_unpaid.amount_available > 0:
+            player_owes.append({
+                'amount': player_unpaid.amount_available,
+                'note': 'To be paid externally'
+            })
+
+        summary = {
+            'player_name': player.name,
+            'totals': {
+                'cash_buyins': cash_buyins,
+                'credit_buyins': credit_buyins,
+                'total_buyins': cash_buyins + credit_buyins,
+                'cashouts': cashouts,
+                'net': cashouts - (cash_buyins + credit_buyins)
+            },
+            'owes_to_me': owes_to_player,
+            'i_owe': player_owes,
+            'transactions': transactions
+        }
+
+        return jsonify(summary)
+
+    except Exception as e:
+        logger.error(f"Get player settlement summary error: {e}")
+        return jsonify({'error': 'Failed to get settlement summary'}), 500
+
+@app.route('/api/games/<game_id>/settlement/summary/all', methods=['GET'])
+def get_all_settlement_summaries(game_id):
+    """Get all players' settlement summaries (host view)"""
+    try:
+        players = players_dal.get_players(game_id)
+        all_summaries = []
+
+        for player in players:
+            # Get player's transactions
+            transactions = list(transactions_dal.col.find({
+                'game_id': game_id,
+                'user_id': player.user_id,
+                'confirmed': True,
+                'rejected': False
+            }))
+
+            cash_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_cash')
+            credit_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_register')
+            cashouts = sum(tx['amount'] for tx in transactions if tx['type'] == 'cashout')
+
+            # Get unpaid credit for this player
+            player_unpaid = settlement_service.unpaid_credits_dal.get_by_debtor(game_id, player.user_id)
+
+            all_summaries.append({
+                'user_id': player.user_id,
+                'name': player.name,
+                'totals': {
+                    'cash_buyins': cash_buyins,
+                    'credit_buyins': credit_buyins,
+                    'total_buyins': cash_buyins + credit_buyins,
+                    'cashouts': cashouts,
+                    'net': cashouts - (cash_buyins + credit_buyins)
+                },
+                'unpaid_credit_owed': player_unpaid.amount_available if player_unpaid else 0
+            })
+
+        return jsonify({'summaries': all_summaries})
+
+    except Exception as e:
+        logger.error(f"Get all settlement summaries error: {e}")
+        return jsonify({'error': 'Failed to get all summaries'}), 500
 
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])

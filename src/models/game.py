@@ -8,7 +8,9 @@ class Game(BaseModel):
     host_user_id: Optional[int] = None  # Alias for host_id for backwards compatibility
     host_name: str
     status: str = "active"   # active | ending | settled | expired
+    settlement_phase: Optional[str] = None  # None | credit_settlement | final_cashout | completed
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ended_at: Optional[datetime] = None
     players: List[int] = []
     code: str  # Required field - no legacy support
     id: Optional[str] = Field(default=None, alias='_id')

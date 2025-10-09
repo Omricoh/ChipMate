@@ -51,7 +51,11 @@ try:
         create_cashout, get_pending_transactions, approve_transaction,
         reject_transaction, get_player_summary, get_game_credits,
         get_settlement_data, get_game_report, list_all_games,
-        get_system_stats, destroy_game, host_buyin, host_cashout
+        get_system_stats, destroy_game, host_buyin, host_cashout,
+        # Settlement endpoints
+        start_settlement, get_settlement_status, repay_credit,
+        complete_credit_settlement, final_cashout, check_settlement_complete,
+        complete_settlement, get_player_settlement_summary, get_all_settlement_summaries
     )
     logger.info("Successfully imported API routes from web_api")
 except ImportError as e:
@@ -105,6 +109,17 @@ app.add_url_rule('/api/admin/stats', 'get_system_stats', get_system_stats, metho
 app.add_url_rule('/api/admin/games/<game_id>/destroy', 'destroy_game', destroy_game, methods=['DELETE'])
 app.add_url_rule('/api/games/<game_id>/host-buyin', 'host_buyin', host_buyin, methods=['POST'])
 app.add_url_rule('/api/games/<game_id>/host-cashout', 'host_cashout', host_cashout, methods=['POST'])
+
+# Settlement endpoints
+app.add_url_rule('/api/games/<game_id>/settlement/start', 'start_settlement', start_settlement, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/status', 'get_settlement_status', get_settlement_status, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/settlement/repay-credit', 'repay_credit', repay_credit, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/complete-phase1', 'complete_credit_settlement', complete_credit_settlement, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/final-cashout', 'final_cashout', final_cashout, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/check-complete', 'check_settlement_complete', check_settlement_complete, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/settlement/complete', 'complete_settlement', complete_settlement, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/summary/<int:user_id>', 'get_player_settlement_summary', get_player_settlement_summary, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/settlement/summary/all', 'get_all_settlement_summaries', get_all_settlement_summaries, methods=['GET'])
 
 # Serve Angular static files
 @app.route('/', defaults={'path': ''})
