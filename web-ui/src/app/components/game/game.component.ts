@@ -4,7 +4,7 @@ import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angula
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { QrCodeService } from '../../services/qr-code.service';
-import { Game, GameStatus, Player, Transaction, PlayerSummary } from '../../models/game.model';
+import { Game, GameStatus, Player, Transaction, PlayerSummary, SettlementStatus, AllSettlementSummaries, UnpaidCredit } from '../../models/game.model';
 import { User } from '../../models/user.model';
 import { Subscription, interval } from 'rxjs';
 
@@ -79,8 +79,8 @@ import { Subscription, interval } from 'rxjs';
                   <span class="badge bg-primary">{{ playerSummary.total_buyins }}</span>
                 </div>
                 <div class="col-6">
-                  <h6>Pending Debt</h6>
-                  <span class="badge bg-danger">{{ playerSummary.pending_debt }}</span>
+                  <h6>Credits Owed</h6>
+                  <span class="badge bg-danger">{{ playerSummary.credits_owed }}</span>
                 </div>
               </div>
             </div>
@@ -229,9 +229,9 @@ import { Subscription, interval } from 'rxjs';
                   <i class="bi bi-calculator me-2"></i>
                   View Settlement
                 </button>
-                <button class="btn btn-danger" (click)="confirmEndGame()">
+                <button class="btn btn-danger" (click)="startSettlement()">
                   <i class="bi bi-stop-circle me-2"></i>
-                  End Game
+                  Start Settlement
                 </button>
               </div>
             </div>
@@ -438,7 +438,7 @@ import { Subscription, interval } from 'rxjs';
                         <th>Cash</th>
                         <th>Credit</th>
                         <th>Total</th>
-                        <th>Debt</th>
+                        <th>Credits Owed</th>
                         <th>Status</th>
                       </tr>
                     </thead>
@@ -451,7 +451,7 @@ import { Subscription, interval } from 'rxjs';
                         <td>{{ player.cash_buyins }}</td>
                         <td>{{ player.credit_buyins }}</td>
                         <td><strong>{{ player.total_buyins }}</strong></td>
-                        <td class="text-danger">{{ player.pending_debt }}</td>
+                        <td class="text-danger">{{ player.credits_owed }}</td>
                         <td>
                           <span class="badge bg-success" *ngIf="player.active && !player.cashed_out">Active</span>
                           <span class="badge bg-info" *ngIf="player.cashed_out">Cashed Out ({{ player.final_chips }})</span>
@@ -463,32 +463,28 @@ import { Subscription, interval } from 'rxjs';
               </div>
             </div>
 
-            <!-- Debt Information -->
-            <div class="card mb-3" *ngIf="gameReport.debts && gameReport.debts.length > 0">
+            <!-- Unpaid Credits Information -->
+            <div class="card mb-3" *ngIf="gameReport.unpaid_credits && gameReport.unpaid_credits.length > 0">
               <div class="card-header bg-warning">
-                <h6 class="mb-0">Outstanding Debts</h6>
+                <h6 class="mb-0">Unpaid Credits</h6>
               </div>
               <div class="card-body">
                 <div class="table-responsive">
                   <table class="table table-sm table-striped">
                     <thead>
                       <tr>
-                        <th>Debtor</th>
-                        <th>Creditor</th>
+                        <th>Player</th>
                         <th>Amount</th>
-                        <th>Status</th>
+                        <th>Claimed</th>
+                        <th>Available</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr *ngFor="let debt of gameReport.debts">
-                        <td>{{ debt.debtor_name }}</td>
-                        <td>{{ debt.creditor_name || 'Unassigned' }}</td>
-                        <td>{{ debt.amount }}</td>
-                        <td>
-                          <span class="badge" [class]="debt.status === 'pending' ? 'bg-warning' : 'bg-success'">
-                            {{ debt.status | titlecase }}
-                          </span>
-                        </td>
+                      <tr *ngFor="let credit of gameReport.unpaid_credits">
+                        <td>{{ credit.debtor_name }}</td>
+                        <td>{{ credit.amount }}</td>
+                        <td>{{ credit.amount_claimed }}</td>
+                        <td>{{ credit.amount_available }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -506,89 +502,242 @@ import { Subscription, interval } from 'rxjs';
 
     <!-- Settlement Modal -->
     <div class="modal fade" [class.show]="showSettlement" [style.display]="showSettlement ? 'block' : 'none'" tabindex="-1" *ngIf="showSettlement">
-      <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-dialog modal-dialog-centered modal-xl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
               <i class="bi bi-calculator me-2"></i>
               Settlement - {{ game?.code }}
+              <span class="badge bg-info ms-2" *ngIf="settlementStatus">
+                Phase: {{ settlementStatus.phase || 'Not Started' }}
+              </span>
             </h5>
             <button type="button" class="btn-close" (click)="showSettlement = false"></button>
           </div>
-          <div class="modal-body" *ngIf="settlementData" style="max-height: 70vh; overflow-y: auto;">
-            <div class="alert alert-info">
-              <i class="bi bi-info-circle me-2"></i>
-              Settlement shows who owes whom and how cashed-out players received their payouts.
+          <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+
+            <!-- Phase 1: Credit Settlement -->
+            <div *ngIf="settlementStatus && settlementStatus.phase === 'credit_settlement'">
+              <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Phase 1: Credit Settlement</strong><br>
+                Players with unpaid credits should repay them now using their chips.
+              </div>
+
+              <div class="card mb-3" *ngIf="settlementStatus.players_with_credits && settlementStatus.players_with_credits.length > 0">
+                <div class="card-header bg-warning">
+                  <h6 class="mb-0">Players with Credits to Repay</h6>
+                </div>
+                <div class="card-body">
+                  <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                      <thead>
+                        <tr>
+                          <th>Player</th>
+                          <th>Credits Owed</th>
+                          <th>Credits Repaid</th>
+                          <th>Remaining</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr *ngFor="let player of settlementStatus.players_with_credits">
+                          <td>{{ player.name }}</td>
+                          <td>{{ player.credits_owed }}</td>
+                          <td class="text-success">{{ player.credits_repaid }}</td>
+                          <td class="text-warning">{{ player.remaining_credits }}</td>
+                          <td>
+                            <div class="input-group input-group-sm" style="max-width: 200px;">
+                              <input type="number" class="form-control"
+                                     [id]="'repay-' + player.user_id"
+                                     placeholder="Chips" min="0"
+                                     [max]="player.remaining_credits">
+                              <button class="btn btn-primary btn-sm"
+                                      (click)="repayCredit(player.user_id, getRepayAmount(player.user_id))">
+                                Repay
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="text-center mt-3">
+                <button class="btn btn-success" (click)="completeCreditSettlement()" *ngIf="isHost">
+                  <i class="bi bi-arrow-right-circle me-1"></i>
+                  Complete Credit Settlement & Move to Phase 2
+                </button>
+              </div>
             </div>
 
-            <!-- Cashed Out Players -->
-            <div class="card mb-3" *ngIf="settlementData.cashouts && settlementData.cashouts.length > 0">
-              <div class="card-header bg-success text-white">
-                <h6 class="mb-0">Cashed Out Players</h6>
+            <!-- Phase 2: Final Cashout -->
+            <div *ngIf="settlementStatus && settlementStatus.phase === 'final_cashout'">
+              <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Phase 2: Final Cashout</strong><br>
+                Players can now cash out. Choose how much cash to receive and claim unpaid credits.
               </div>
-              <div class="card-body">
-                <div class="table-responsive">
-                  <table class="table table-sm table-striped">
-                    <thead>
-                      <tr>
-                        <th>Player</th>
-                        <th>Chips</th>
-                        <th>Cash</th>
-                        <th>Credit</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr *ngFor="let cashout of settlementData.cashouts">
-                        <td>{{ cashout.player_name }}</td>
-                        <td>{{ cashout.amount }}</td>
-                        <td class="text-success">{{ cashout.cash_component || 0 }}</td>
-                        <td class="text-warning">{{ cashout.credit_component || 0 }}</td>
-                        <td><span class="badge bg-success">Cashed Out</span></td>
-                      </tr>
-                    </tbody>
-                  </table>
+
+              <div class="row mb-3">
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header bg-success text-white">
+                      <h6 class="mb-0">Available Cash</h6>
+                    </div>
+                    <div class="card-body text-center">
+                      <h3 class="text-success">{{ settlementStatus.available_cash || 0 }}</h3>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header bg-warning text-white">
+                      <h6 class="mb-0">Unpaid Credits Available</h6>
+                    </div>
+                    <div class="card-body">
+                      <div class="table-responsive" *ngIf="settlementStatus.unpaid_credits && settlementStatus.unpaid_credits.length > 0">
+                        <table class="table table-sm mb-0">
+                          <thead>
+                            <tr>
+                              <th>Player</th>
+                              <th>Available</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr *ngFor="let credit of settlementStatus.unpaid_credits">
+                              <td>{{ credit.debtor_name }}</td>
+                              <td>{{ credit.amount_available }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p class="text-center mb-0" *ngIf="!settlementStatus.unpaid_credits || settlementStatus.unpaid_credits.length === 0">
+                        No unpaid credits
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Final Cashout Form -->
+              <div class="card mb-3">
+                <div class="card-header bg-primary text-white">
+                  <h6 class="mb-0">Process Final Cashout</h6>
+                </div>
+                <div class="card-body">
+                  <form [formGroup]="finalCashoutForm" (ngSubmit)="processFinalCashout()">
+                    <div class="row">
+                      <div class="col-md-4">
+                        <label class="form-label">Select Player</label>
+                        <select class="form-control" formControlName="userId">
+                          <option value="">Choose player...</option>
+                          <option *ngFor="let player of getActivePlayers()" [value]="player.user_id">
+                            {{ player.name }}
+                          </option>
+                        </select>
+                      </div>
+                      <div class="col-md-2">
+                        <label class="form-label">Chips</label>
+                        <input type="number" class="form-control" formControlName="chips" placeholder="0" min="0">
+                      </div>
+                      <div class="col-md-2">
+                        <label class="form-label">Cash Requested</label>
+                        <input type="number" class="form-control" formControlName="cashRequested" placeholder="0" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Claim Unpaid Credits</label>
+                        <div *ngFor="let credit of settlementStatus.unpaid_credits; let i = index" class="mb-1">
+                          <div class="input-group input-group-sm">
+                            <span class="input-group-text">{{ credit.debtor_name }}</span>
+                            <input type="number" class="form-control"
+                                   [id]="'claim-' + credit.debtor_user_id"
+                                   placeholder="Amount" min="0"
+                                   [max]="credit.amount_available">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="text-center mt-3">
+                      <button type="submit" class="btn btn-success" [disabled]="finalCashoutForm.invalid || isLoading">
+                        <i class="bi bi-check-circle me-1"></i>
+                        Process Cashout
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              <div class="text-center mt-3">
+                <button class="btn btn-danger" (click)="completeSettlement()" *ngIf="isHost">
+                  <i class="bi bi-flag-fill me-1"></i>
+                  Complete Settlement & End Game
+                </button>
+              </div>
+            </div>
+
+            <!-- Settlement Summary View -->
+            <div *ngIf="settlementSummary">
+              <div class="alert alert-success">
+                <i class="bi bi-check-circle me-2"></i>
+                <strong>Settlement Complete</strong><br>
+                Review the final settlement summary below.
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header bg-info text-white">
+                  <h6 class="mb-0">All Players Summary</h6>
+                </div>
+                <div class="card-body">
+                  <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                      <thead>
+                        <tr>
+                          <th>Player</th>
+                          <th>Cash Buy-ins</th>
+                          <th>Credit Buy-ins</th>
+                          <th>Total Buy-ins</th>
+                          <th>Cashouts</th>
+                          <th>Net</th>
+                          <th>Unpaid Credits</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr *ngFor="let summary of settlementSummary.summaries">
+                          <td>{{ summary.name }}</td>
+                          <td>{{ summary.totals.cash_buyins }}</td>
+                          <td>{{ summary.totals.credit_buyins }}</td>
+                          <td>{{ summary.totals.total_buyins }}</td>
+                          <td>{{ summary.totals.cashouts }}</td>
+                          <td [class]="summary.totals.net >= 0 ? 'text-success' : 'text-danger'">
+                            {{ summary.totals.net > 0 ? '+' : '' }}{{ summary.totals.net }}
+                          </td>
+                          <td class="text-warning">{{ summary.unpaid_credit_owed }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Settled Debts -->
-            <div class="card mb-3" *ngIf="settlementData.settled_debts && settlementData.settled_debts.length > 0">
-              <div class="card-header bg-info text-white">
-                <h6 class="mb-0">Settled Debts</h6>
-              </div>
-              <div class="card-body">
-                <div class="table-responsive">
-                  <table class="table table-sm table-striped">
-                    <thead>
-                      <tr>
-                        <th>Debtor</th>
-                        <th>Creditor</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr *ngFor="let debt of settlementData.settled_debts">
-                        <td>{{ debt.debtor_name }}</td>
-                        <td>{{ debt.creditor_name }}</td>
-                        <td>{{ debt.amount }}</td>
-                        <td><span class="badge bg-success">Settled</span></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+            <!-- No Settlement Started -->
+            <div *ngIf="!settlementStatus || !settlementStatus.phase">
+              <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                Settlement has not been started yet. Click "Start Settlement" to begin the settlement process.
               </div>
             </div>
 
-            <!-- No Settlement Data -->
-            <div class="alert alert-warning" *ngIf="(!settlementData.cashouts || settlementData.cashouts.length === 0) && (!settlementData.settled_debts || settlementData.settled_debts.length === 0)">
-              <i class="bi bi-exclamation-triangle me-2"></i>
-              No settlement data available yet. Players need to cash out first.
-            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" (click)="showSettlement = false">Close</button>
+            <button type="button" class="btn btn-info" (click)="viewSettlementSummary()" *ngIf="isHost">
+              <i class="bi bi-file-text me-1"></i>
+              View Full Summary
+            </button>
           </div>
         </div>
       </div>
@@ -643,12 +792,15 @@ export class GameComponent implements OnInit, OnDestroy {
   gameJoinUrl = '';
   gameReport: any = null;
   settlementData: any = null;
+  settlementStatus: SettlementStatus | null = null;
+  settlementSummary: AllSettlementSummaries | null = null;
 
   // Forms
   buyinForm: FormGroup;
   cashoutForm: FormGroup;
   hostBuyinForm: FormGroup;
   hostCashoutForm: FormGroup;
+  finalCashoutForm: FormGroup;
 
   // Messages
   successMessage = '';
@@ -684,6 +836,12 @@ export class GameComponent implements OnInit, OnDestroy {
     this.hostCashoutForm = this.formBuilder.group({
       player: ['', [Validators.required]],
       amount: ['', [Validators.required, Validators.min(0)]]
+    });
+
+    this.finalCashoutForm = this.formBuilder.group({
+      userId: ['', [Validators.required]],
+      chips: ['', [Validators.required, Validators.min(0)]],
+      cashRequested: ['', [Validators.required, Validators.min(0)]]
     });
 
     this.currentUser = this.apiService.getCurrentUser();
@@ -753,7 +911,7 @@ export class GameComponent implements OnInit, OnDestroy {
                   cash_buyins: 0,
                   credit_buyins: 0,
                   total_buyins: 0,
-                  pending_debt: 0,
+                  credits_owed: 0,
                   transactions: []
                 };
               }
@@ -896,20 +1054,153 @@ export class GameComponent implements OnInit, OnDestroy {
     });
   }
 
-  confirmEndGame(): void {
-    if (confirm('Are you sure you want to end this game? This cannot be undone.')) {
+  startSettlement(): void {
+    if (confirm('Are you sure you want to start settlement? This will begin the settlement process.')) {
       if (this.game) {
-        this.apiService.endGame(this.game.id).subscribe({
+        this.apiService.startSettlement(this.game.id).subscribe({
           next: (response) => {
-            this.showSuccess('Game ended successfully');
+            this.settlementStatus = response;
+            this.showSuccess('Settlement started successfully');
+            this.showSettlement = true;
             this.refreshData();
           },
           error: (error) => {
-            this.showError(error.error?.message || 'Failed to end game');
+            this.showError(error.error?.message || 'Failed to start settlement');
           }
         });
       }
     }
+  }
+
+  repayCredit(userId: number, chips: number): void {
+    if (!this.game || chips <= 0) {
+      this.showError('Invalid repayment amount');
+      return;
+    }
+
+    this.isLoading = true;
+    this.apiService.repayCredit(this.game.id, userId, chips).subscribe({
+      next: (response) => {
+        this.isLoading = false;
+        this.showSuccess('Credit repayment processed successfully');
+        this.loadSettlementStatus();
+      },
+      error: (error) => {
+        this.isLoading = false;
+        this.showError(error.error?.message || 'Failed to process credit repayment');
+      }
+    });
+  }
+
+  completeCreditSettlement(): void {
+    if (confirm('Complete credit settlement and move to final cashout phase?')) {
+      if (this.game) {
+        this.apiService.completeCreditSettlement(this.game.id).subscribe({
+          next: (response) => {
+            this.settlementStatus = response;
+            this.showSuccess('Credit settlement complete. Moving to final cashout phase.');
+            this.loadSettlementStatus();
+          },
+          error: (error) => {
+            this.showError(error.error?.message || 'Failed to complete credit settlement');
+          }
+        });
+      }
+    }
+  }
+
+  processFinalCashout(): void {
+    if (this.finalCashoutForm.invalid || !this.game) {
+      return;
+    }
+
+    const userId = parseInt(this.finalCashoutForm.value.userId, 10);
+    const chips = parseInt(this.finalCashoutForm.value.chips, 10);
+    const cashRequested = parseInt(this.finalCashoutForm.value.cashRequested, 10);
+
+    // Collect unpaid credits claimed
+    const unpaidCreditsClaimed: Array<{debtor_user_id: number; amount: number}> = [];
+    if (this.settlementStatus?.unpaid_credits) {
+      this.settlementStatus.unpaid_credits.forEach(credit => {
+        const inputElement = document.getElementById(`claim-${credit.debtor_user_id}`) as HTMLInputElement;
+        if (inputElement && inputElement.value) {
+          const amount = parseInt(inputElement.value, 10);
+          if (amount > 0) {
+            unpaidCreditsClaimed.push({
+              debtor_user_id: credit.debtor_user_id,
+              amount: amount
+            });
+          }
+        }
+      });
+    }
+
+    this.isLoading = true;
+    this.apiService.finalCashout(this.game.id, userId, chips, cashRequested, unpaidCreditsClaimed).subscribe({
+      next: (response) => {
+        this.isLoading = false;
+        this.finalCashoutForm.reset();
+        this.showSuccess('Final cashout processed successfully');
+        this.loadSettlementStatus();
+      },
+      error: (error) => {
+        this.isLoading = false;
+        this.showError(error.error?.message || 'Failed to process final cashout');
+      }
+    });
+  }
+
+  completeSettlement(): void {
+    if (!this.game) {
+      return;
+    }
+
+    // First check if settlement can be completed
+    this.apiService.checkSettlementComplete(this.game.id).subscribe({
+      next: (checkResult) => {
+        if (checkResult.can_complete) {
+          if (confirm('Complete settlement and end the game? This cannot be undone.')) {
+            this.apiService.completeSettlement(this.game.id).subscribe({
+              next: (response) => {
+                this.showSuccess('Settlement completed successfully. Game ended.');
+                this.showSettlement = false;
+                this.refreshData();
+              },
+              error: (error) => {
+                this.showError(error.error?.message || 'Failed to complete settlement');
+              }
+            });
+          }
+        } else {
+          this.showError(checkResult.message || 'Cannot complete settlement yet');
+        }
+      },
+      error: (error) => {
+        this.showError(error.error?.message || 'Failed to check settlement status');
+      }
+    });
+  }
+
+  viewSettlementSummary(): void {
+    if (this.game) {
+      this.apiService.getAllSettlementSummaries(this.game.id).subscribe({
+        next: (summary) => {
+          this.settlementSummary = summary;
+          this.settlementStatus = null; // Switch to summary view
+        },
+        error: (error) => {
+          this.showError('Failed to load settlement summary');
+        }
+      });
+    }
+  }
+
+  getRepayAmount(userId: number): number {
+    const inputElement = document.getElementById(`repay-${userId}`) as HTMLInputElement;
+    if (inputElement && inputElement.value) {
+      return parseInt(inputElement.value, 10);
+    }
+    return 0;
   }
 
   async onShowQrCode(): Promise<void> {
@@ -1036,22 +1327,22 @@ export class GameComponent implements OnInit, OnDestroy {
             let detailedMsg = `Cashout Complete!\n\n`;
             detailedMsg += `Total chips: ${breakdown.total_chips}\n`;
 
-            if (breakdown.debt_paid > 0) {
-              detailedMsg += `Debt paid: ${breakdown.debt_paid} chips\n`;
+            if (breakdown.credit_repaid > 0) {
+              detailedMsg += `Credit repaid: ${breakdown.credit_repaid} chips\n`;
             }
 
-            if (breakdown.remaining_debt > 0) {
-              detailedMsg += `⚠ Remaining debt: $${breakdown.remaining_debt}\n`;
+            if (breakdown.remaining_credit > 0) {
+              detailedMsg += `⚠ Remaining credit owed: $${breakdown.remaining_credit}\n`;
             }
 
             if (breakdown.cash_received > 0) {
               detailedMsg += `Cash received: $${breakdown.cash_received}\n`;
             }
 
-            if (breakdown.debts_assigned && breakdown.debts_assigned.length > 0) {
-              detailedMsg += `\nDebts assigned:\n`;
-              breakdown.debts_assigned.forEach((debt: any) => {
-                detailedMsg += `  • ${debt.debtor_name} owes $${debt.amount}\n`;
+            if (breakdown.unpaid_credits_created && breakdown.unpaid_credits_created.length > 0) {
+              detailedMsg += `\nUnpaid credits created:\n`;
+              breakdown.unpaid_credits_created.forEach((credit: any) => {
+                detailedMsg += `  • ${credit.debtor_name} owes $${credit.amount}\n`;
               });
             }
 
@@ -1086,13 +1377,23 @@ export class GameComponent implements OnInit, OnDestroy {
 
   loadSettlement(): void {
     if (this.game) {
-      this.apiService.getSettlementData(this.game.id).subscribe({
-        next: (data) => {
-          this.settlementData = data;
-          this.showSettlement = true;
+      this.loadSettlementStatus();
+      this.showSettlement = true;
+    }
+  }
+
+  loadSettlementStatus(): void {
+    if (this.game) {
+      this.apiService.getSettlementStatus(this.game.id).subscribe({
+        next: (status) => {
+          this.settlementStatus = status;
+          // Clear summary when loading status
+          this.settlementSummary = null;
         },
         error: (error) => {
-          this.showError('Failed to load settlement data');
+          // If no settlement started yet, that's okay
+          console.log('No settlement status available:', error);
+          this.settlementStatus = null;
         }
       });
     }

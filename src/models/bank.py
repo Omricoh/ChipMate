@@ -5,12 +5,12 @@ from typing import Optional
 
 class Bank(BaseModel):
     """
-    Bank entity for tracking all cash and debt flows in a game.
+    Bank entity for tracking all cash and credit flows in a game.
 
     HOW IT WORKS:
     1. Player brings CASH → Bank takes cash and issues CHIPS
-    2. Player wants CREDIT → Bank issues CHIPS and records DEBT
-    3. Player returns CHIPS → Bank pays cash or reduces debt
+    2. Player wants CREDIT → Bank issues CHIPS and tracks player's credit owed
+    3. Player returns CHIPS → Bank pays cash or reduces player's credit owed
     4. HOST MUST APPROVE all transactions (buy-ins and cashouts)
 
     CRITICAL RULES:

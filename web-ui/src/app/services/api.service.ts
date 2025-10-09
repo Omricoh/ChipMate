@@ -6,12 +6,15 @@ import {
   Game,
   Player,
   Transaction,
-  Debt,
   GameStatus,
   PlayerSummary,
   CashoutRequest,
   BuyinRequest,
-  GameLink
+  GameLink,
+  SettlementStatus,
+  SettlementSummary,
+  AllSettlementSummaries,
+  UnpaidCredit
 } from '../models/game.model';
 import { User, AuthRequest, AuthResponse } from '../models/user.model';
 
@@ -149,9 +152,67 @@ export class ApiService {
     });
   }
 
-  // Debt Management
-  getGameDebts(gameId: string): Observable<Debt[]> {
-    return this.http.get<Debt[]>(`${this.baseUrl}/games/${gameId}/debts`, {
+  // Settlement Management
+  startSettlement(gameId: string): Observable<SettlementStatus> {
+    return this.http.post<SettlementStatus>(`${this.baseUrl}/games/${gameId}/settlement/start`, {}, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getSettlementStatus(gameId: string): Observable<SettlementStatus> {
+    return this.http.get<SettlementStatus>(`${this.baseUrl}/games/${gameId}/settlement/status`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  repayCredit(gameId: string, userId: number, chipsRepaid: number): Observable<any> {
+    return this.http.post<any>(`${this.baseUrl}/games/${gameId}/settlement/repay-credit`, {
+      user_id: userId,
+      chips_repaid: chipsRepaid
+    }, { headers: this.getHeaders() });
+  }
+
+  completeCreditSettlement(gameId: string): Observable<SettlementStatus> {
+    return this.http.post<SettlementStatus>(`${this.baseUrl}/games/${gameId}/settlement/complete-phase1`, {}, {
+      headers: this.getHeaders()
+    });
+  }
+
+  finalCashout(gameId: string, userId: number, chips: number, cashRequested: number, unpaidCreditsClaimed: Array<{debtor_user_id: number; amount: number}>): Observable<any> {
+    return this.http.post<any>(`${this.baseUrl}/games/${gameId}/settlement/final-cashout`, {
+      user_id: userId,
+      chips,
+      cash_requested: cashRequested,
+      unpaid_credits_claimed: unpaidCreditsClaimed
+    }, { headers: this.getHeaders() });
+  }
+
+  checkSettlementComplete(gameId: string): Observable<{can_complete: boolean; cash_remaining: number; unpaid_credits_remaining: number; message: string}> {
+    return this.http.get<{can_complete: boolean; cash_remaining: number; unpaid_credits_remaining: number; message: string}>(`${this.baseUrl}/games/${gameId}/settlement/check-complete`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  completeSettlement(gameId: string): Observable<{success: boolean; message: string}> {
+    return this.http.post<{success: boolean; message: string}>(`${this.baseUrl}/games/${gameId}/settlement/complete`, {}, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getPlayerSettlementSummary(gameId: string, userId: number): Observable<SettlementSummary> {
+    return this.http.get<SettlementSummary>(`${this.baseUrl}/games/${gameId}/settlement/summary/${userId}`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getAllSettlementSummaries(gameId: string): Observable<AllSettlementSummaries> {
+    return this.http.get<AllSettlementSummaries>(`${this.baseUrl}/games/${gameId}/settlement/summary/all`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getGameCredits(gameId: string): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/games/${gameId}/credits`, {
       headers: this.getHeaders()
     });
   }

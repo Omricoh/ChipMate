@@ -1,6 +1,6 @@
 """
 Transaction Service - Business Logic Layer
-Handles all transaction and debt-related business operations
+Handles all transaction and credit-related business operations
 """
 import logging
 from pymongo import MongoClient
@@ -17,7 +17,7 @@ from src.models.transaction import Transaction
 logger = logging.getLogger("chipbot")
 
 class TransactionService:
-    """Service for transaction and debt-related business operations"""
+    """Service for transaction and credit-related business operations"""
 
     def __init__(self, mongo_url: str):
         self.client = MongoClient(mongo_url)
@@ -75,7 +75,7 @@ class TransactionService:
         2. Transaction marked as approved in database
         3. Bank executes the operation:
            - CASH BUY-IN: Bank takes player's cash, issues chips
-           - CREDIT BUY-IN: Bank issues chips on credit, records debt
+           - CREDIT BUY-IN: Bank issues chips on credit, records player credit owed
         4. Money enters bank ONLY here for buy-ins
 
         Returns:
@@ -117,11 +117,11 @@ class TransactionService:
             # CASHOUT: Player returns chips → Repays credits → Gets cash
             if tx["type"] == "cashout":
                 # Process cashout settlement
-                cashout_result = self.process_cashout_with_debt_settlement(tx_id)
+                cashout_result = self.process_cashout_with_credit_settlement(tx_id)
 
                 if cashout_result.get("success"):
                     # Execute cashout operations (update player credits and bank)
-                    self.execute_cashout_debt_operations(tx_id)
+                    self.execute_cashout_credit_operations(tx_id)
 
                     # Mark player as cashed out
                     self.players_dal.col.update_one(
@@ -156,7 +156,7 @@ class TransactionService:
             logger.error(f"Error rejecting transaction: {e}")
             return False
 
-    def process_cashout_with_debt_settlement(self, tx_id: str) -> Dict[str, Any]:
+    def process_cashout_with_credit_settlement(self, tx_id: str) -> Dict[str, Any]:
         """
         SIMPLIFIED CASHOUT PROCESSING
 
@@ -164,7 +164,7 @@ class TransactionService:
         1. Player returns chips to bank
         2. Chips used to repay player's own credits
         3. Remaining chips converted to cash (if bank has it)
-        4. No automatic debt transfers - player chooses what to take
+        4. Player chooses how to take remaining value
         """
         try:
             tx = self.transactions_dal.get(tx_id)
@@ -226,7 +226,7 @@ class TransactionService:
             logger.error(f"Error processing cashout: {e}")
             return {"success": False, "error": str(e)}
 
-    def execute_cashout_debt_operations(self, tx_id: str) -> Dict[str, Any]:
+    def execute_cashout_credit_operations(self, tx_id: str) -> Dict[str, Any]:
         """
         SIMPLIFIED: Execute cashout - update player credits and bank
 
@@ -237,7 +237,7 @@ class TransactionService:
         1. Player returns CHIPS to bank
         2. Reduce player's credits_owed
         3. Bank pays CASH (if available)
-        4. Done - no debt transfers
+        4. Done - no automatic credit transfers
 
         Returns:
             Dict with success status
@@ -412,13 +412,13 @@ class TransactionService:
             tx_id = self.create_cashout_transaction(game_id, user_id, amount)
 
             # Calculate cashout (credits repaid, cash paid)
-            cashout_result = self.process_cashout_with_debt_settlement(tx_id)
+            cashout_result = self.process_cashout_with_credit_settlement(tx_id)
 
             # Auto-approve for host transactions
             self.approve_transaction(tx_id)
 
             # Execute cashout operations
-            self.execute_cashout_debt_operations(tx_id)
+            self.execute_cashout_credit_operations(tx_id)
 
             # Get player info
             player = self.players_dal.get_player(game_id, user_id)

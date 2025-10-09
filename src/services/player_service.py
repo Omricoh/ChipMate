@@ -72,7 +72,7 @@ class PlayerService:
                 return False
 
             # All cashed out players become inactive, including hosts
-            # This makes their debts available for transfer
+            # Credits are handled during settlement phase
             update_fields = {
                 "cashed_out": True,
                 "cashout_time": datetime.now(timezone.utc),
