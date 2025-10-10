@@ -35,6 +35,9 @@ class SettlementService:
     def start_settlement(self, game_id: str) -> Dict[str, Any]:
         """
         Start the settlement process - Phase 1: Credit Settlement
+
+        Creates UnpaidCredit records for all players who already have credits_owed > 0
+        (e.g., from prior cashouts where they didn't fully repay their credits)
         """
         try:
             # Update game status
@@ -48,6 +51,26 @@ class SettlementService:
                     }
                 }
             )
+
+            # Get all players and create UnpaidCredit records for those who already owe credits
+            # This handles players who cashed out before settlement started and still have credits_owed > 0
+            players = self.players_dal.get_players(game_id)
+            for player in players:
+                if player.credits_owed > 0:
+                    # Check if unpaid credit already exists
+                    existing_unpaid = self.unpaid_credits_dal.get_by_debtor(game_id, player.user_id)
+
+                    if not existing_unpaid:
+                        # Create new unpaid credit record
+                        unpaid_credit = UnpaidCredit(
+                            game_id=game_id,
+                            debtor_user_id=player.user_id,
+                            debtor_name=player.name,
+                            amount=player.credits_owed,
+                            amount_available=player.credits_owed
+                        )
+                        self.unpaid_credits_dal.create(unpaid_credit)
+                        logger.info(f"Created initial UnpaidCredit for player {player.user_id}: {player.credits_owed}")
 
             # Get players with credits owed
             players_with_credits = self.get_players_with_credits(game_id)
@@ -403,13 +426,13 @@ class SettlementService:
             return {"success": False, "error": str(e)}
 
     def complete_settlement(self, game_id: str) -> Dict[str, Any]:
-        """Mark settlement as completed"""
+        """Mark settlement as completed and set game status to 'ending'"""
         try:
             self.games_dal.col.update_one(
                 {"_id": ObjectId(game_id) if isinstance(game_id, str) else game_id},
                 {
                     "$set": {
-                        "status": "settled",
+                        "status": "ending",
                         "settlement_phase": "completed"
                     }
                 }

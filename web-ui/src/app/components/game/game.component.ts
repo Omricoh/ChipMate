@@ -148,6 +148,45 @@ import { Subscription, interval } from 'rxjs';
                   <span class="badge bg-danger">{{ playerSummary.credits_owed }}</span>
                 </div>
               </div>
+
+              <!-- Show transaction history when game is ending -->
+              <div *ngIf="game?.status === 'ending' && playerSummary.transactions && playerSummary.transactions.length > 0">
+                <hr>
+                <h6 class="mb-2">
+                  <i class="bi bi-list-ul me-2"></i>
+                  Your Transactions
+                </h6>
+                <div style="max-height: 300px; overflow-y: auto;">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let tx of playerSummary.transactions">
+                        <td>
+                          <span *ngIf="tx.type === 'buyin_cash'" class="badge bg-success">Cash</span>
+                          <span *ngIf="tx.type === 'buyin_register'" class="badge bg-warning">Credit</span>
+                          <span *ngIf="tx.type === 'cashout'" class="badge bg-info">Cashout</span>
+                        </td>
+                        <td>{{ tx.amount }}</td>
+                        <td>
+                          <span *ngIf="tx.confirmed" class="badge bg-success">
+                            <i class="bi bi-check-circle"></i>
+                          </span>
+                          <span *ngIf="tx.rejected" class="badge bg-danger">
+                            <i class="bi bi-x-circle"></i>
+                          </span>
+                          <span *ngIf="!tx.confirmed && !tx.rejected" class="badge bg-secondary">Pending</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1609,8 +1648,12 @@ export class GameComponent implements OnInit, OnDestroy {
 
   loadSettlement(): void {
     if (this.game) {
+      // If settlement is completed (phase = 'completed'), show summary directly
+      if (this.game.settlement_phase === 'completed') {
+        this.viewSettlementSummary();
+      }
       // If game is settled but no settlement phase (old games), show summary directly
-      if (this.game.status === 'settled' && !this.game.settlement_phase) {
+      else if (this.game.status === 'settled' && !this.game.settlement_phase) {
         this.viewSettlementSummary();
       } else {
         this.loadSettlementStatus();
@@ -1627,15 +1670,19 @@ export class GameComponent implements OnInit, OnDestroy {
           // Clear summary when loading status
           this.settlementSummary = null;
 
+          // If settlement phase is 'completed', show summary
+          if (this.game?.settlement_phase === 'completed') {
+            this.viewSettlementSummary();
+          }
           // If game is settled but no phase in status, show summary instead
-          if (this.game?.status === 'settled' && !status.phase) {
+          else if (this.game?.status === 'settled' && !status.phase) {
             this.viewSettlementSummary();
           }
         },
         error: (error) => {
-          // If no settlement started yet and game is settled, show summary
-          if (this.game?.status === 'settled') {
-            console.log('Game is settled but no settlement data, showing summary');
+          // If settlement completed or game settled, show summary
+          if (this.game?.settlement_phase === 'completed' || this.game?.status === 'settled') {
+            console.log('Settlement completed or game settled, showing summary');
             this.viewSettlementSummary();
           } else {
             console.log('No settlement status available:', error);
