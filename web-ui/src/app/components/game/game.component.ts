@@ -4,7 +4,7 @@ import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angula
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { QrCodeService } from '../../services/qr-code.service';
-import { Game, GameStatus, Player, Transaction, PlayerSummary, SettlementStatus, AllSettlementSummaries, UnpaidCredit, BankStatus } from '../../models/game.model';
+import { Game, GameStatus, Player, Transaction, PlayerSummary, SettlementStatus, SettlementSummary, AllSettlementSummaries, UnpaidCredit, BankStatus } from '../../models/game.model';
 import { User } from '../../models/user.model';
 import { Subscription, interval } from 'rxjs';
 
