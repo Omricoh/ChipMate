@@ -928,11 +928,65 @@ import { Subscription, interval } from 'rxjs';
               </div>
             </div>
 
-            <!-- No Settlement Started -->
-            <div *ngIf="!settlementStatus || !settlementStatus.phase">
+            <!-- No Settlement Started (Host only) -->
+            <div *ngIf="(!settlementStatus || !settlementStatus.phase) && !settlementSummary && isHost">
               <div class="alert alert-warning">
                 <i class="bi bi-exclamation-triangle me-2"></i>
                 Settlement has not been started yet. Click "Start Settlement" to begin the settlement process.
+              </div>
+            </div>
+
+            <!-- Player View: Show individual summary when settlement exists -->
+            <div *ngIf="(!settlementStatus || !settlementStatus.phase) && !settlementSummary && !isHost && playerSettlementSummary">
+              <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Your Settlement Summary</strong>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-body">
+                  <h6 class="text-muted mb-3">Your Totals</h6>
+                  <div class="row g-2 mb-3">
+                    <div class="col-6">
+                      <small class="text-muted">Cash Buy-ins:</small>
+                      <div class="fw-bold text-success">{{ playerSettlementSummary.totals.cash_buyins }}</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Credit Buy-ins:</small>
+                      <div class="fw-bold text-warning">{{ playerSettlementSummary.totals.credit_buyins }}</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Cashouts:</small>
+                      <div class="fw-bold">{{ playerSettlementSummary.totals.cashouts }}</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Net:</small>
+                      <div class="fw-bold" [class.text-success]="playerSettlementSummary.totals.net >= 0" [class.text-danger]="playerSettlementSummary.totals.net < 0">
+                        {{ playerSettlementSummary.totals.net > 0 ? '+' : '' }}{{ playerSettlementSummary.totals.net }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div *ngIf="playerSettlementSummary.owes_to_me && playerSettlementSummary.owes_to_me.length > 0">
+                    <h6 class="text-muted mb-2">Who Owes You</h6>
+                    <div class="list-group list-group-flush mb-3">
+                      <div class="list-group-item px-0 py-2 d-flex justify-content-between" *ngFor="let debt of playerSettlementSummary.owes_to_me">
+                        <span>{{ debt.debtor_name }}</span>
+                        <span class="badge bg-warning">{{ debt.amount }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div *ngIf="playerSettlementSummary.i_owe && playerSettlementSummary.i_owe.length > 0">
+                    <h6 class="text-muted mb-2">What You Owe</h6>
+                    <div class="list-group list-group-flush">
+                      <div class="list-group-item px-0 py-2 d-flex justify-content-between" *ngFor="let owed of playerSettlementSummary.i_owe">
+                        <span class="small">{{ owed.note }}</span>
+                        <span class="badge bg-danger">{{ owed.amount }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -942,6 +996,10 @@ import { Subscription, interval } from 'rxjs';
             <button type="button" class="btn btn-info" (click)="viewSettlementSummary()" *ngIf="isHost">
               <i class="bi bi-file-text me-1"></i>
               View Full Summary
+            </button>
+            <button type="button" class="btn btn-outline-info" (click)="viewMySettlementSummary()" *ngIf="isHost && !settlementSummary">
+              <i class="bi bi-person-circle me-1"></i>
+              View My Summary
             </button>
           </div>
         </div>
@@ -1468,6 +1526,18 @@ export class GameComponent implements OnInit, OnDestroy {
           this.showError('Failed to load settlement summary');
         }
       });
+  }
+
+  viewMySettlementSummary(): void {
+    // Host viewing their own settlement summary
+    // This will trigger the playerSettlementSummary to be shown in the modal
+    this.settlementStatus = null;
+    this.settlementSummary = null;
+    // The playerSettlementSummary should already be loaded from sidebar
+    // If not, it will show in the sidebar already
+    this.showSettlement = false;
+    // Just point them to look at the sidebar
+    this.showSuccess('Your settlement summary is shown in the left sidebar under "Your Settlement Summary"');
   }
 
   getRepayAmount(userId: number): number {

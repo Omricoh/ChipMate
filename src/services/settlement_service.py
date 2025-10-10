@@ -312,6 +312,14 @@ class SettlementService:
                     ]
                 }
 
+            elif game.settlement_phase == "completed":
+                # Settlement has been completed
+                return {
+                    "success": True,
+                    "phase": "completed",
+                    "message": "Settlement has been completed"
+                }
+
             else:
                 return {
                     "success": True,
