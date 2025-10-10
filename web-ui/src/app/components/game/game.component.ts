@@ -149,8 +149,8 @@ import { Subscription, interval } from 'rxjs';
                 </div>
               </div>
 
-              <!-- Show transaction history when game is ending -->
-              <div *ngIf="game?.status === 'ending' && playerSummary.transactions && playerSummary.transactions.length > 0">
+              <!-- Show transaction history throughout the game -->
+              <div *ngIf="playerSummary.transactions && playerSummary.transactions.length > 0">
                 <hr>
                 <h6 class="mb-2">
                   <i class="bi bi-list-ul me-2"></i>
@@ -160,6 +160,7 @@ import { Subscription, interval } from 'rxjs';
                   <table class="table table-sm">
                     <thead>
                       <tr>
+                        <th>Date/Time</th>
                         <th>Type</th>
                         <th>Amount</th>
                         <th>Status</th>
@@ -167,6 +168,7 @@ import { Subscription, interval } from 'rxjs';
                     </thead>
                     <tbody>
                       <tr *ngFor="let tx of playerSummary.transactions">
+                        <td class="text-muted small">{{ formatTransactionDate(tx.created_at) }}</td>
                         <td>
                           <span *ngIf="tx.type === 'buyin_cash'" class="badge bg-success">Cash</span>
                           <span *ngIf="tx.type === 'buyin_register'" class="badge bg-warning">Credit</span>
@@ -304,6 +306,7 @@ import { Subscription, interval } from 'rxjs';
                   <table class="table table-sm">
                     <thead>
                       <tr>
+                        <th>Date/Time</th>
                         <th>Type</th>
                         <th>Amount</th>
                         <th>Status</th>
@@ -311,6 +314,7 @@ import { Subscription, interval } from 'rxjs';
                     </thead>
                     <tbody>
                       <tr *ngFor="let tx of playerSettlementSummary.transactions">
+                        <td class="text-muted small">{{ formatTransactionDate(tx.created_at) }}</td>
                         <td>
                           <span *ngIf="tx.type === 'buyin_cash'" class="badge bg-success">Cash</span>
                           <span *ngIf="tx.type === 'buyin_register'" class="badge bg-warning">Credit</span>
@@ -1695,5 +1699,42 @@ export class GameComponent implements OnInit, OnDestroy {
 
   getActivePlayers(): Player[] {
     return this.players.filter(p => p.active && !p.quit);
+  }
+
+  formatTransactionDate(dateString: string | Date): string {
+    if (!dateString) return '';
+
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    // If within last minute
+    if (diffMins < 1) {
+      return 'Just now';
+    }
+    // If within last hour
+    else if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    }
+    // If within last 24 hours
+    else if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    }
+    // If within last week
+    else if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    }
+    // Otherwise show full date and time
+    else {
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
   }
 }
