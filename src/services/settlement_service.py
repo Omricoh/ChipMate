@@ -14,7 +14,9 @@ from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
 from src.dal.bank_dal import BankDAL
 from src.dal.unpaid_credits_dal import UnpaidCreditsDAL
+from src.dal.unpaid_credit_claims_dal import UnpaidCreditClaimsDAL
 from src.models.unpaid_credit import UnpaidCredit
+from src.models.unpaid_credit_claim import UnpaidCreditClaim
 
 logger = logging.getLogger("chipbot")
 
@@ -31,6 +33,7 @@ class SettlementService:
         self.transactions_dal = TransactionsDAL(self.db)
         self.bank_dal = BankDAL(self.db)
         self.unpaid_credits_dal = UnpaidCreditsDAL(self.db)
+        self.unpaid_credit_claims_dal = UnpaidCreditClaimsDAL(self.db)
 
     def start_settlement(self, game_id: str) -> Dict[str, Any]:
         """
@@ -389,13 +392,30 @@ class SettlementService:
                     }
                 )
 
-            # 2. Update claimed unpaid credits
+            # 2. Update claimed unpaid credits and create claim records
             for claim in unpaid_credits_claimed:
+                # Update the UnpaidCredit amount_claimed
                 self.unpaid_credits_dal.update_claimed_amount(
                     game_id,
                     claim['debtor_user_id'],
                     claim['amount']
                 )
+
+                # Create a claim record to track who claimed what
+                debtor = self.players_dal.get_player(game_id, claim['debtor_user_id'])
+                claimant = self.players_dal.get_player(game_id, user_id)
+
+                if debtor and claimant:
+                    claim_record = UnpaidCreditClaim(
+                        game_id=game_id,
+                        debtor_user_id=claim['debtor_user_id'],
+                        debtor_name=debtor.name,
+                        claimant_user_id=user_id,
+                        claimant_name=claimant.name,
+                        amount=claim['amount']
+                    )
+                    self.unpaid_credit_claims_dal.create(claim_record)
+                    logger.info(f"Created claim: {claimant.name} claims {claim['amount']} from {debtor.name}")
 
             # 3. Mark player as cashed out
             self.players_dal.col.update_one(

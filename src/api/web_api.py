@@ -878,24 +878,21 @@ def get_player_settlement_summary(game_id, user_id):
         cashouts = sum(tx['amount'] for tx in transactions if tx['type'] == 'cashout')
 
         # Get unpaid credits this player claimed (others owe them)
-        unpaid_credits = settlement_service.unpaid_credits_dal.get_by_game(game_id)
+        claims_by_player = settlement_service.unpaid_credit_claims_dal.get_by_claimant(game_id, user_id)
         owes_to_player = []
-        for uc in unpaid_credits:
-            if uc.amount_claimed > 0:
-                # Check if this player claimed any of it (we'd need to track this)
-                # For now, just show all unpaid credits
-                owes_to_player.append({
-                    'debtor_name': uc.debtor_name,
-                    'amount': uc.amount_available
-                })
+        for claim in claims_by_player:
+            owes_to_player.append({
+                'debtor_name': claim.debtor_name,
+                'amount': claim.amount
+            })
 
-        # Get if player owes any unpaid credit
-        player_unpaid = settlement_service.unpaid_credits_dal.get_by_debtor(game_id, user_id)
+        # Get if player owes any unpaid credit (who has claimed their debt)
+        claims_against_player = settlement_service.unpaid_credit_claims_dal.get_by_debtor(game_id, user_id)
         player_owes = []
-        if player_unpaid and player_unpaid.amount_available > 0:
+        for claim in claims_against_player:
             player_owes.append({
-                'amount': player_unpaid.amount_available,
-                'note': 'To be paid externally'
+                'amount': claim.amount,
+                'note': f'Owed to {claim.claimant_name}'
             })
 
         summary = {
