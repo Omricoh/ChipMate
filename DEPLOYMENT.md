@@ -1,8 +1,7 @@
 # ChipMate Railway.com Deployment Guid
 
 
-This guide will help you deploy ChipMate to Railway.com with the web interface.
-
+This guide will help you deploy ChipMate to Railway.com with the web interface
 ## Prerequisites
 
 1. **GitHub Account** - Your ChipMate code should be in a GitHub repository
