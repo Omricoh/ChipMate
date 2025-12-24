@@ -628,21 +628,26 @@ export class GameComponent implements OnInit, OnDestroy {
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
 
     // Format: "Today at 3:45 PM" or "Yesterday at 3:45 PM" or "Dec 24 at 3:45 PM"
     const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    
+    // Check if same day (comparing date strings to handle timezone properly)
+    const dateStr = date.toDateString();
+    const nowStr = now.toDateString();
+    const yesterdayStr = new Date(now.getTime() - 86400000).toDateString();
     
     if (diffMins < 1) {
       return 'Just now';
     } else if (diffMins < 60) {
       return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
-    } else if (diffHours < 24 && date.getDate() === now.getDate()) {
+    } else if (dateStr === nowStr) {
       return `Today at ${timeStr}`;
-    } else if (diffDays === 1) {
+    } else if (dateStr === yesterdayStr) {
       return `Yesterday at ${timeStr}`;
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago at ${timeStr}`;
+    } else if (diffHours < 168) { // Less than 7 days
+      const diffDays = Math.floor(diffHours / 24);
+      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago at ${timeStr}`;
     } else {
       const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       return `${monthDay} at ${timeStr}`;
