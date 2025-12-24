@@ -4,3 +4,11 @@ __pycache__
 web-ui/node_modules
 web-ui/dist
 web-ui/.angular
+
+# Node modules and build artifacts
+web-ui/node_modules/
+web-ui/dist/
+web-ui/package-lock.json
+
+# Temporary demo files
+web-ui/src/buyin-form-demo.html
