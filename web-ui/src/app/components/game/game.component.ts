@@ -136,6 +136,34 @@ import { Subscription, interval } from 'rxjs';
               </form>
             </div>
           </div>
+
+          <!-- My Transactions Card -->
+          <div class="card game-card mb-4" *ngIf="playerSummary && playerSummary.transactions.length > 0">
+            <div class="card-header">
+              <h6 class="mb-0">
+                <i class="bi bi-receipt me-2"></i>
+                My Transactions ({{ playerSummary.transactions.length }})
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="transaction-history" style="max-height: 300px; overflow-y: auto;">
+                <div class="mb-2 pb-2 border-bottom" *ngFor="let tx of playerSummary.transactions">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <span class="badge me-1" [class]="getTransactionBadgeClass(tx.type)">
+                        {{ formatTransactionType(tx.type) }}
+                      </span>
+                      <strong>{{ tx.amount }}</strong> chips
+                    </div>
+                  </div>
+                  <small class="text-muted">
+                    <i class="bi bi-clock me-1"></i>
+                    {{ formatTransactionDate(tx.created_at) }}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Middle Column - Game Status -->
@@ -588,6 +616,59 @@ export class GameComponent implements OnInit, OnDestroy {
       case 'buyin_register': return 'bg-warning';
       case 'cashout': return 'bg-info';
       default: return 'bg-secondary';
+    }
+  }
+
+  formatTransactionType(type: string): string {
+    switch (type) {
+      case 'buyin_cash': return 'Cash Buy-in';
+      case 'buyin_register': return 'Credit Buy-in';
+      case 'cashout': return 'Cashout';
+      default: return type;
+    }
+  }
+
+  formatTransactionDate(dateString: string): string {
+    if (!dateString) return 'N/A';
+    
+    const date = new Date(dateString);
+    // Validate the date
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+
+    // Format: "Today at 3:45 PM" or "Yesterday at 3:45 PM" or "Dec 24 at 3:45 PM"
+    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    
+    // Check if same day (comparing date strings to handle timezone properly)
+    const dateStr = date.toDateString();
+    const nowStr = now.toDateString();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const yesterdayStr = new Date(now.getTime() - MS_PER_DAY).toDateString();
+    
+    if (diffMins < 1) {
+      return 'Just now';
+    } else if (diffMins < 60) {
+      return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
+    } else if (dateStr === nowStr) {
+      return `Today at ${timeStr}`;
+    } else if (dateStr === yesterdayStr) {
+      return `Yesterday at ${timeStr}`;
+    } else if (diffHours < 168) { // Less than 7 days
+      // Calculate days based on date strings, not hours, to avoid overlap with "Yesterday"
+      const diffDays = Math.floor(diffMs / MS_PER_DAY);
+      if (diffDays >= 2 && diffDays < 7) {
+        return `${diffDays} day${diffDays > 1 ? 's' : ''} ago at ${timeStr}`;
+      }
+      // If between 1 and 2 days but not yesterday, fall through to general format
+      const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${monthDay} at ${timeStr}`;
+    } else {
+      const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${monthDay} at ${timeStr}`;
     }
   }
 
