@@ -468,28 +468,7 @@ def get_player_summary(game_id, user_id):
     """Get player transaction summary"""
     try:
         summary = transaction_service.get_player_transaction_summary(game_id, user_id)
-        
-        # Serialize transactions properly
-        serialized_transactions = []
-        for tx in summary.get('transactions', []):
-            serialized_transactions.append({
-                'id': str(tx['_id']),
-                'game_id': tx['game_id'],
-                'user_id': tx['user_id'],
-                'type': tx['type'],
-                'amount': tx['amount'],
-                'confirmed': tx.get('confirmed', False),
-                'rejected': tx.get('rejected', False),
-                'created_at': tx.get('at').isoformat() if tx.get('at') else None
-            })
-        
-        return jsonify({
-            'cash_buyins': summary['cash_buyins'],
-            'credit_buyins': summary['credit_buyins'],
-            'total_buyins': summary['total_buyins'],
-            'pending_debt': summary['pending_debt'],
-            'transactions': serialized_transactions
-        })
+        return jsonify(summary)
 
     except Exception as e:
         logger.error(f"Get player summary error: {e}")
