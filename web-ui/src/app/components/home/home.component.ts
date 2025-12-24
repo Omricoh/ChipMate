@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { User } from '../../models/user.model';
@@ -200,11 +200,20 @@ export class HomeComponent implements OnInit {
   showJoinDialog = false;
   gameCodeInput = '';
 
-  constructor(private apiService: ApiService) {
+  constructor(
+    private apiService: ApiService,
+    private router: Router
+  ) {
     this.currentUser$ = this.apiService.currentUser$;
   }
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    // Auto-redirect to active game if user has one
+    const currentUser = this.apiService.getCurrentUser();
+    if (currentUser?.current_game_id) {
+      this.router.navigate(['/game', currentUser.current_game_id]);
+    }
+  }
 
   joinGameByCode(): void {
     if (this.gameCodeInput.trim()) {

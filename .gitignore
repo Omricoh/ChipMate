@@ -1,3 +1,6 @@
 __pycache__
 *.pyc
 .idea
+web-ui/node_modules
+web-ui/dist
+web-ui/.angular
