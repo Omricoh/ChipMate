@@ -204,15 +204,23 @@ import { Subscription, interval } from 'rxjs';
               <!-- Buy-in Form -->
               <form [formGroup]="buyinForm" (ngSubmit)="submitBuyin()" class="mb-3">
                 <h6>Buy-in</h6>
-                <div class="row g-2 mb-2">
-                  <div class="col-8">
-                    <input type="number" class="form-control" formControlName="amount" placeholder="Amount" min="1">
+                <div class="mb-2">
+                  <input type="number" class="form-control" formControlName="amount" placeholder="Amount" min="1">
+                </div>
+                <div class="mb-2">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" formControlName="type" value="cash" id="typeCash">
+                    <label class="form-check-label" for="typeCash">
+                      <i class="bi bi-cash text-success me-1"></i>
+                      Cash
+                    </label>
                   </div>
-                  <div class="col-4">
-                    <select class="form-control" formControlName="type">
-                      <option value="cash">Cash</option>
-                      <option value="register">Credit</option>
-                    </select>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" formControlName="type" value="register" id="typeCredit">
+                    <label class="form-check-label" for="typeCredit">
+                      <i class="bi bi-credit-card text-warning me-1"></i>
+                      Credit
+                    </label>
                   </div>
                 </div>
                 <button type="submit" class="btn btn-success w-100" [disabled]="buyinForm.invalid || isLoading">
@@ -1150,6 +1158,11 @@ export class GameComponent implements OnInit, OnDestroy {
       },
       error: (error) => {
         this.showError('Failed to load game details');
+        // Clear current game ID to prevent redirect loop
+        if (this.currentUser) {
+          const updatedUser = { ...this.currentUser, current_game_id: undefined };
+          this.apiService.setCurrentUser(updatedUser);
+        }
         this.router.navigate(['/home']);
       }
     });
@@ -1608,6 +1621,59 @@ export class GameComponent implements OnInit, OnDestroy {
       case 'buyin_register': return 'bg-warning';
       case 'cashout': return 'bg-info';
       default: return 'bg-secondary';
+    }
+  }
+
+  formatTransactionType(type: string): string {
+    switch (type) {
+      case 'buyin_cash': return 'Cash Buy-in';
+      case 'buyin_register': return 'Credit Buy-in';
+      case 'cashout': return 'Cashout';
+      default: return type;
+    }
+  }
+
+  formatTransactionDate(dateString: string): string {
+    if (!dateString) return 'N/A';
+    
+    const date = new Date(dateString);
+    // Validate the date
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+
+    // Format: "Today at 3:45 PM" or "Yesterday at 3:45 PM" or "Dec 24 at 3:45 PM"
+    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    
+    // Check if same day (comparing date strings to handle timezone properly)
+    const dateStr = date.toDateString();
+    const nowStr = now.toDateString();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const yesterdayStr = new Date(now.getTime() - MS_PER_DAY).toDateString();
+    
+    if (diffMins < 1) {
+      return 'Just now';
+    } else if (diffMins < 60) {
+      return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
+    } else if (dateStr === nowStr) {
+      return `Today at ${timeStr}`;
+    } else if (dateStr === yesterdayStr) {
+      return `Yesterday at ${timeStr}`;
+    } else if (diffHours < 168) { // Less than 7 days
+      // Calculate days based on date strings, not hours, to avoid overlap with "Yesterday"
+      const diffDays = Math.floor(diffMs / MS_PER_DAY);
+      if (diffDays >= 2 && diffDays < 7) {
+        return `${diffDays} day${diffDays > 1 ? 's' : ''} ago at ${timeStr}`;
+      }
+      // If between 1 and 2 days but not yesterday, fall through to general format
+      const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${monthDay} at ${timeStr}`;
+    } else {
+      const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${monthDay} at ${timeStr}`;
     }
   }
 
