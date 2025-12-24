@@ -4,7 +4,7 @@ import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { User } from '../../models/user.model';
-import { Observable } from 'rxjs';
+import { Observable, take } from 'rxjs';
 
 @Component({
   selector: 'app-home',
@@ -209,10 +209,12 @@ export class HomeComponent implements OnInit {
 
   ngOnInit(): void {
     // Auto-redirect to active game if user has one
-    const currentUser = this.apiService.getCurrentUser();
-    if (currentUser?.current_game_id) {
-      this.router.navigate(['/game', currentUser.current_game_id]);
-    }
+    // Use take(1) to only check once and avoid multiple redirects
+    this.currentUser$.pipe(take(1)).subscribe(user => {
+      if (user?.current_game_id) {
+        this.router.navigate(['/game', user.current_game_id]);
+      }
+    });
   }
 
   joinGameByCode(): void {

@@ -397,8 +397,8 @@ export class GameComponent implements OnInit, OnDestroy {
         this.showError('Failed to load game details');
         // Clear current game ID to prevent redirect loop
         if (this.currentUser) {
-          this.currentUser.current_game_id = undefined;
-          this.apiService.setCurrentUser(this.currentUser);
+          const updatedUser = { ...this.currentUser, current_game_id: undefined };
+          this.apiService.setCurrentUser(updatedUser);
         }
         this.router.navigate(['/home']);
       }
