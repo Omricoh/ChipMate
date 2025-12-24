@@ -1,10 +1,10 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { User } from '../../models/user.model';
-import { Observable } from 'rxjs';
+import { Observable, take } from 'rxjs';
 
 @Component({
   selector: 'app-home',
@@ -200,11 +200,22 @@ export class HomeComponent implements OnInit {
   showJoinDialog = false;
   gameCodeInput = '';
 
-  constructor(private apiService: ApiService) {
+  constructor(
+    private apiService: ApiService,
+    private router: Router
+  ) {
     this.currentUser$ = this.apiService.currentUser$;
   }
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    // Auto-redirect to active game if user has one
+    // Use take(1) to only check once and avoid multiple redirects
+    this.currentUser$.pipe(take(1)).subscribe(user => {
+      if (user?.current_game_id) {
+        this.router.navigate(['/game', user.current_game_id]);
+      }
+    });
+  }
 
   joinGameByCode(): void {
     if (this.gameCodeInput.trim()) {
