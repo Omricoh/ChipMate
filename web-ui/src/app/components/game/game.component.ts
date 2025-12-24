@@ -624,6 +624,9 @@ export class GameComponent implements OnInit, OnDestroy {
     if (!dateString) return 'N/A';
     
     const date = new Date(dateString);
+    // Validate the date
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -635,7 +638,8 @@ export class GameComponent implements OnInit, OnDestroy {
     // Check if same day (comparing date strings to handle timezone properly)
     const dateStr = date.toDateString();
     const nowStr = now.toDateString();
-    const yesterdayStr = new Date(now.getTime() - 86400000).toDateString();
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const yesterdayStr = new Date(now.getTime() - MS_PER_DAY).toDateString();
     
     if (diffMins < 1) {
       return 'Just now';
@@ -646,8 +650,14 @@ export class GameComponent implements OnInit, OnDestroy {
     } else if (dateStr === yesterdayStr) {
       return `Yesterday at ${timeStr}`;
     } else if (diffHours < 168) { // Less than 7 days
-      const diffDays = Math.floor(diffHours / 24);
-      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago at ${timeStr}`;
+      // Calculate days based on date strings, not hours, to avoid overlap with "Yesterday"
+      const diffDays = Math.floor(diffMs / MS_PER_DAY);
+      if (diffDays >= 2 && diffDays < 7) {
+        return `${diffDays} day${diffDays > 1 ? 's' : ''} ago at ${timeStr}`;
+      }
+      // If between 1 and 2 days but not yesterday, fall through to general format
+      const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${monthDay} at ${timeStr}`;
     } else {
       const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       return `${monthDay} at ${timeStr}`;
