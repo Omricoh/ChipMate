@@ -575,13 +575,6 @@ export class GameComponent implements OnInit, OnDestroy {
     }
   }
 
-  async onShowQrCode(): void {
-    this.showQrCode = true;
-    if (!this.qrCodeDataUrl) {
-      await this.generateQrCode();
-    }
-  }
-
   async onShowQrCode(): Promise<void> {
     this.showQrCode = true;
     if (!this.qrCodeDataUrl) {
