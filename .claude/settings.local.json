@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(npm run build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:chipmate.up.railway.app)",
+      "Bash(npx ng build:*)",
+      "Bash(export MONGO_URL=\"mongodb://localhost:27017/\")",
+      "Bash(tasklist)",
+      "Bash(git restore:*)",
+      "Bash(cat:*)",
+      "Bash(git mv:*)",
+      "Bash(awk:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

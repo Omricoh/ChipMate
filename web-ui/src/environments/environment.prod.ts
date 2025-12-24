@@ -1,5 +1,5 @@
 export const environment = {
   production: true,
-  apiUrl: '/api',
-  appUrl: window.location.origin
+  apiUrl: 'https://chipmate.up.railway.app/api',
+  appUrl: 'https://chipmate.up.railway.app'
 };

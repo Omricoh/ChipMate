@@ -38,13 +38,51 @@ def health_check():
     })
 
 # Import all API routes from web_api
-from src.api.web_api import (
-    login, create_game, join_game, get_game, get_game_status,
-    get_game_players, end_game, generate_game_link, create_buyin,
-    create_cashout, get_pending_transactions, approve_transaction,
-    reject_transaction, get_player_summary, get_game_debts,
-    get_settlement_data
-)
+import sys
+import os
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, project_root)
+
+try:
+    from src.api.web_api import (
+        login, create_game, join_game, get_game, get_game_status,
+        get_game_players, end_game, generate_game_link, create_buyin,
+        create_cashout, get_pending_transactions, approve_transaction,
+        reject_transaction, get_player_summary, get_game_credits,
+        get_settlement_data, get_game_report, list_all_games,
+        get_system_stats, destroy_game, host_buyin, host_cashout,
+        # Settlement endpoints
+        start_settlement, get_settlement_status, repay_credit,
+        complete_credit_settlement, final_cashout, check_settlement_complete,
+        complete_settlement, get_player_settlement_summary, get_all_settlement_summaries
+    )
+    logger.info("Successfully imported API routes from web_api")
+except ImportError as e:
+    logger.error(f"Failed to import API routes: {e}")
+    # Define dummy functions to prevent server crash
+    def login(): return jsonify({'error': 'API not available'}), 500
+    def create_game(): return jsonify({'error': 'API not available'}), 500
+    def join_game(): return jsonify({'error': 'API not available'}), 500
+    def get_game(game_id): return jsonify({'error': 'API not available'}), 500
+    def get_game_status(game_id): return jsonify({'error': 'API not available'}), 500
+    def get_game_players(game_id): return jsonify({'error': 'API not available'}), 500
+    def end_game(): return jsonify({'error': 'API not available'}), 500
+    def generate_game_link(): return jsonify({'error': 'API not available'}), 500
+    def create_buyin(): return jsonify({'error': 'API not available'}), 500
+    def create_cashout(): return jsonify({'error': 'API not available'}), 500
+    def get_pending_transactions(): return jsonify({'error': 'API not available'}), 500
+    def approve_transaction(): return jsonify({'error': 'API not available'}), 500
+    def reject_transaction(): return jsonify({'error': 'API not available'}), 500
+    def get_player_summary(): return jsonify({'error': 'API not available'}), 500
+    def get_game_credits(): return jsonify({'error': 'API not available'}), 500
+    def get_settlement_data(): return jsonify({'error': 'API not available'}), 500
+    def get_game_report(game_id): return jsonify({'error': 'API not available'}), 500
+    def list_all_games(): return jsonify({'error': 'API not available'}), 500
+    def get_system_stats(): return jsonify({'error': 'API not available'}), 500
+    def destroy_game(game_id): return jsonify({'error': 'API not available'}), 500
+    def host_buyin(game_id): return jsonify({'error': 'API not available'}), 500
+    def host_cashout(game_id): return jsonify({'error': 'API not available'}), 500
 
 # Register API routes
 app.add_url_rule('/api/auth/login', 'login', login, methods=['POST'])
@@ -61,8 +99,27 @@ app.add_url_rule('/api/games/<game_id>/transactions/pending', 'get_pending_trans
 app.add_url_rule('/api/transactions/<transaction_id>/approve', 'approve_transaction', approve_transaction, methods=['POST'])
 app.add_url_rule('/api/transactions/<transaction_id>/reject', 'reject_transaction', reject_transaction, methods=['POST'])
 app.add_url_rule('/api/games/<game_id>/players/<int:user_id>/summary', 'get_player_summary', get_player_summary, methods=['GET'])
-app.add_url_rule('/api/games/<game_id>/debts', 'get_game_debts', get_game_debts, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/credits', 'get_game_credits', get_game_credits, methods=['GET'])
 app.add_url_rule('/api/games/<game_id>/settlement', 'get_settlement_data', get_settlement_data, methods=['GET'])
+
+# New endpoints - Admin and Host Management
+app.add_url_rule('/api/games/<game_id>/report', 'get_game_report', get_game_report, methods=['GET'])
+app.add_url_rule('/api/admin/games', 'list_all_games', list_all_games, methods=['GET'])
+app.add_url_rule('/api/admin/stats', 'get_system_stats', get_system_stats, methods=['GET'])
+app.add_url_rule('/api/admin/games/<game_id>/destroy', 'destroy_game', destroy_game, methods=['DELETE'])
+app.add_url_rule('/api/games/<game_id>/host-buyin', 'host_buyin', host_buyin, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/host-cashout', 'host_cashout', host_cashout, methods=['POST'])
+
+# Settlement endpoints
+app.add_url_rule('/api/games/<game_id>/settlement/start', 'start_settlement', start_settlement, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/status', 'get_settlement_status', get_settlement_status, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/settlement/repay-credit', 'repay_credit', repay_credit, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/complete-phase1', 'complete_credit_settlement', complete_credit_settlement, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/final-cashout', 'final_cashout', final_cashout, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/check-complete', 'check_settlement_complete', check_settlement_complete, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/settlement/complete', 'complete_settlement', complete_settlement, methods=['POST'])
+app.add_url_rule('/api/games/<game_id>/settlement/summary/<int:user_id>', 'get_player_settlement_summary', get_player_settlement_summary, methods=['GET'])
+app.add_url_rule('/api/games/<game_id>/settlement/summary/all', 'get_all_settlement_summaries', get_all_settlement_summaries, methods=['GET'])
 
 # Serve Angular static files
 @app.route('/', defaults={'path': ''})
@@ -116,8 +173,12 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Get port from environment (Railway sets this)
-    port = int(os.getenv('PORT', 5000))
+    # Railway uses port 8080 internally
+    port = int(os.getenv('PORT', 8080))
+
+    # Force port 8080 for Railway
+    if os.getenv('RAILWAY_ENVIRONMENT_NAME'):
+        port = 8080
 
     # Check if we're in production
     is_production = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None

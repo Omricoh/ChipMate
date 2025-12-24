@@ -1,16 +1,21 @@
 # ChipMate Production Requirements
-python-telegram-bot[job-queue]==20.3
+
+# Core
 pymongo
 dnspython
 pydantic==2.7.0
-pytest
-mongomock
+
+# QR Code Generation
 qrcode[pil]==8.2
 pillow>=9.1.0
 
-# Web UI Requirements for Railway deployment
+# Web API
 flask==3.0.0
 flask-cors==4.0.0
 gunicorn==21.2.0
 python-dotenv==1.0.0
 requests==2.31.0
+
+# Testing
+pytest
+mongomock

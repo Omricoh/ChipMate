@@ -12,3 +12,8 @@ web-ui/package-lock.json
 
 # Temporary demo files
 web-ui/src/buyin-form-demo.html
+/web-ui/.angular/cache
+/web-ui/dist
+/web-ui/node_modules/.bin
+/web-ui/node_modules/@angular-devkit
+/web-ui/node_modules
