@@ -1,18 +1,19 @@
-# Nixpacks configuration for Railway.com deployment
 [phases.setup]
-nixPkgs = ["nodejs-18_x", "python310", "python310Packages.pip", "python310Packages.setuptools"]
+nixPkgs = ["python310", "python310Packages.pip", "python310Packages.virtualenv", "nodejs_18"]
 
 [phases.install]
 cmds = [
-    "python3 -m pip install --upgrade pip setuptools wheel",
-    "python3 -m pip install -r requirements.txt",
-    "cd web-ui && npm install"
+  "python -m venv /opt/venv",
+  "/opt/venv/bin/pip install --upgrade pip",
+  "/opt/venv/bin/pip install -r requirements.txt",
+  "npm install",
+  "cd web-ui && npm install --legacy-peer-deps && cd .."
 ]
 
 [phases.build]
 cmds = [
-    "cd web-ui && npm run build"
+  "cd web-ui && npm run build && cd .."
 ]
 
 [start]
-cmd = "python3 src/api/production_server.py"
+cmd = "/opt/venv/bin/python src/api/production_server.py"

@@ -7,20 +7,16 @@ from flask_cors import CORS
 import os
 import logging
 from datetime import datetime, timezone
-import base64
-import io
-import qrcode
-from PIL import Image
 
-# Import existing services
-from src.bl.game_service import GameService
-from src.bl.player_service import PlayerService
-from src.bl.transaction_service import TransactionService
-from src.bl.admin_service import AdminService
+# Import services
+from src.services.game_service import GameService
+from src.services.player_service import PlayerService
+from src.services.transaction_service import TransactionService
+from src.services.admin_service import AdminService
+from src.services.settlement_service import SettlementService
 from src.dal.games_dal import GamesDAL
 from src.dal.players_dal import PlayersDAL
 from src.dal.transactions_dal import TransactionsDAL
-from src.dal.debt_dal import DebtDAL
 from src.models.game import Game
 from src.models.player import Player
 
@@ -30,13 +26,14 @@ MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017/')
 logger = logging.getLogger("chipbot")
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:4200", "http://127.0.0.1:4200"])  # Allow Angular dev server
+CORS(app, origins=["https://chipmate.up.railway.app", "*"])  # Allow Railway deployment and all origins
 
 # Initialize services
 game_service = GameService(MONGO_URL)
 player_service = PlayerService(MONGO_URL)
 transaction_service = TransactionService(MONGO_URL)
 admin_service = AdminService(MONGO_URL)
+settlement_service = SettlementService(MONGO_URL)
 
 # Initialize DALs for direct access
 from pymongo import MongoClient
@@ -45,7 +42,6 @@ db = client.chipbot
 games_dal = GamesDAL(db)
 players_dal = PlayersDAL(db)
 transactions_dal = TransactionsDAL(db)
-debt_dal = DebtDAL(db)
 
 @app.errorhandler(404)
 def not_found(error):
@@ -63,9 +59,32 @@ def login():
         data = request.get_json()
         name = data.get('name', '').strip()
         user_id = data.get('user_id')
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
 
-        if not name:
-            return jsonify({'error': 'Name is required'}), 400
+        # Check for admin login
+        if username and password:
+            if admin_service.authenticate_admin(username, password):
+                # Admin user
+                admin_user = {
+                    'id': -1,  # Special ID for admin
+                    'name': 'Admin',
+                    'username': username,
+                    'is_authenticated': True,
+                    'current_game_id': None,
+                    'is_host': False,
+                    'is_admin': True
+                }
+                return jsonify({
+                    'user': admin_user,
+                    'message': f'Welcome, Admin!'
+                })
+            else:
+                return jsonify({'error': 'Invalid admin credentials'}), 401
+
+        # For player login, require either name or user_id
+        if not name and not user_id:
+            return jsonify({'error': 'Name or User ID is required'}), 400
 
         # If user_id provided, try to find existing player
         if user_id:
@@ -86,7 +105,8 @@ def login():
                     'name': existing_player['name'],
                     'is_authenticated': True,
                     'current_game_id': current_game_id,
-                    'is_host': existing_player.get('is_host', False)
+                    'is_host': existing_player.get('is_host', False),
+                    'is_admin': False
                 }
 
                 return jsonify({
@@ -98,17 +118,21 @@ def login():
         if not user_id:
             user_id = int(datetime.now().timestamp() * 1000)  # Generate unique ID
 
+        # Use name if provided, otherwise create a default name
+        display_name = name if name else f'User_{user_id}'
+
         user = {
             'id': user_id,
-            'name': name,
+            'name': display_name,
             'is_authenticated': True,
             'current_game_id': None,
-            'is_host': False
+            'is_host': False,
+            'is_admin': False
         }
 
         return jsonify({
             'user': user,
-            'message': f'Welcome, {name}!'
+            'message': f'Welcome, {display_name}!'
         })
 
     except Exception as e:
@@ -122,12 +146,16 @@ def create_game():
     try:
         data = request.get_json()
         host_name = data.get('host_name', '').strip()
+        user_id = data.get('user_id')
 
         if not host_name:
             return jsonify({'error': 'Host name is required'}), 400
 
-        # Generate unique host user ID
-        host_user_id = int(datetime.now().timestamp() * 1000)
+        # Use provided user_id or generate unique host user ID
+        if not user_id:
+            host_user_id = int(datetime.now().timestamp() * 1000)
+        else:
+            host_user_id = user_id
 
         # Create game using existing service
         game_id, game_code = game_service.create_game(host_user_id, host_name)
@@ -135,6 +163,7 @@ def create_game():
         return jsonify({
             'game_id': game_id,
             'game_code': game_code,
+            'host_user_id': host_user_id,
             'message': f'Game {game_code} created successfully!'
         })
 
@@ -213,7 +242,8 @@ def get_game_status(game_id):
             'total_credit': status['total_credit'],
             'total_buyins': status['total_buyins'],
             'total_cashed_out': status['total_cashed_out'],
-            'total_debt_settled': status['total_debt_settled']
+            'total_credits_repaid': status['total_credits_repaid'],
+            'bank': status.get('bank')
         })
 
     except Exception as e:
@@ -246,6 +276,20 @@ def get_game_players(game_id):
         logger.error(f"Get game players error: {e}")
         return jsonify({'error': 'Failed to get players'}), 500
 
+@app.route('/api/games/<game_id>/bank', methods=['GET'])
+def get_game_bank(game_id):
+    """Get bank status for a game"""
+    try:
+        bank = game_service.bank_dal.get_by_game(game_id)
+        if not bank:
+            return jsonify({'error': 'Bank not found'}), 404
+
+        return jsonify(bank.get_summary())
+
+    except Exception as e:
+        logger.error(f"Get bank status error: {e}")
+        return jsonify({'error': 'Failed to get bank status'}), 500
+
 @app.route('/api/games/<game_id>/end', methods=['POST'])
 def end_game(game_id):
     """End a game"""
@@ -264,34 +308,13 @@ def end_game(game_id):
 def generate_game_link(game_code):
     """Generate game join link with QR code"""
     try:
-        # Get base URL for join link
+        # Get base URL
         base_url = request.host_url.rstrip('/')
-        join_url = f"{base_url}/join/{game_code}"
 
-        # Generate QR code
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(join_url)
-        qr.make(fit=True)
+        # Generate link with QR code through service
+        result = game_service.generate_game_link_with_qr(game_code, base_url)
 
-        # Create QR code image
-        img = qr.make_image(fill_color="black", back_color="white")
-
-        # Convert to base64 data URL
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        img_data = base64.b64encode(img_buffer.getvalue()).decode()
-        qr_code_data_url = f"data:image/png;base64,{img_data}"
-
-        return jsonify({
-            'url': join_url,
-            'qr_code_data_url': qr_code_data_url
-        })
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"Generate game link error: {e}")
@@ -304,12 +327,16 @@ def create_buyin():
     try:
         data = request.get_json()
         game_id = data.get('game_id')
-        user_id = data.get('user_id')
-        buyin_type = 'buyin_cash' if data.get('type') == 'cash' else 'buyin_register'
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
+        buyin_type = 'cash' if data.get('type') == 'cash' else 'register'
         amount = data.get('amount')
 
-        if not all([game_id, user_id, amount]):
+        if game_id is None or user_id is None or amount is None:
             return jsonify({'error': 'Missing required fields'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
+        if amount <= 0:
+            return jsonify({'error': 'Buy-in amount must be greater than 0'}), 400
 
         # Create transaction using existing service
         tx_id = transaction_service.create_buyin_transaction(game_id, user_id, buyin_type, amount)
@@ -329,11 +356,13 @@ def create_cashout():
     try:
         data = request.get_json()
         game_id = data.get('game_id')
-        user_id = data.get('user_id')
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
         amount = data.get('amount')
 
-        if not all([game_id, user_id, amount]):
+        if game_id is None or user_id is None or amount is None:
             return jsonify({'error': 'Missing required fields'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
 
         # Create transaction using existing service
         tx_id = transaction_service.create_cashout_transaction(game_id, user_id, amount)
@@ -351,26 +380,7 @@ def create_cashout():
 def get_pending_transactions(game_id):
     """Get pending transactions for a game"""
     try:
-        # Get pending transactions from database
-        pending_txs = list(transactions_dal.col.find({
-            'game_id': game_id,
-            'confirmed': False,
-            'rejected': False
-        }).sort('at', 1))
-
-        result = []
-        for tx in pending_txs:
-            result.append({
-                'id': str(tx['_id']),
-                'game_id': tx['game_id'],
-                'user_id': tx['user_id'],
-                'type': tx['type'],
-                'amount': tx['amount'],
-                'confirmed': tx.get('confirmed', False),
-                'rejected': tx.get('rejected', False),
-                'created_at': tx.get('at').isoformat() if tx.get('at') else None
-            })
-
+        result = transaction_service.get_pending_transactions_formatted(game_id)
         return jsonify(result)
 
     except Exception as e:
@@ -381,9 +391,56 @@ def get_pending_transactions(game_id):
 def approve_transaction(transaction_id):
     """Approve a transaction"""
     try:
+        # Get transaction to check type
+        tx = transaction_service.transactions_dal.get(transaction_id)
+        if not tx:
+            return jsonify({'error': 'Transaction not found'}), 404
+
         success = transaction_service.approve_transaction(transaction_id)
         if success:
-            return jsonify({'message': 'Transaction approved'})
+            # For cashouts, return detailed breakdown
+            if tx.get('type') == 'cashout':
+                # Get updated player info
+                player = player_service.players_dal.get_player(tx['game_id'], tx['user_id'])
+
+                # Get cashout processing info from transaction
+                tx_updated = transaction_service.transactions_dal.get(transaction_id)
+                cashout_processing = tx_updated.get('cashout_processing', {})
+
+                credits_repaid = cashout_processing.get('credits_repaid', 0)
+                cash_received = cashout_processing.get('final_cash_amount', 0)
+                chips_not_covered = cashout_processing.get('chips_not_covered', 0)
+                remaining_credits = player.credits_owed if player else 0
+
+                # Build detailed message
+                message_parts = [f"Cashout approved: {tx['amount']} chips"]
+
+                if credits_repaid > 0:
+                    message_parts.append(f"✓ Repaid credits: {credits_repaid} chips")
+
+                if remaining_credits > 0:
+                    message_parts.append(f"⚠ Still owes bank: {remaining_credits} credits")
+
+                if cash_received > 0:
+                    message_parts.append(f"✓ Cash received: ${cash_received}")
+
+                if chips_not_covered > 0:
+                    message_parts.append(f"⚠ {chips_not_covered} chips could not be converted (bank out of cash)")
+
+                detailed_message = "\n".join(message_parts)
+
+                return jsonify({
+                    'message': detailed_message,
+                    'cashout_breakdown': {
+                        'total_chips': tx['amount'],
+                        'credits_repaid': credits_repaid,
+                        'remaining_credits': remaining_credits,
+                        'cash_received': cash_received,
+                        'chips_not_covered': chips_not_covered
+                    }
+                })
+            else:
+                return jsonify({'message': 'Transaction approved'})
         else:
             return jsonify({'error': 'Failed to approve transaction'}), 500
 
@@ -411,60 +468,23 @@ def get_player_summary(game_id, user_id):
     """Get player transaction summary"""
     try:
         summary = transaction_service.get_player_transaction_summary(game_id, user_id)
-        
-        # Serialize transactions properly
-        serialized_transactions = []
-        for tx in summary.get('transactions', []):
-            serialized_transactions.append({
-                'id': str(tx['_id']),
-                'game_id': tx['game_id'],
-                'user_id': tx['user_id'],
-                'type': tx['type'],
-                'amount': tx['amount'],
-                'confirmed': tx.get('confirmed', False),
-                'rejected': tx.get('rejected', False),
-                'created_at': tx.get('at').isoformat() if tx.get('at') else None
-            })
-        
-        return jsonify({
-            'cash_buyins': summary['cash_buyins'],
-            'credit_buyins': summary['credit_buyins'],
-            'total_buyins': summary['total_buyins'],
-            'pending_debt': summary['pending_debt'],
-            'transactions': serialized_transactions
-        })
+        return jsonify(summary)
 
     except Exception as e:
         logger.error(f"Get player summary error: {e}")
         return jsonify({'error': 'Failed to get player summary'}), 500
 
-# Debt endpoints
-@app.route('/api/games/<game_id>/debts', methods=['GET'])
-def get_game_debts(game_id):
-    """Get all debts for a game"""
+# Credits endpoints
+@app.route('/api/games/<game_id>/credits', methods=['GET'])
+def get_game_credits(game_id):
+    """Get all player credits for a game"""
     try:
-        debts = list(debt_dal.col.find({'game_id': game_id}))
-
-        result = []
-        for debt in debts:
-            result.append({
-                'id': str(debt['_id']),
-                'game_id': debt['game_id'],
-                'debtor_user_id': debt['debtor_user_id'],
-                'debtor_name': debt['debtor_name'],
-                'amount': debt['amount'],
-                'status': debt['status'],
-                'creditor_user_id': debt.get('creditor_user_id'),
-                'creditor_name': debt.get('creditor_name'),
-                'created_at': debt.get('created_at').isoformat() if debt.get('created_at') else None,
-                'transferred_at': debt.get('transferred_at').isoformat() if debt.get('transferred_at') else None
-            })
-
+        result = transaction_service.get_game_credits_formatted(game_id)
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Get game debts error: {e}")
-        return jsonify({'error': 'Failed to get game debts'}), 500
+        logger.error(f"Get game credits error: {e}")
+        return jsonify({'error': 'Failed to get game credits'}), 500
 
 @app.route('/api/games/<game_id>/settlement', methods=['GET'])
 def get_settlement_data(game_id):
@@ -476,6 +496,466 @@ def get_settlement_data(game_id):
     except Exception as e:
         logger.error(f"Get settlement data error: {e}")
         return jsonify({'error': 'Failed to get settlement data'}), 500
+
+# Admin endpoints
+@app.route('/api/admin/games', methods=['GET'])
+def list_all_games():
+    """List all games for admin"""
+    try:
+        # Get optional status filter
+        status = request.args.get('status')
+
+        query = {}
+        if status:
+            query['status'] = status
+
+        games = list(games_dal.col.find(query).sort('created_at', -1))
+
+        # Convert ObjectId to string and prepare response
+        for game in games:
+            game['_id'] = str(game['_id'])
+            game['id'] = game['_id']
+
+            # Add player count
+            player_count = players_dal.col.count_documents({'game_id': game['_id']})
+            game['player_count'] = player_count
+
+        return jsonify({'games': games})
+
+    except Exception as e:
+        logger.error(f"List all games error: {e}")
+        return jsonify({'error': 'Failed to list games'}), 500
+
+@app.route('/api/admin/stats', methods=['GET'])
+def get_system_stats():
+    """Get system statistics for admin"""
+    try:
+        total_games = games_dal.col.count_documents({})
+        active_games = games_dal.col.count_documents({'status': 'active'})
+        total_players = players_dal.col.count_documents({})
+        active_players = players_dal.col.count_documents({'active': True})
+        total_transactions = transactions_dal.col.count_documents({})
+
+        # Calculate total credits owed across all players
+        total_credits_owed = 0
+        players_with_credits = players_dal.col.find({'credits_owed': {'$gt': 0}})
+        for player in players_with_credits:
+            total_credits_owed += player.get('credits_owed', 0)
+
+        # Calculate averages
+        avg_players_per_game = total_players / total_games if total_games > 0 else 0
+        avg_transactions_per_game = total_transactions / total_games if total_games > 0 else 0
+
+        stats = {
+            'version': '1.0.0',
+            'total_games': total_games,
+            'active_games': active_games,
+            'total_players': total_players,
+            'active_players': active_players,
+            'total_transactions': total_transactions,
+            'total_credits_owed': total_credits_owed,
+            'avg_players_per_game': round(avg_players_per_game, 2),
+            'avg_transactions_per_game': round(avg_transactions_per_game, 2)
+        }
+
+        return jsonify(stats)
+
+    except Exception as e:
+        logger.error(f"Get system stats error: {e}")
+        return jsonify({'error': 'Failed to get stats'}), 500
+
+@app.route('/api/admin/games/<game_id>/destroy', methods=['DELETE'])
+def destroy_game(game_id):
+    """Permanently delete a game and all related data"""
+    try:
+        # Use admin service to completely destroy the game
+        success = admin_service.destroy_game_completely(game_id)
+
+        if success:
+            return jsonify({'message': 'Game destroyed successfully'})
+        else:
+            return jsonify({'error': 'Failed to destroy game'}), 500
+
+    except Exception as e:
+        logger.error(f"Destroy game error: {e}")
+        return jsonify({'error': 'Failed to destroy game'}), 500
+
+# Host endpoints for managing other players
+@app.route('/api/games/<game_id>/host-buyin', methods=['POST'])
+def host_buyin(game_id):
+    """Host adds buy-in for any player"""
+    try:
+        data = request.get_json()
+        user_id = int(data.get('user_id'))  # Ensure user_id is an integer
+        buyin_type = data.get('type', 'cash')
+        amount = data.get('amount')
+
+        if user_id is None or amount is None:
+            return jsonify({'error': 'User ID and amount are required'}), 400
+
+        amount = int(amount)  # Ensure amount is an integer
+        if amount <= 0:
+            return jsonify({'error': 'Buy-in amount must be greater than 0'}), 400
+
+        # Create transaction
+        tx_id = transaction_service.create_buyin_transaction(
+            game_id, user_id, buyin_type, amount
+        )
+
+        # Auto-approve for host transactions
+        transaction_service.approve_transaction(tx_id)
+
+        logger.info(f"Host added {buyin_type} buy-in of {amount} for user {user_id}")
+        return jsonify({
+            'transaction_id': tx_id,
+            'message': 'Buy-in added successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Host buy-in error: {e}")
+        return jsonify({'error': 'Failed to create buy-in'}), 500
+
+@app.route('/api/games/<game_id>/host-cashout', methods=['POST'])
+def host_cashout(game_id):
+    """Host processes cashout for any player"""
+    try:
+        # Parse request data
+        data = request.get_json()
+        user_id = int(data.get('user_id'))
+        amount = data.get('amount')
+
+        if user_id is None or amount is None:
+            return jsonify({'error': 'User ID and amount are required'}), 400
+
+        amount = int(amount)
+
+        # Process host cashout through service
+        result = transaction_service.process_host_cashout(game_id, user_id, amount)
+
+        if not result.get('success'):
+            return jsonify({'error': result.get('error', 'Failed to process cashout')}), 500
+
+        # Mark player as cashed out
+        player_service.cashout_player(game_id, user_id, amount)
+
+        return jsonify({
+            'transaction_id': result['transaction_id'],
+            'message': result['message'],
+            'cashout_breakdown': result['cashout_breakdown']
+        })
+
+    except Exception as e:
+        logger.error(f"Host cashout error: {e}")
+        return jsonify({'error': 'Failed to process cashout'}), 500
+
+@app.route('/api/games/<game_id>/report', methods=['GET'])
+def get_game_report(game_id):
+    """Get comprehensive game report"""
+    try:
+        # Get game details
+        game = games_dal.get_game(game_id)
+        if not game:
+            return jsonify({'error': 'Game not found'}), 404
+
+        # Get all players
+        players = players_dal.get_players(game_id)
+        logger.info(f"Game report for {game_id}: Found {len(players)} players")
+
+        # Get all transactions
+        all_transactions = list(transactions_dal.col.find({
+            'game_id': game_id,
+            'confirmed': True,
+            'rejected': False
+        }))
+
+        # Convert ObjectId to string
+        for tx in all_transactions:
+            tx['_id'] = str(tx['_id'])
+
+        # Calculate player summaries
+        player_summaries = []
+        for player in players:
+            try:
+                summary = transaction_service.get_player_transaction_summary(game_id, player.user_id)
+                player_summaries.append({
+                    'name': player.name,
+                    'user_id': player.user_id,
+                    'cash_buyins': summary['cash_buyins'],
+                    'credit_buyins': summary['credit_buyins'],
+                    'total_buyins': summary['total_buyins'],
+                    'credits_owed': summary['credits_owed'],
+                    'is_host': player.is_host,
+                    'active': player.active,
+                    'cashed_out': player.cashed_out,
+                    'final_chips': player.final_chips
+                })
+            except Exception as e:
+                logger.error(f"Error getting summary for player {player.name} (user_id={player.user_id}): {e}")
+                # Add player with zero values if summary fails
+                player_summaries.append({
+                    'name': player.name,
+                    'user_id': player.user_id,
+                    'cash_buyins': 0,
+                    'credit_buyins': 0,
+                    'total_buyins': 0,
+                    'credits_owed': 0,
+                    'is_host': player.is_host,
+                    'active': player.active,
+                    'cashed_out': player.cashed_out,
+                    'final_chips': player.final_chips
+                })
+
+        # Get credits information
+        all_credits = transaction_service.get_game_credits_formatted(game_id)
+
+        # Calculate totals
+        total_cash = sum(p['cash_buyins'] for p in player_summaries)
+        total_credit = sum(p['credit_buyins'] for p in player_summaries)
+        total_buyins = total_cash + total_credit
+        total_credits_owed = sum(p['credits_owed'] for p in player_summaries)
+
+        report = {
+            'game': {
+                'id': game.id,
+                'code': game.code,
+                'host_name': game.host_name,
+                'status': game.status,
+                'created_at': game.created_at.isoformat() if game.created_at else None
+            },
+            'players': player_summaries,
+            'transactions': all_transactions,
+            'credits': all_credits,
+            'summary': {
+                'total_players': len(players),
+                'active_players': sum(1 for p in players if p.active),
+                'total_cash': total_cash,
+                'total_credit': total_credit,
+                'total_buyins': total_buyins,
+                'total_credits_owed': total_credits_owed,
+                'total_transactions': len(all_transactions)
+            }
+        }
+
+        return jsonify(report)
+
+    except Exception as e:
+        logger.error(f"Get game report error: {e}")
+        return jsonify({'error': 'Failed to get game report'}), 500
+
+# Settlement endpoints
+@app.route('/api/games/<game_id>/settlement/start', methods=['POST'])
+def start_settlement(game_id):
+    """Start two-phase settlement - Phase 1: Credit Settlement"""
+    try:
+        result = settlement_service.start_settlement(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Start settlement error: {e}")
+        return jsonify({'error': 'Failed to start settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/status', methods=['GET'])
+def get_settlement_status(game_id):
+    """Get current settlement status and phase"""
+    try:
+        result = settlement_service.get_settlement_status(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Get settlement status error: {e}")
+        return jsonify({'error': 'Failed to get settlement status'}), 500
+
+@app.route('/api/games/<game_id>/settlement/repay-credit', methods=['POST'])
+def repay_credit(game_id):
+    """Phase 1: Repay credits (full or partial)"""
+    try:
+        data = request.get_json()
+        user_id = int(data.get('user_id'))
+        chips_repaid = int(data.get('chips_repaid'))
+
+        if user_id is None or chips_repaid is None:
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        result = settlement_service.repay_credit(game_id, user_id, chips_repaid)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Repay credit error: {e}")
+        return jsonify({'error': 'Failed to repay credit'}), 500
+
+@app.route('/api/games/<game_id>/settlement/complete-phase1', methods=['POST'])
+def complete_credit_settlement(game_id):
+    """Complete Phase 1 and move to Phase 2: Final Cashout"""
+    try:
+        result = settlement_service.complete_credit_settlement(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Complete credit settlement error: {e}")
+        return jsonify({'error': 'Failed to complete credit settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/final-cashout', methods=['POST'])
+def final_cashout(game_id):
+    """Phase 2: Final cashout with player choices (cash or unpaid credits)"""
+    try:
+        data = request.get_json()
+        user_id = int(data.get('user_id'))
+        chips = int(data.get('chips'))
+        cash_requested = int(data.get('cash_requested', 0))
+        unpaid_credits_claimed = data.get('unpaid_credits_claimed', [])
+
+        if user_id is None or chips is None:
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        result = settlement_service.process_final_cashout(
+            game_id, user_id, chips, cash_requested, unpaid_credits_claimed
+        )
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Final cashout error: {e}")
+        return jsonify({'error': 'Failed to process final cashout'}), 500
+
+@app.route('/api/games/<game_id>/settlement/check-complete', methods=['GET'])
+def check_settlement_complete(game_id):
+    """Check if settlement can be completed (all cash/credit distributed)"""
+    try:
+        bank = game_service.bank_dal.get_by_game(game_id)
+        unpaid_credits = settlement_service.unpaid_credits_dal.get_available_by_game(game_id)
+
+        cash_remaining = bank.cash_balance if bank else 0
+        unpaid_credits_remaining = sum(uc.amount_available for uc in unpaid_credits)
+
+        can_complete = (cash_remaining == 0 and unpaid_credits_remaining == 0)
+
+        return jsonify({
+            'can_complete': can_complete,
+            'cash_remaining': cash_remaining,
+            'unpaid_credits_remaining': unpaid_credits_remaining,
+            'message': 'All cash and credits distributed' if can_complete else 'Cash or credits still available'
+        })
+
+    except Exception as e:
+        logger.error(f"Check settlement complete error: {e}")
+        return jsonify({'error': 'Failed to check settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/complete', methods=['POST'])
+def complete_settlement(game_id):
+    """Complete settlement and show final summary"""
+    try:
+        result = settlement_service.complete_settlement(game_id)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Complete settlement error: {e}")
+        return jsonify({'error': 'Failed to complete settlement'}), 500
+
+@app.route('/api/games/<game_id>/settlement/summary/<int:user_id>', methods=['GET'])
+def get_player_settlement_summary(game_id, user_id):
+    """Get player's settlement summary: totals, who owes them, who they owe, transactions"""
+    try:
+        player = players_dal.get_player(game_id, user_id)
+        if not player:
+            return jsonify({'error': 'Player not found'}), 404
+
+        # Get player's transactions
+        transactions = list(transactions_dal.col.find({
+            'game_id': game_id,
+            'user_id': user_id,
+            'confirmed': True,
+            'rejected': False
+        }).sort('created_at', 1))
+
+        # Convert ObjectId to string
+        for tx in transactions:
+            tx['_id'] = str(tx['_id'])
+            if tx.get('created_at'):
+                tx['created_at'] = tx['created_at'].isoformat()
+
+        # Calculate player totals
+        cash_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_cash')
+        credit_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_register')
+        cashouts = sum(tx['amount'] for tx in transactions if tx['type'] == 'cashout')
+
+        # Get unpaid credits this player claimed (others owe them)
+        claims_by_player = settlement_service.unpaid_credit_claims_dal.get_by_claimant(game_id, user_id)
+        owes_to_player = []
+        for claim in claims_by_player:
+            owes_to_player.append({
+                'debtor_name': claim.debtor_name,
+                'amount': claim.amount
+            })
+
+        # Get if player owes any unpaid credit (who has claimed their debt)
+        claims_against_player = settlement_service.unpaid_credit_claims_dal.get_by_debtor(game_id, user_id)
+        player_owes = []
+        for claim in claims_against_player:
+            player_owes.append({
+                'amount': claim.amount,
+                'note': f'Owed to {claim.claimant_name}'
+            })
+
+        summary = {
+            'player_name': player.name,
+            'totals': {
+                'cash_buyins': cash_buyins,
+                'credit_buyins': credit_buyins,
+                'total_buyins': cash_buyins + credit_buyins,
+                'cashouts': cashouts,
+                'net': cashouts - (cash_buyins + credit_buyins)
+            },
+            'owes_to_me': owes_to_player,
+            'i_owe': player_owes,
+            'transactions': transactions
+        }
+
+        return jsonify(summary)
+
+    except Exception as e:
+        logger.error(f"Get player settlement summary error: {e}")
+        return jsonify({'error': 'Failed to get settlement summary'}), 500
+
+@app.route('/api/games/<game_id>/settlement/summary/all', methods=['GET'])
+def get_all_settlement_summaries(game_id):
+    """Get all players' settlement summaries (host view)"""
+    try:
+        players = players_dal.get_players(game_id)
+        all_summaries = []
+
+        for player in players:
+            # Get player's transactions
+            transactions = list(transactions_dal.col.find({
+                'game_id': game_id,
+                'user_id': player.user_id,
+                'confirmed': True,
+                'rejected': False
+            }))
+
+            cash_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_cash')
+            credit_buyins = sum(tx['amount'] for tx in transactions if tx['type'] == 'buyin_register')
+            cashouts = sum(tx['amount'] for tx in transactions if tx['type'] == 'cashout')
+
+            # Get unpaid credit for this player
+            player_unpaid = settlement_service.unpaid_credits_dal.get_by_debtor(game_id, player.user_id)
+
+            all_summaries.append({
+                'user_id': player.user_id,
+                'name': player.name,
+                'totals': {
+                    'cash_buyins': cash_buyins,
+                    'credit_buyins': credit_buyins,
+                    'total_buyins': cash_buyins + credit_buyins,
+                    'cashouts': cashouts,
+                    'net': cashouts - (cash_buyins + credit_buyins)
+                },
+                'unpaid_credit_owed': player_unpaid.amount_available if player_unpaid else 0
+            })
+
+        return jsonify({'summaries': all_summaries})
+
+    except Exception as e:
+        logger.error(f"Get all settlement summaries error: {e}")
+        return jsonify({'error': 'Failed to get all summaries'}), 500
 
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])

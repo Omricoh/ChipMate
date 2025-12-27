@@ -5,11 +5,14 @@ export interface User {
   is_authenticated: boolean;
   current_game_id?: string;
   is_host?: boolean;
+  is_admin?: boolean;
 }
 
 export interface AuthRequest {
-  name: string;
+  name?: string;
   user_id?: number;
+  username?: string;
+  password?: string;
 }
 
 export interface AuthResponse {

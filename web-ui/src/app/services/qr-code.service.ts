@@ -10,20 +10,26 @@ export class QrCodeService {
 
   async generateQRCode(text: string, options?: any): Promise<string> {
     try {
-      // @ts-ignore - QRCode types incorrectly return void, but runtime returns Promise<string>
-      const qrCodeDataURL: string = await QRCode.toDataURL(text, {
-        errorCorrectionLevel: 'M',
-        type: 'image/png',
-        quality: 0.92,
-        margin: 2,
-        color: {
-          dark: '#2c3e50',
-          light: '#FFFFFF'
-        },
-        width: 256,
-        ...options
+      return await new Promise<string>((resolve, reject) => {
+        QRCode.toDataURL(text, {
+          errorCorrectionLevel: 'M',
+          type: 'image/png',
+          quality: 0.92,
+          margin: 2,
+          color: {
+            dark: '#2c3e50',
+            light: '#FFFFFF'
+          },
+          width: 256,
+          ...options
+        }, (error: any, url: string) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(url);
+          }
+        });
       });
-      return qrCodeDataURL;
     } catch (error) {
       console.error('Error generating QR code:', error);
       throw error;

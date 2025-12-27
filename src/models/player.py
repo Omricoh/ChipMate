@@ -6,6 +6,7 @@ class Player(BaseModel):
     game_id: str
     user_id: int
     name: str
+    credits_owed: int = 0  # How much credit this player owes to the bank
     final_chips: Optional[int] = None
     quit: bool = False
     is_host: bool = False

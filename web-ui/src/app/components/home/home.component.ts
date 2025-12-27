@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { RouterModule, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { User } from '../../models/user.model';
@@ -41,24 +41,35 @@ import { Observable } from 'rxjs';
               </div>
 
               <div class="row g-4 mt-4" *ngIf="currentUser$ | async as user">
-                <div class="col-md-6">
-                  <a routerLink="/create-game" class="btn btn-success btn-lg w-100">
-                    <i class="bi bi-plus-circle me-2"></i>
-                    Create New Game
+                <!-- Admin user sees only admin dashboard button -->
+                <div class="col-12" *ngIf="user.is_admin">
+                  <a routerLink="/admin" class="btn btn-warning btn-lg w-100">
+                    <i class="bi bi-shield-check me-2"></i>
+                    Admin Dashboard
                   </a>
                 </div>
-                <div class="col-md-6" *ngIf="user.current_game_id">
-                  <a [routerLink]="['/game', user.current_game_id]" class="btn btn-primary btn-lg w-100">
-                    <i class="bi bi-play-circle me-2"></i>
-                    Continue Game
-                  </a>
-                </div>
-                <div class="col-md-6" *ngIf="!user.current_game_id">
-                  <button class="btn btn-outline-primary btn-lg w-100" (click)="showJoinDialog = true">
-                    <i class="bi bi-box-arrow-in-right me-2"></i>
-                    Join Game
-                  </button>
-                </div>
+
+                <!-- Regular users see game options -->
+                <ng-container *ngIf="!user.is_admin">
+                  <div class="col-md-6">
+                    <a routerLink="/create-game" class="btn btn-success btn-lg w-100">
+                      <i class="bi bi-plus-circle me-2"></i>
+                      Create New Game
+                    </a>
+                  </div>
+                  <div class="col-md-6" *ngIf="user.current_game_id">
+                    <a [routerLink]="['/game', user.current_game_id]" class="btn btn-primary btn-lg w-100">
+                      <i class="bi bi-play-circle me-2"></i>
+                      Continue Game
+                    </a>
+                  </div>
+                  <div class="col-md-6" *ngIf="!user.current_game_id">
+                    <button class="btn btn-outline-primary btn-lg w-100" (click)="showJoinDialog = true">
+                      <i class="bi bi-box-arrow-in-right me-2"></i>
+                      Join Game
+                    </button>
+                  </div>
+                </ng-container>
               </div>
             </div>
           </div>
@@ -200,11 +211,20 @@ export class HomeComponent implements OnInit {
   showJoinDialog = false;
   gameCodeInput = '';
 
-  constructor(private apiService: ApiService) {
+  constructor(
+    private apiService: ApiService,
+    private router: Router
+  ) {
     this.currentUser$ = this.apiService.currentUser$;
   }
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    // Redirect admin users to admin dashboard
+    const currentUser = this.apiService.getCurrentUser();
+    if (currentUser && currentUser.is_admin) {
+      this.router.navigate(['/admin']);
+    }
+  }
 
   joinGameByCode(): void {
     if (this.gameCodeInput.trim()) {

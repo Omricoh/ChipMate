@@ -3,10 +3,9 @@
   "version": "1.0.0",
   "description": "ChipMate - Poker Game Management System",
   "scripts": {
-    "build": "cd web-ui && npm ci && npm run build",
+    "build": "cd web-ui && npm run build && cd ..",
     "start": "python src/api/production_server.py",
-    "dev": "python src/api/web_api.py",
-    "install-deps": "pip install -r requirements.txt && cd web-ui && npm install"
+    "dev": "python src/api/web_api.py"
   },
   "repository": {
     "type": "git",
@@ -14,5 +13,9 @@
   },
   "keywords": ["poker", "game", "management", "web", "app"],
   "author": "Your Name",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  }
 }
