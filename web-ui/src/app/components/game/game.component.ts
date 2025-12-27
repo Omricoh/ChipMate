@@ -193,7 +193,7 @@ import { Subscription, interval } from 'rxjs';
           </div>
 
           <!-- Player Actions Card -->
-          <div class="card game-card mb-4" *ngIf="!isHost && game.status === 'active'">
+          <div class="card game-card mb-4" *ngIf="!isHost && game.status === 'active' && !isCurrentPlayerInactive()">
             <div class="card-header">
               <h6 class="mb-0">
                 <i class="bi bi-lightning-fill me-2"></i>
@@ -240,6 +240,22 @@ import { Subscription, interval } from 'rxjs';
                   Request Cashout
                 </button>
               </form>
+            </div>
+          </div>
+
+          <!-- Inactive Player Card -->
+          <div class="card game-card mb-4" *ngIf="!isHost && game.status === 'active' && isCurrentPlayerInactive()">
+            <div class="card-header bg-warning">
+              <h6 class="mb-0">
+                <i class="bi bi-info-circle me-2"></i>
+                Player Status
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="alert alert-warning mb-3">
+                <strong>You have cashed out and are now inactive</strong>
+                <p class="mb-0 mt-2">You can view your transaction history below, but cannot create new buyins or cashouts.</p>
+              </div>
             </div>
           </div>
 
@@ -473,7 +489,12 @@ import { Subscription, interval } from 'rxjs';
                       </span>
                     </div>
                     <div class="d-grid gap-1">
-                      <button class="btn btn-success btn-sm" (click)="approveTransaction(tx.id)">
+                      <!-- Show Resolve button for cashouts, Approve for buyins -->
+                      <button *ngIf="tx.type === 'cashout'" class="btn btn-primary btn-sm" (click)="openResolveModal(tx)">
+                        <i class="bi bi-calculator me-1"></i>
+                        Resolve
+                      </button>
+                      <button *ngIf="tx.type !== 'cashout'" class="btn btn-success btn-sm" (click)="approveTransaction(tx.id)">
                         <i class="bi bi-check-circle me-1"></i>
                         Approve
                       </button>
@@ -608,6 +629,119 @@ import { Subscription, interval } from 'rxjs';
       </div>
     </div>
     <div class="modal-backdrop fade" [class.show]="showHostCashout" *ngIf="showHostCashout" (click)="showHostCashout = false"></div>
+
+    <!-- Resolve Cashout Modal -->
+    <div class="modal fade" [class.show]="showResolveModal" [style.display]="showResolveModal ? 'block' : 'none'" tabindex="-1" *ngIf="showResolveModal">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-calculator me-2"></i>
+              Resolve Cashout - {{ resolveData?.playerName }}
+            </h5>
+            <button type="button" class="btn-close" (click)="closeResolveModal()"></button>
+          </div>
+          <div class="modal-body" *ngIf="resolveData">
+            <!-- Information Section (Read-only) -->
+            <div class="card mb-3">
+              <div class="card-header bg-light">
+                <strong>Cashout Information</strong>
+              </div>
+              <div class="card-body">
+                <div class="row mb-2">
+                  <div class="col-6">
+                    <small class="text-muted">Credits owed by player:</small>
+                    <div class="fw-bold">{{ resolveData.creditsOwed }} chips</div>
+                  </div>
+                  <div class="col-6">
+                    <small class="text-muted">Cash player paid in:</small>
+                    <div class="fw-bold">${{ resolveData.cashPaidIn }}</div>
+                  </div>
+                </div>
+                <div class="row mb-2">
+                  <div class="col-6">
+                    <small class="text-muted">Chips being cashed out:</small>
+                    <div class="fw-bold">{{ resolveData.cashoutAmount }} chips</div>
+                  </div>
+                  <div class="col-6">
+                    <small class="text-muted">Credits to repay:</small>
+                    <div class="fw-bold">{{ resolveData.creditsToRepay }} chips</div>
+                  </div>
+                </div>
+                <div class="row mb-2">
+                  <div class="col-6">
+                    <small class="text-muted">Amount to allocate:</small>
+                    <div class="fw-bold text-primary">{{ resolveData.amountToAllocate }} chips</div>
+                  </div>
+                  <div class="col-6">
+                    <small class="text-muted">Available cash in bank:</small>
+                    <div class="fw-bold">${{ resolveData.bankCashBalance }}</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-12">
+                    <small class="text-muted">Unclaimed cash available:</small>
+                    <div class="fw-bold text-info">${{ resolveData.unclaimedCash }}</div>
+                    <small class="text-muted d-block">Cash that can be distributed (bank surplus)</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Input Section -->
+            <form [formGroup]="resolveForm">
+              <div class="card mb-3">
+                <div class="card-header bg-light">
+                  <strong>Allocation</strong>
+                </div>
+                <div class="card-body">
+                  <div class="mb-3">
+                    <label for="cashPaid" class="form-label">Cash to pay out</label>
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="cashPaid"
+                      formControlName="cashPaid"
+                      min="0"
+                      placeholder="Enter cash amount">
+                    <small class="text-muted">Default: ${{ resolveData.defaultCash }}</small>
+                  </div>
+                  <div class="mb-3">
+                    <label for="creditGiven" class="form-label">Credit to give (new debt)</label>
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="creditGiven"
+                      formControlName="creditGiven"
+                      min="0"
+                      placeholder="Enter credit amount">
+                    <small class="text-muted">Default: {{ resolveData.defaultCredit }} chips</small>
+                  </div>
+                  
+                  <!-- Validation Message -->
+                  <div class="alert" 
+                       [ngClass]="{
+                         'alert-success': isResolveValid(),
+                         'alert-danger': !isResolveValid() && (resolveForm.value.cashPaid !== null && resolveForm.value.creditGiven !== null)
+                       }">
+                    {{ getResolveValidationMessage() }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary" (click)="closeResolveModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" (click)="submitResolve()" [disabled]="!isResolveValid() || isLoading">
+                  <i class="bi bi-check-circle me-1"></i>
+                  Resolve Cashout
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade" [class.show]="showResolveModal" *ngIf="showResolveModal" (click)="closeResolveModal()"></div>
 
     <!-- Game Report Modal -->
     <div class="modal fade" [class.show]="showReport" [style.display]="showReport ? 'block' : 'none'" tabindex="-1" *ngIf="showReport">
@@ -1060,6 +1194,7 @@ export class GameComponent implements OnInit, OnDestroy {
   showReport = false;
   showHostBuyin = false;
   showHostCashout = false;
+  showResolveModal = false;
   qrCodeDataUrl = '';
   gameJoinUrl = '';
   gameReport: any = null;
@@ -1067,6 +1202,10 @@ export class GameComponent implements OnInit, OnDestroy {
   settlementStatus: SettlementStatus | null = null;
   settlementSummary: AllSettlementSummaries | null = null;
   playerSettlementSummary: SettlementSummary | null = null;
+  
+  // Resolve modal data
+  resolveTransaction: Transaction | null = null;
+  resolveData: any = null;
 
   // Forms
   buyinForm: FormGroup;
@@ -1074,6 +1213,7 @@ export class GameComponent implements OnInit, OnDestroy {
   hostBuyinForm: FormGroup;
   hostCashoutForm: FormGroup;
   finalCashoutForm: FormGroup;
+  resolveForm: FormGroup;
 
   // Messages
   successMessage = '';
@@ -1115,6 +1255,11 @@ export class GameComponent implements OnInit, OnDestroy {
       userId: ['', [Validators.required]],
       chips: ['', [Validators.required, Validators.min(0)]],
       cashRequested: ['', [Validators.required, Validators.min(0)]]
+    });
+
+    this.resolveForm = this.formBuilder.group({
+      cashPaid: ['', [Validators.required, Validators.min(0)]],
+      creditGiven: ['', [Validators.required, Validators.min(0)]]
     });
 
     this.currentUser = this.apiService.getCurrentUser();
@@ -1354,6 +1499,138 @@ export class GameComponent implements OnInit, OnDestroy {
       },
       error: (error) => {
         this.showError(error.error?.message || 'Failed to reject transaction');
+      }
+    });
+  }
+
+  openResolveModal(transaction: Transaction): void {
+    if (!this.game) {
+      return;
+    }
+
+    this.resolveTransaction = transaction;
+    this.isLoading = true;
+
+    // Load resolve data (player info, bank info, etc.)
+    const gameId = this.game.id;
+    const userId = transaction.user_id;
+    const cashoutAmount = transaction.amount;
+
+    // Get player summary and bank status
+    this.apiService.getPlayerSummary(gameId, userId).subscribe({
+      next: (playerSummary) => {
+        const player = this.players.find(p => p.user_id === userId);
+        const creditsOwed = playerSummary.credits_owed;
+        
+        // Get player's cash buyins
+        this.apiService.getPlayerBuyinSummary(gameId, userId).subscribe({
+          next: (buyinSummary) => {
+            const creditsToRepay = Math.min(cashoutAmount, creditsOwed);
+            const amountToAllocate = Math.max(0, cashoutAmount - creditsToRepay);
+            
+            // Calculate defaults
+            const defaultCash = Math.min(buyinSummary.cash_buyins, amountToAllocate);
+            const defaultCredit = amountToAllocate - defaultCash;
+            
+            // Calculate unclaimed cash (bank surplus)
+            const unclaimedCash = this.bankStatus ? 
+              this.bankStatus.cash_balance - buyinSummary.cash_buyins : 0;
+            
+            this.resolveData = {
+              playerName: player?.name || 'Player',
+              creditsOwed: creditsOwed,
+              cashPaidIn: buyinSummary.cash_buyins,
+              cashoutAmount: cashoutAmount,
+              creditsToRepay: creditsToRepay,
+              amountToAllocate: amountToAllocate,
+              unclaimedCash: Math.max(0, unclaimedCash),
+              bankCashBalance: this.bankStatus?.cash_balance || 0,
+              defaultCash: defaultCash,
+              defaultCredit: defaultCredit
+            };
+            
+            // Set form defaults
+            this.resolveForm.patchValue({
+              cashPaid: defaultCash,
+              creditGiven: defaultCredit
+            });
+            
+            this.isLoading = false;
+            this.showResolveModal = true;
+          },
+          error: (error) => {
+            this.isLoading = false;
+            this.showError('Failed to load player buyin summary');
+          }
+        });
+      },
+      error: (error) => {
+        this.isLoading = false;
+        this.showError('Failed to load player summary');
+      }
+    });
+  }
+
+  closeResolveModal(): void {
+    this.showResolveModal = false;
+    this.resolveTransaction = null;
+    this.resolveData = null;
+    this.resolveForm.reset();
+  }
+
+  getResolveValidationMessage(): string {
+    if (!this.resolveData || !this.resolveForm.value.cashPaid || !this.resolveForm.value.creditGiven) {
+      return '';
+    }
+
+    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10);
+    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10);
+    const sum = cashPaid + creditGiven;
+    const expected = this.resolveData.amountToAllocate;
+
+    if (sum !== expected) {
+      return `❌ Must equal ${expected} (currently ${sum})`;
+    }
+
+    if (cashPaid > this.resolveData.bankCashBalance) {
+      return `❌ Cash exceeds bank balance (${this.resolveData.bankCashBalance})`;
+    }
+
+    return `✓ Valid allocation`;
+  }
+
+  isResolveValid(): boolean {
+    if (!this.resolveData || !this.resolveForm.valid) {
+      return false;
+    }
+
+    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10);
+    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10);
+    const sum = cashPaid + creditGiven;
+
+    return sum === this.resolveData.amountToAllocate && cashPaid <= this.resolveData.bankCashBalance;
+  }
+
+  submitResolve(): void {
+    if (!this.resolveTransaction || !this.resolveForm.valid || !this.isResolveValid()) {
+      return;
+    }
+
+    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10);
+    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10);
+
+    this.isLoading = true;
+    this.apiService.resolveTransaction(this.resolveTransaction.id, cashPaid, creditGiven).subscribe({
+      next: (response) => {
+        this.isLoading = false;
+        this.closeResolveModal();
+        this.showSuccess('Cashout resolved successfully');
+        this.loadBankStatus();
+        this.refreshData();
+      },
+      error: (error) => {
+        this.isLoading = false;
+        this.showError(error.error?.error || 'Failed to resolve cashout');
       }
     });
   }
@@ -1633,6 +1910,14 @@ export class GameComponent implements OnInit, OnDestroy {
     setTimeout(() => {
       this.showErrorToast = false;
     }, 5000);
+  }
+
+  isCurrentPlayerInactive(): boolean {
+    if (!this.currentPlayerUserId) {
+      return false;
+    }
+    const currentPlayer = this.players.find(p => p.user_id === this.currentPlayerUserId);
+    return currentPlayer ? currentPlayer.cashed_out : false;
   }
 
   // Host Management Methods

@@ -462,6 +462,38 @@ def reject_transaction(transaction_id):
         logger.error(f"Reject transaction error: {e}")
         return jsonify({'error': 'Failed to reject transaction'}), 500
 
+@app.route('/api/transactions/<transaction_id>/resolve', methods=['POST'])
+def resolve_transaction(transaction_id):
+    """Resolve a cashout transaction with custom allocation"""
+    try:
+        data = request.get_json()
+        cash_paid = data.get('cash_paid')
+        credit_given = data.get('credit_given')
+
+        if cash_paid is None or credit_given is None:
+            return jsonify({'error': 'Missing required fields: cash_paid and credit_given'}), 400
+
+        cash_paid = int(cash_paid)
+        credit_given = int(credit_given)
+
+        if cash_paid < 0 or credit_given < 0:
+            return jsonify({'error': 'Cash and credit amounts must be non-negative'}), 400
+
+        # Call transaction service to resolve the cashout
+        result = transaction_service.resolve_cashout(transaction_id, cash_paid, credit_given)
+
+        if result.get('success'):
+            return jsonify({
+                'message': result.get('message', 'Cashout resolved successfully'),
+                'breakdown': result.get('breakdown')
+            })
+        else:
+            return jsonify({'error': result.get('error', 'Failed to resolve cashout')}), 400
+
+    except Exception as e:
+        logger.error(f"Resolve transaction error: {e}")
+        return jsonify({'error': 'Failed to resolve transaction'}), 500
+
 # Player endpoints
 @app.route('/api/games/<game_id>/players/<int:user_id>/summary', methods=['GET'])
 def get_player_summary(game_id, user_id):
@@ -473,6 +505,17 @@ def get_player_summary(game_id, user_id):
     except Exception as e:
         logger.error(f"Get player summary error: {e}")
         return jsonify({'error': 'Failed to get player summary'}), 500
+
+@app.route('/api/games/<game_id>/players/<int:user_id>/buyin-summary', methods=['GET'])
+def get_player_buyin_summary(game_id, user_id):
+    """Get player buyin summary (cash, credit, total)"""
+    try:
+        summary = transaction_service.get_player_buyin_summary(game_id, user_id)
+        return jsonify(summary)
+
+    except Exception as e:
+        logger.error(f"Get player buyin summary error: {e}")
+        return jsonify({'error': 'Failed to get player buyin summary'}), 500
 
 # Credits endpoints
 @app.route('/api/games/<game_id>/credits', methods=['GET'])
