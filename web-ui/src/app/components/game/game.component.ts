@@ -1579,20 +1579,23 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
   getResolveValidationMessage(): string {
-    if (!this.resolveData || !this.resolveForm.value.cashPaid || !this.resolveForm.value.creditGiven) {
+    const cashPaid = this.resolveForm.value.cashPaid;
+    const creditGiven = this.resolveForm.value.creditGiven;
+    
+    if (!this.resolveData || cashPaid == null || creditGiven == null) {
       return '';
     }
 
-    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10);
-    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10);
-    const sum = cashPaid + creditGiven;
+    const cashPaidNum = parseInt(cashPaid, 10) || 0;
+    const creditGivenNum = parseInt(creditGiven, 10) || 0;
+    const sum = cashPaidNum + creditGivenNum;
     const expected = this.resolveData.amountToAllocate;
 
     if (sum !== expected) {
       return `❌ Must equal ${expected} (currently ${sum})`;
     }
 
-    if (cashPaid > this.resolveData.bankCashBalance) {
+    if (cashPaidNum > this.resolveData.bankCashBalance) {
       return `❌ Cash exceeds bank balance (${this.resolveData.bankCashBalance})`;
     }
 
@@ -1604,11 +1607,18 @@ export class GameComponent implements OnInit, OnDestroy {
       return false;
     }
 
-    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10);
-    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10);
-    const sum = cashPaid + creditGiven;
+    const cashPaid = this.resolveForm.value.cashPaid;
+    const creditGiven = this.resolveForm.value.creditGiven;
+    
+    if (cashPaid == null || creditGiven == null) {
+      return false;
+    }
 
-    return sum === this.resolveData.amountToAllocate && cashPaid <= this.resolveData.bankCashBalance;
+    const cashPaidNum = parseInt(cashPaid, 10) || 0;
+    const creditGivenNum = parseInt(creditGiven, 10) || 0;
+    const sum = cashPaidNum + creditGivenNum;
+
+    return sum === this.resolveData.amountToAllocate && cashPaidNum <= this.resolveData.bankCashBalance;
   }
 
   submitResolve(): void {
@@ -1616,8 +1626,8 @@ export class GameComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10);
-    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10);
+    const cashPaid = parseInt(this.resolveForm.value.cashPaid, 10) || 0;
+    const creditGiven = parseInt(this.resolveForm.value.creditGiven, 10) || 0;
 
     this.isLoading = true;
     this.apiService.resolveTransaction(this.resolveTransaction.id, cashPaid, creditGiven).subscribe({
@@ -1630,7 +1640,7 @@ export class GameComponent implements OnInit, OnDestroy {
       },
       error: (error) => {
         this.isLoading = false;
-        this.showError(error.error?.error || 'Failed to resolve cashout');
+        this.showError(error.error?.error || error.error?.message || 'Failed to resolve cashout');
       }
     });
   }

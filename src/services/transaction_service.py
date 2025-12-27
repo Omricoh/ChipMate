@@ -615,8 +615,8 @@ class TransactionService:
             }))
             
             # Calculate cash and credit buyins
-            cash_buyins = sum(tx["amount"] for tx in transactions if tx["type"] in ["buyin_cash", "buyin_buyin_cash"])
-            credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] in ["buyin_register", "buyin_buyin_register"])
+            cash_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_cash")
+            credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_register")
             
             return {
                 "cash_buyins": cash_buyins,
