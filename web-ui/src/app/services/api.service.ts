@@ -171,6 +171,8 @@ export class ApiService {
   getPlayerBuyinSummary(gameId: string, userId: number): Observable<{ cash_buyins: number; credit_buyins: number; total_buyins: number }> {
     return this.http.get<{ cash_buyins: number; credit_buyins: number; total_buyins: number }>(`${this.baseUrl}/games/${gameId}/players/${userId}/buyin-summary`, {
       headers: this.getHeaders()
+        .set('Cache-Control', 'no-cache, no-store, must-revalidate')
+        .set('Pragma', 'no-cache')
     });
   }
 
