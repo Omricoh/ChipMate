@@ -168,7 +168,7 @@ import { Subscription, interval } from 'rxjs';
                     </thead>
                     <tbody>
                       <tr *ngFor="let tx of playerSummary.transactions">
-                        <td class="text-muted small">{{ formatTransactionDate(tx.created_at) }}</td>
+                        <td class="text-muted small">{{ formatTransactionDate(tx.at) }}</td>
                         <td>
                           <span *ngIf="tx.type === 'buyin_cash'" class="badge bg-success">Cash</span>
                           <span *ngIf="tx.type === 'buyin_register'" class="badge bg-warning">Credit</span>
@@ -322,7 +322,7 @@ import { Subscription, interval } from 'rxjs';
                     </thead>
                     <tbody>
                       <tr *ngFor="let tx of playerSettlementSummary.transactions">
-                        <td class="text-muted small">{{ formatTransactionDate(tx.created_at) }}</td>
+                        <td class="text-muted small">{{ formatTransactionDate(tx.at) }}</td>
                         <td>
                           <span *ngIf="tx.type === 'buyin_cash'" class="badge bg-success">Cash</span>
                           <span *ngIf="tx.type === 'buyin_register'" class="badge bg-warning">Credit</span>
