@@ -29,7 +29,7 @@ export interface Transaction {
   amount: number;
   confirmed: boolean;
   rejected: boolean;
-  created_at: Date;
+  at: Date;
   former_host_cashout?: boolean;
 }
 
