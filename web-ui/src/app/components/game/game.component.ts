@@ -655,7 +655,7 @@ import { Subscription, interval } from 'rxjs';
                   </div>
                   <div class="col-6">
                     <small class="text-muted">Cash player paid in:</small>
-                    <div class="fw-bold">${{ resolveData.cashPaidIn }}</div>
+                    <div class="fw-bold">{{ resolveData.cashPaidIn }} chips</div>
                   </div>
                 </div>
                 <div class="row mb-2">
@@ -675,13 +675,13 @@ import { Subscription, interval } from 'rxjs';
                   </div>
                   <div class="col-6">
                     <small class="text-muted">Available cash in bank:</small>
-                    <div class="fw-bold">${{ resolveData.bankCashBalance }}</div>
+                    <div class="fw-bold">{{ resolveData.bankCashBalance }} chips</div>
                   </div>
                 </div>
                 <div class="row">
                   <div class="col-12">
                     <small class="text-muted">Unclaimed cash available:</small>
-                    <div class="fw-bold text-info">${{ resolveData.unclaimedCash }}</div>
+                    <div class="fw-bold text-info">{{ resolveData.unclaimedCash }} chips</div>
                     <small class="text-muted d-block">Cash that can be distributed (bank surplus)</small>
                   </div>
                 </div>
@@ -704,7 +704,7 @@ import { Subscription, interval } from 'rxjs';
                       formControlName="cashPaid"
                       min="0"
                       placeholder="Enter cash amount">
-                    <small class="text-muted">Default: ${{ resolveData.defaultCash }}</small>
+                    <small class="text-muted">Default: {{ resolveData.defaultCash }} chips</small>
                   </div>
                   <div class="mb-3">
                     <label for="creditGiven" class="form-label">Credit to give (new debt)</label>
