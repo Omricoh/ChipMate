@@ -1,8 +1,11 @@
 __pycache__
 *.pyc
 .idea
-/web-ui/.angular/cache
-/web-ui/dist
-/web-ui/node_modules/.bin
-/web-ui/node_modules/@angular-devkit
-/web-ui/node_modules
+
+# Node modules and build artifacts
+web-ui/node_modules/
+web-ui/dist/
+web-ui/package-lock.json
+
+# Temporary demo files
+web-ui/src/buyin-form-demo.html

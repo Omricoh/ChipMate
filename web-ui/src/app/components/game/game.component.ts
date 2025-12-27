@@ -204,15 +204,23 @@ import { Subscription, interval } from 'rxjs';
               <!-- Buy-in Form -->
               <form [formGroup]="buyinForm" (ngSubmit)="submitBuyin()" class="mb-3">
                 <h6>Buy-in</h6>
-                <div class="row g-2 mb-2">
-                  <div class="col-8">
-                    <input type="number" class="form-control" formControlName="amount" placeholder="Amount" min="1">
+                <div class="mb-2">
+                  <input type="number" class="form-control" formControlName="amount" placeholder="Amount" min="1">
+                </div>
+                <div class="mb-2">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" formControlName="type" value="cash" id="typeCash">
+                    <label class="form-check-label" for="typeCash">
+                      <i class="bi bi-cash text-success me-1"></i>
+                      Cash
+                    </label>
                   </div>
-                  <div class="col-4">
-                    <select class="form-control" formControlName="type">
-                      <option value="cash">Cash</option>
-                      <option value="register">Credit</option>
-                    </select>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" formControlName="type" value="register" id="typeCredit">
+                    <label class="form-check-label" for="typeCredit">
+                      <i class="bi bi-credit-card text-warning me-1"></i>
+                      Credit
+                    </label>
                   </div>
                 </div>
                 <button type="submit" class="btn btn-success w-100" [disabled]="buyinForm.invalid || isLoading">
