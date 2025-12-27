@@ -511,7 +511,12 @@ def get_player_buyin_summary(game_id, user_id):
     """Get player buyin summary (cash, credit, total)"""
     try:
         summary = transaction_service.get_player_buyin_summary(game_id, user_id)
-        return jsonify(summary)
+        response = jsonify(summary)
+        # Prevent caching to ensure fresh data during cashout resolution
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     except Exception as e:
         logger.error(f"Get player buyin summary error: {e}")
