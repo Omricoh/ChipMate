@@ -152,9 +152,24 @@ export class ApiService {
     });
   }
 
+  resolveTransaction(transactionId: string, cashPaid: number, creditGiven: number): Observable<{ message: string; breakdown: any }> {
+    return this.http.post<{ message: string; breakdown: any }>(`${this.baseUrl}/transactions/${transactionId}/resolve`, {
+      cash_paid: cashPaid,
+      credit_given: creditGiven
+    }, {
+      headers: this.getHeaders()
+    });
+  }
+
   // Player Status
   getPlayerSummary(gameId: string, userId: number): Observable<PlayerSummary> {
     return this.http.get<PlayerSummary>(`${this.baseUrl}/games/${gameId}/players/${userId}/summary`, {
+      headers: this.getHeaders()
+    });
+  }
+
+  getPlayerBuyinSummary(gameId: string, userId: number): Observable<{ cash_buyins: number; credit_buyins: number; total_buyins: number }> {
+    return this.http.get<{ cash_buyins: number; credit_buyins: number; total_buyins: number }>(`${this.baseUrl}/games/${gameId}/players/${userId}/buyin-summary`, {
       headers: this.getHeaders()
     });
   }

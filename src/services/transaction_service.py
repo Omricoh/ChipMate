@@ -471,3 +471,159 @@ class TransactionService:
                 'success': False,
                 'error': str(e)
             }
+
+    def resolve_cashout(self, tx_id: str, cash_paid: int, credit_given: int) -> Dict[str, Any]:
+        """
+        Resolve a cashout transaction with custom allocation.
+        
+        This method allows the host to specify exactly how to allocate the cashout:
+        - How much cash to pay
+        - How much credit to give (new debt)
+        
+        Args:
+            tx_id: Transaction ID
+            cash_paid: Amount of cash to pay out
+            credit_given: Amount of credit to give (new debt player will owe)
+            
+        Returns:
+            Dict with success status and breakdown
+        """
+        try:
+            # Get transaction and validate it's a pending cashout
+            tx = self.transactions_dal.get(tx_id)
+            if not tx:
+                return {"success": False, "error": "Transaction not found"}
+            
+            if tx["type"] != "cashout":
+                return {"success": False, "error": "Transaction is not a cashout"}
+            
+            if tx.get("confirmed"):
+                return {"success": False, "error": "Transaction already processed"}
+            
+            if tx.get("rejected"):
+                return {"success": False, "error": "Transaction was rejected"}
+            
+            game_id = tx["game_id"]
+            user_id = tx["user_id"]
+            cashout_amount = tx["amount"]
+            
+            # Get player
+            player = self.players_dal.get_player(game_id, user_id)
+            if not player:
+                return {"success": False, "error": "Player not found"}
+            
+            # Get bank
+            bank = self.bank_dal.get_by_game(game_id)
+            if not bank:
+                return {"success": False, "error": "Bank not found"}
+            
+            # Calculate credits to repay and amount to allocate
+            credits_owed = player.credits_owed
+            credits_to_repay = min(cashout_amount, credits_owed)
+            amount_to_allocate = max(0, cashout_amount - credits_to_repay)
+            
+            # VALIDATION 1: Sum must equal amount_to_allocate
+            if cash_paid + credit_given != amount_to_allocate:
+                return {
+                    "success": False,
+                    "error": f"Cash paid ({cash_paid}) + Credit given ({credit_given}) must equal amount to allocate ({amount_to_allocate})"
+                }
+            
+            # VALIDATION 2: Cash must not exceed bank balance
+            if cash_paid > bank.cash_balance:
+                return {
+                    "success": False,
+                    "error": f"Cash paid ({cash_paid}) exceeds bank balance ({bank.cash_balance})"
+                }
+            
+            # Execute the cashout
+            # 1. Update player's credits_owed: reduce by credits_repaid, add credit_given
+            new_credits_owed = credits_owed - credits_to_repay + credit_given
+            self.players_dal.col.update_one(
+                {"game_id": game_id, "user_id": user_id},
+                {"$set": {
+                    "credits_owed": new_credits_owed,
+                    "active": False,
+                    "cashed_out": True,
+                    "final_chips": cashout_amount,
+                    "cashout_time": datetime.now(timezone.utc)
+                }}
+            )
+            
+            # 2. Update bank
+            self.bank_dal.record_cashout(game_id, cashout_amount, cash_paid, credits_to_repay)
+            
+            # Update total_credits_issued if credit was given
+            if credit_given > 0:
+                self.bank_dal.col.update_one(
+                    {"game_id": game_id},
+                    {"$inc": {"total_credits_issued": credit_given}}
+                )
+            
+            # 3. Mark transaction as confirmed
+            self.transactions_dal.update_status(tx_id, True, False)
+            
+            # Store resolution details in transaction
+            self.transactions_dal.col.update_one(
+                {"_id": ObjectId(tx_id) if isinstance(tx_id, str) else tx_id},
+                {"$set": {
+                    "cashout_resolution": {
+                        "credits_repaid": credits_to_repay,
+                        "cash_paid": cash_paid,
+                        "credit_given": credit_given,
+                        "amount_to_allocate": amount_to_allocate
+                    }
+                }}
+            )
+            
+            logger.info(f"Cashout resolved: {cashout_amount} chips -> {credits_to_repay} credits repaid, "
+                       f"{cash_paid} cash paid, {credit_given} credit given")
+            
+            return {
+                "success": True,
+                "message": "Cashout resolved successfully",
+                "breakdown": {
+                    "cashout_amount": cashout_amount,
+                    "credits_repaid": credits_to_repay,
+                    "cash_paid": cash_paid,
+                    "credit_given": credit_given,
+                    "new_credits_owed": new_credits_owed
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error resolving cashout: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def get_player_buyin_summary(self, game_id: str, user_id: int) -> Dict[str, Any]:
+        """
+        Get player's buyin summary.
+        
+        Returns:
+            Dict with cash_buyins, credit_buyins, total_buyins
+        """
+        try:
+            # Get all confirmed transactions
+            transactions = list(self.db.transactions.find({
+                "game_id": game_id,
+                "user_id": user_id,
+                "confirmed": True,
+                "rejected": False
+            }))
+            
+            # Calculate cash and credit buyins
+            cash_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_cash")
+            credit_buyins = sum(tx["amount"] for tx in transactions if tx["type"] == "buyin_register")
+            
+            return {
+                "cash_buyins": cash_buyins,
+                "credit_buyins": credit_buyins,
+                "total_buyins": cash_buyins + credit_buyins
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting player buyin summary: {e}")
+            raise
