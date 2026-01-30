@@ -844,15 +844,17 @@ final_cashout → completed (Done)
 
 **Technical Details:**
 ```python
-CORS(app, origins=[
-  "https://chipmate.up.railway.app",
-  "*"  # Development
-])
+# Development Configuration
+CORS(app, origins=["http://localhost:4200", "*"])
+
+# Production Configuration (recommended)
+CORS(app, origins=["https://chipmate.up.railway.app"])
 ```
 
 **Security Considerations:**
-- Production: Specific origins only
-- Development: Wildcard allowed
+- Production: **MUST** use specific origins only - never use wildcard "*"
+- Development: Wildcard allowed for local testing only
+- ⚠️ **WARNING**: Never deploy with wildcard CORS - this is a security vulnerability
 - Credentials: Cookies/headers supported
 - Methods: GET, POST, DELETE allowed
 
@@ -1173,17 +1175,19 @@ web: gunicorn src.api.production_server:app
 ```javascript
 {
   _id: ObjectId,
-  host_id: int,
-  host_user_id: int,
+  host_id: int,              // Primary host identifier
+  host_user_id: int,         // Alias for host_id (backwards compatibility)
   host_name: string,
-  status: string,
-  settlement_phase: string | null,
+  status: string,            // "active" | "ending" | "settled" | "expired"
+  settlement_phase: string | null,  // null | "credit_settlement" | "final_cashout" | "completed"
   created_at: datetime,
   ended_at: datetime | null,
-  players: [int],
-  code: string
+  players: [int],            // Array of user_ids in the game
+  code: string               // 6-character game code
 }
 ```
+
+**Note**: `host_id` and `host_user_id` are kept in sync for backwards compatibility. New code should use `host_id`.
 
 **players**
 ```javascript
@@ -1636,8 +1640,8 @@ This project is licensed under the MIT License.
 ## Support
 
 For issues, questions, or feature requests:
-- Open an issue on GitHub
-- Contact: [Project maintainer]
+- Open an issue on GitHub: https://github.com/Omricoh/ChipMate/issues
+- Check existing documentation in the repository
 
 ---
 
