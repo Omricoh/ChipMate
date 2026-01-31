@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, patch
+from app.config import settings
 
 
 @pytest.mark.asyncio
@@ -21,7 +22,7 @@ class TestHealthEndpoint:
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "healthy"
-            assert data["version"] == "2.0.0"
+            assert data["version"] == settings.APP_VERSION
             assert data["checks"]["database"] == "ok"
 
     async def test_health_endpoint_returns_200_when_db_is_down(self, client):
