@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from app.auth.jwt import create_access_token, decode_token
 from app.auth.player_token import validate_player_token
 from app.config import settings
-from app.dal import database as db_module
+from app.dal.database import get_database
 from app.dal.players_dal import PlayerDAL
 
 logger = logging.getLogger("chipmate.routes.auth")
