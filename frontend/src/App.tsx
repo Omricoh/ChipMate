@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
+import CreateGame from './pages/CreateGame';
 import JoinGame from './pages/JoinGame';
 import GameView from './pages/GameView';
 import AdminLogin from './pages/AdminLogin';
@@ -13,6 +14,7 @@ export default function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/" element={<Home />} />
+        <Route path="/create" element={<CreateGame />} />
         <Route path="/join" element={<JoinGame />} />
         <Route path="/join/:gameCode" element={<JoinGame />} />
 

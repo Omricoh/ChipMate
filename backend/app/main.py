@@ -16,6 +16,8 @@ from app.dal.database import connect_to_mongo, close_mongo_connection, ensure_in
 from app.routes.health import router as health_router
 from app.routes.auth import router as auth_router
 from app.routes.games import router as games_router
+from app.routes.chip_requests import router as chip_requests_router
+from app.routes.notifications import router as notifications_router
 
 logger = logging.getLogger("chipmate.app")
 
@@ -53,7 +55,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Player-Token"],
     expose_headers=["X-Request-ID"],
     max_age=600,  # Cache preflight requests for 10 minutes
 )
@@ -62,6 +64,8 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(games_router, prefix="/api")
+app.include_router(chip_requests_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
 
 
 @app.get("/")
