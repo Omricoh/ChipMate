@@ -139,6 +139,14 @@ class PlayerDAL:
             players.append(Player(**doc))
         return players
 
+    async def count_all(self) -> int:
+        """Count all players in the collection.
+
+        Returns:
+            The total number of player documents.
+        """
+        return await self._collection.count_documents({})
+
     async def get_checked_out_count(self, game_id: str) -> int:
         """Count how many players in a game have been checked out.
 

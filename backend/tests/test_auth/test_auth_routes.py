@@ -18,6 +18,8 @@ from app.auth.jwt import create_access_token
 from app.auth.player_token import generate_player_token
 from app.config import settings
 from app.dal import database as db_module
+from app.auth import dependencies as auth_deps_module
+from app.routes import auth as auth_route_module
 from app.models.player import Player
 
 
@@ -27,14 +29,24 @@ from app.models.player import Player
 
 @pytest_asyncio.fixture
 async def mock_db():
-    """Provide an in-memory mock database and patch the global db accessor."""
+    """Provide an in-memory mock database and patch all get_database refs."""
     client = AsyncMongoMockClient()
     db = client["chipmate_test"]
-    # Monkey-patch get_database to return mock db
-    original = db_module.get_database
-    db_module.get_database = lambda: db
+
+    getter = lambda: db
+    orig_db = db_module.get_database
+    orig_auth_deps = auth_deps_module.get_database
+    orig_auth_route = auth_route_module.get_database
+
+    db_module.get_database = getter
+    auth_deps_module.get_database = getter
+    auth_route_module.get_database = getter
+
     yield db
-    db_module.get_database = original
+
+    db_module.get_database = orig_db
+    auth_deps_module.get_database = orig_auth_deps
+    auth_route_module.get_database = orig_auth_route
     client.close()
 
 
