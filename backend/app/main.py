@@ -62,6 +62,7 @@ app.add_middleware(
 )
 
 # Register routers
+app.include_router(health_router)  # Health endpoint at root level
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(games_router, prefix="/api")
@@ -78,7 +79,7 @@ async def root():
         "version": settings.APP_VERSION,
         "status": "operational",
         "docs": "/docs",
-        "health": "/api/health"
+        "health": "/health"
     }
 
 
