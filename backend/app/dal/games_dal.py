@@ -116,6 +116,53 @@ class GameDAL:
             games.append(Game(**doc))
         return games
 
+    async def list_all(
+        self,
+        limit: int = 50,
+        skip: int = 0,
+    ) -> list[Game]:
+        """List all games sorted by created_at descending.
+
+        Args:
+            limit: Maximum number of results (default 50).
+            skip: Number of documents to skip (for pagination).
+
+        Returns:
+            A list of Game instances.
+        """
+        cursor = (
+            self._collection.find()
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        games: list[Game] = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            games.append(Game(**doc))
+        return games
+
+    async def count_all(self) -> int:
+        """Count all games in the collection.
+
+        Returns:
+            The total number of game documents.
+        """
+        return await self._collection.count_documents({})
+
+    async def count_by_status(self, status: GameStatus) -> int:
+        """Count games with a specific status.
+
+        Args:
+            status: The GameStatus to filter on.
+
+        Returns:
+            The number of games with the given status.
+        """
+        return await self._collection.count_documents(
+            {"status": str(status)}
+        )
+
     async def find_expired(self) -> list[Game]:
         """Find all OPEN games whose expires_at has passed.
 

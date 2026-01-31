@@ -13,12 +13,10 @@ env/
 # Node modules and build artifacts (v1)
 web-ui/node_modules/
 web-ui/dist/
-web-ui/package-lock.json
 
 # Node modules and build artifacts (v2)
 frontend/node_modules/
 frontend/dist/
-frontend/package-lock.json
 
 # Backend build artifacts
 backend/**/__pycache__/
