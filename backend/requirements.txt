@@ -1,0 +1,27 @@
+# ChipMate v2 Backend Dependencies
+
+# FastAPI and ASGI Server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# MongoDB Async Driver
+motor>=3.3.0
+
+# Data Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+
+# QR Code Generation
+qrcode[pil]>=7.4
+
+# Utilities
+python-multipart>=0.0.6
+
+# Development and Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+httpx>=0.25.0
+mongomock-motor>=0.0.20
