@@ -1,6 +1,9 @@
 """Application configuration using Pydantic BaseSettings."""
 
+import logging
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("chipmate.config")
 
 
 class Settings(BaseSettings):
@@ -20,13 +23,23 @@ class Settings(BaseSettings):
     # Authentication
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
-    JWT_SECRET: str  # Required, no default for security
+    JWT_SECRET: str = "dev-secret-key-change-in-production-min-32-characters-long"
 
     # CORS Configuration
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Application Metadata
     APP_VERSION: str = "2.0.0"
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Warn if using default JWT_SECRET
+        if self.JWT_SECRET == "dev-secret-key-change-in-production-min-32-characters-long":
+            logger.warning(
+                "⚠️  Using default JWT_SECRET! "
+                "This is INSECURE for production. "
+                "Set JWT_SECRET environment variable."
+            )
 
     @property
     def cors_origins(self) -> list[str]:

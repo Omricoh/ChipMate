@@ -30,10 +30,20 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events for MongoDB connection.
     """
     # Startup: Connect to MongoDB and ensure indexes
-    await connect_to_mongo()
-    db = get_database()
-    await ensure_indexes(db)
-    logger.info("ChipMate v%s started", settings.APP_VERSION)
+    try:
+        await connect_to_mongo()
+        db = get_database()
+        await ensure_indexes(db)
+        logger.info("ChipMate v%s started with database connection", settings.APP_VERSION)
+    except Exception as e:
+        # Allow the app to start even if MongoDB is not available
+        # This enables Railway health checks to pass during initial deployment
+        logger.warning(
+            "Failed to connect to MongoDB during startup: %s. "
+            "Application will start but database operations will fail until connection is established.",
+            str(e)
+        )
+        logger.info("ChipMate v%s started WITHOUT database connection", settings.APP_VERSION)
 
     yield
 
