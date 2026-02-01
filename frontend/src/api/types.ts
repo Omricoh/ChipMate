@@ -256,3 +256,103 @@ export interface ChipRequestHistoryResponse {
     has_more: boolean;
   };
 }
+
+// ── Settlement Types ─────────────────────────────────────────────────────
+
+export interface SettleGameResponse {
+  game_id: string;
+  status: 'SETTLING';
+  message: string;
+}
+
+export interface CheckoutPlayerResponse {
+  player_id: string;
+  player_name: string;
+  final_chip_count: number;
+  total_buy_in: number;
+  profit_loss: number;
+  credits_owed: number;
+  has_debt: boolean;
+  checked_out_at: string;
+}
+
+export interface CheckoutPlayerSummary {
+  player_id: string;
+  player_name: string;
+  final_chip_count: number;
+  profit_loss: number;
+  has_debt: boolean;
+}
+
+export interface CheckoutAllResponse {
+  checked_out: CheckoutPlayerSummary[];
+  summary: {
+    total_checked_out: number;
+    debt_players_count: number;
+    total_profit: number;
+    total_loss: number;
+  };
+}
+
+export interface SettleDebtResponse {
+  player_id: string;
+  player_name: string;
+  previous_credits_owed: number;
+  credits_owed: 0;
+  settled: true;
+}
+
+export interface CloseGameResponse {
+  game_id: string;
+  status: 'CLOSED';
+  closed_at: string;
+  summary: {
+    total_checked_out: number;
+    debt_players_count: number;
+    total_profit: number;
+    total_loss: number;
+  };
+}
+
+// ── Admin Types ──────────────────────────────────────────────────────────
+
+export interface AdminStats {
+  total_games: number;
+  active_games: number;
+  settling_games: number;
+  closed_games: number;
+  total_players: number;
+}
+
+export interface AdminGameSummary {
+  game_id: string;
+  game_code: string;
+  status: GameStatus;
+  manager_name: string;
+  player_count: number;
+  created_at: string;
+  bank: BankSummary;
+}
+
+export interface AdminGamesResponse {
+  games: AdminGameSummary[];
+  total: number;
+}
+
+export interface AdminGameDetail {
+  game_id: string;
+  game_code: string;
+  status: GameStatus;
+  manager_name: string;
+  player_count: number;
+  created_at: string;
+  closed_at: string | null;
+  bank: BankSummary;
+  players: Player[];
+  request_stats: {
+    total: number;
+    pending: number;
+    approved: number;
+    declined: number;
+  };
+}

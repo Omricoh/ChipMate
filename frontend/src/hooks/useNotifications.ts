@@ -33,7 +33,7 @@ export function useNotifications(
 
     try {
       const res = await apiClient.get<NotificationsResponse>(
-        `/api/v2/games/${gameId}/notifications`,
+        `/api/games/${gameId}/notifications`,
       );
       setNotifications(res.data.notifications);
       setUnreadCount(res.data.unread_count);
@@ -54,7 +54,7 @@ export function useNotifications(
       if (!gameId) return;
 
       await apiClient.post(
-        `/api/v2/games/${gameId}/notifications/${notificationId}/read`,
+        `/api/games/${gameId}/notifications/${notificationId}/read`,
       );
       setNotifications((prev) =>
         prev.map((n) =>
@@ -69,7 +69,7 @@ export function useNotifications(
   const markAllAsRead = useCallback(async () => {
     if (!gameId) return;
 
-    await apiClient.post(`/api/v2/games/${gameId}/notifications/read-all`);
+    await apiClient.post(`/api/games/${gameId}/notifications/read-all`);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
   }, [gameId]);
