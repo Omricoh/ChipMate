@@ -2,14 +2,18 @@
 ChipMate v2 FastAPI Application Entry Point.
 
 This is the main application file that configures FastAPI, sets up middleware,
-registers routes, and manages MongoDB connection lifecycle.
+registers routes, manages MongoDB connection lifecycle, and serves the
+React frontend as static files in production.
 """
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.dal.database import connect_to_mongo, close_mongo_connection, ensure_indexes, get_database
@@ -85,16 +89,50 @@ app.include_router(checkout_router, prefix="/api")
 app.include_router(settlement_router, prefix="/api")
 
 
-@app.get("/")
-async def root():
-    """Root endpoint - API information."""
-    return {
-        "name": "ChipMate v2 API",
-        "version": settings.APP_VERSION,
-        "status": "operational",
-        "docs": "/docs",
-        "health": "/health"
-    }
+# ---------------------------------------------------------------------------
+# Serve React frontend (production: built files from ../frontend/dist)
+# ---------------------------------------------------------------------------
+
+# Resolve the frontend dist directory relative to this file.
+# In nixpacks deployment: /app/backend/app/main.py -> /app/frontend/dist
+# Locally: backend/app/main.py -> frontend/dist
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    # Serve static assets (JS, CSS, images) under /assets
+    _ASSETS_DIR = _FRONTEND_DIST / "assets"
+    if _ASSETS_DIR.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="static-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(request: Request, full_path: str):
+        """Serve the React SPA for any non-API route.
+
+        API routes (/api/*, /health, /docs, /openapi.json) are handled
+        by their respective routers which are registered first.
+        Any other path serves the frontend's index.html for client-side routing.
+        """
+        # Try to serve a specific file from dist (e.g. favicon.ico, robots.txt)
+        file_path = (_FRONTEND_DIST / full_path).resolve()
+        if full_path and file_path.is_file() and str(file_path).startswith(str(_FRONTEND_DIST)):
+            return FileResponse(str(file_path))
+        # Otherwise serve index.html for SPA routing
+        return FileResponse(str(_FRONTEND_DIST / "index.html"))
+
+    logger.info("Serving frontend from %s", _FRONTEND_DIST)
+else:
+    @app.get("/")
+    async def root():
+        """Root endpoint - API information (no frontend build found)."""
+        return {
+            "name": "ChipMate v2 API",
+            "version": settings.APP_VERSION,
+            "status": "operational",
+            "docs": "/docs",
+            "health": "/health",
+        }
+
+    logger.info("No frontend build found at %s — API-only mode", _FRONTEND_DIST)
 
 
 if __name__ == "__main__":
@@ -104,6 +142,6 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,  # Enable auto-reload for development
-        log_level="info"
+        reload=True,
+        log_level="info",
     )
