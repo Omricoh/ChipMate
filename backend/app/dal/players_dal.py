@@ -243,3 +243,84 @@ class PlayerDAL:
             {"$inc": {"credits_owed": amount}},
         )
         return result.modified_count > 0
+
+    # ------------------------------------------------------------------
+    # Checkout queries
+    # ------------------------------------------------------------------
+
+    async def checkout_player(
+        self,
+        game_id: str,
+        player_token: str,
+        final_chip_count: int,
+        profit_loss: int,
+        checked_out_at: datetime,
+    ) -> bool:
+        """Set checkout fields on a player document.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+            player_token: The player's UUID token.
+            final_chip_count: The player's final chip count at checkout.
+            profit_loss: The player's profit or loss for the session.
+            checked_out_at: The timestamp when checkout occurred.
+
+        Returns:
+            True if a document was modified, False otherwise.
+        """
+        result = await self._collection.update_one(
+            {"game_id": game_id, "player_token": player_token},
+            {
+                "$set": {
+                    "checked_out": True,
+                    "checked_out_at": checked_out_at,
+                    "final_chip_count": final_chip_count,
+                    "profit_loss": profit_loss,
+                }
+            },
+        )
+        if result.modified_count > 0:
+            logger.info(
+                "Checked out player_token=%s in game=%s (final=%d, p/l=%d)",
+                player_token,
+                game_id,
+                final_chip_count,
+                profit_loss,
+            )
+        return result.modified_count > 0
+
+    async def get_checked_out_players(self, game_id: str) -> list[Player]:
+        """Return all checked-out players in a game.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+
+        Returns:
+            A list of Player instances that have been checked out.
+        """
+        cursor = self._collection.find(
+            {"game_id": game_id, "checked_out": True}
+        ).sort("checked_out_at", -1)
+        players: list[Player] = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            players.append(Player(**doc))
+        return players
+
+    async def get_active_players(self, game_id: str) -> list[Player]:
+        """Return all active, non-checked-out players in a game.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+
+        Returns:
+            A list of Player instances that are active and not checked out.
+        """
+        cursor = self._collection.find(
+            {"game_id": game_id, "is_active": True, "checked_out": False}
+        ).sort("joined_at", 1)
+        players: list[Player] = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            players.append(Player(**doc))
+        return players

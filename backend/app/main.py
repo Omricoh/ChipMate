@@ -19,6 +19,8 @@ from app.routes.games import router as games_router
 from app.routes.chip_requests import router as chip_requests_router
 from app.routes.notifications import router as notifications_router
 from app.routes.admin import router as admin_router
+from app.routes.checkout import router as checkout_router
+from app.routes.settlement import router as settlement_router
 
 logger = logging.getLogger("chipmate.app")
 
@@ -79,6 +81,8 @@ app.include_router(games_router, prefix="/api")
 app.include_router(chip_requests_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(checkout_router, prefix="/api")
+app.include_router(settlement_router, prefix="/api")
 
 
 @app.get("/")

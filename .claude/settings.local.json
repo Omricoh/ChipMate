@@ -26,7 +26,9 @@
       "Bash(git -C /Users/b/Documents/GitHub/ChipMate show main:src/models/player.py)",
       "Bash(git -C /Users/b/Documents/GitHub/ChipMate show main:src/models/transaction.py)",
       "Bash(git -C /Users/b/Documents/GitHub/ChipMate show main:src/models/bank.py)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build:*)"
     ],
     "deny": [],
     "ask": []

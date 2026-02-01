@@ -214,6 +214,37 @@ class ChipRequestDAL:
             )
         return result.modified_count > 0
 
+    async def decline_all_pending(self, game_id: str) -> int:
+        """Bulk-decline all pending chip requests for a game.
+
+        Used during settlement to prevent further buy-ins. Sets status
+        to DECLINED and records resolved_at timestamp.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+
+        Returns:
+            The number of requests that were declined.
+        """
+        now = datetime.now(timezone.utc)
+        result = await self._collection.update_many(
+            {"game_id": game_id, "status": "PENDING"},
+            {
+                "$set": {
+                    "status": str(RequestStatus.DECLINED),
+                    "resolved_at": now,
+                    "resolved_by": "SYSTEM_SETTLEMENT",
+                }
+            },
+        )
+        if result.modified_count > 0:
+            logger.info(
+                "Bulk-declined %d pending requests for game %s",
+                result.modified_count,
+                game_id,
+            )
+        return result.modified_count
+
     async def count_pending_by_game(self, game_id: str) -> int:
         """Count pending chip requests for a game.
 

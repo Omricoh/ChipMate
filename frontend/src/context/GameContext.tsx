@@ -47,7 +47,7 @@ export function GameProvider({
   const refreshGame = useCallback(async () => {
     try {
       const statusRes = await apiClient.get<GameStatusResponse>(
-        `/api/v2/games/${gameId}/status`,
+        `/api/games/${gameId}/status`,
       );
       setGame(statusRes.data);
 
@@ -58,7 +58,7 @@ export function GameProvider({
 
       if (isManager || isAdmin) {
         const playersRes = await apiClient.get<PlayersListResponse>(
-          `/api/v2/games/${gameId}/players`,
+          `/api/games/${gameId}/players`,
         );
         setPlayers(playersRes.data.players);
       }
