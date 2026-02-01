@@ -19,7 +19,7 @@ import type {
   AdminGameDetail,
 } from '../api/types';
 
-// ── Constants ─────────────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────
 
 const STATS_POLL_INTERVAL = 30_000;
 const GAMES_PAGE_SIZE = 20;
