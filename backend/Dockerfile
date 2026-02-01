@@ -1,7 +1,7 @@
 # ChipMate v2 Backend Dockerfile
 # Multi-stage build for production-optimized Python FastAPI application
 
-FROM python:3.10-slim as builder
+FROM python:3.12-slim as builder
 
 # Set working directory
 WORKDIR /app
@@ -16,7 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
