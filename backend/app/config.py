@@ -1,6 +1,15 @@
 """Application configuration using Pydantic BaseSettings."""
 
+import logging
+import os
+from typing import Optional
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("chipmate.config")
+
+# Development-only default for JWT_SECRET
+_DEV_JWT_SECRET = "dev-secret-key-change-in-production-min-32-characters-long"
 
 
 class Settings(BaseSettings):
@@ -20,13 +29,33 @@ class Settings(BaseSettings):
     # Authentication
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
-    JWT_SECRET: str  # Required, no default for security
+    JWT_SECRET: Optional[str] = None
 
     # CORS Configuration
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Application Metadata
     APP_VERSION: str = "2.0.0"
+    
+    @field_validator("JWT_SECRET", mode="before")
+    @classmethod
+    def validate_jwt_secret(cls, v):
+        """Validate JWT_SECRET and provide development default with warning."""
+        if v is None or v == "":
+            # Only use default if not in production (Railway sets RAILWAY_ENVIRONMENT)
+            is_production = os.getenv("RAILWAY_ENVIRONMENT") == "production"
+            if is_production:
+                raise ValueError(
+                    "JWT_SECRET must be set in production. "
+                    "This is a critical security requirement."
+                )
+            logger.warning(
+                "⚠️  JWT_SECRET not set! Using development default. "
+                "This is INSECURE for production. "
+                "Set JWT_SECRET environment variable."
+            )
+            return _DEV_JWT_SECRET
+        return v
 
     @property
     def cors_origins(self) -> list[str]:

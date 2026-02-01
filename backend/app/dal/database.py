@@ -24,7 +24,10 @@ async def connect_to_mongo() -> None:
     """
     global _client, _database
 
-    _client = AsyncIOMotorClient(settings.MONGO_URL)
+    _client = AsyncIOMotorClient(
+        settings.MONGO_URL,
+        serverSelectionTimeoutMS=5000  # 5 second timeout
+    )
     _database = _client[settings.DATABASE_NAME]
 
     # Verify connection by pinging the database
