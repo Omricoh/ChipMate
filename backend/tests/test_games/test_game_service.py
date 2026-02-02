@@ -215,9 +215,13 @@ class TestJoinGame:
         join_result = await service.join_game(
             game_id=game_result["game_id"], player_name="Bob"
         )
+        assert "player_id" in join_result
         assert "player_token" in join_result
-        assert join_result["player_name"] == "Bob"
-        assert join_result["game_id"] == game_result["game_id"]
+        assert "game" in join_result
+        assert join_result["game"]["game_id"] == game_result["game_id"]
+        assert join_result["game"]["game_code"] == game_result["game_code"]
+        assert join_result["game"]["manager_name"] == "Alice"
+        assert join_result["game"]["status"] == "OPEN"
 
     @pytest.mark.asyncio
     async def test_join_game_creates_player_record(
