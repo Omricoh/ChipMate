@@ -14,6 +14,7 @@ export interface ChipRequestResponse {
   game_id: string;
   player_token: string;
   requested_by: string;
+  player_name: string | null;
   request_type: string;
   amount: number;
   status: string;
@@ -30,7 +31,7 @@ function toChipRequest(raw: ChipRequestRaw): ChipRequest {
   return {
     request_id: raw.id,
     player_id: raw.player_token,
-    player_name: raw.requested_by,
+    player_name: raw.player_name ?? raw.requested_by,
     type: raw.request_type as RequestType,
     amount: raw.edited_amount ?? raw.amount,
     original_amount: raw.edited_amount !== null ? raw.amount : null,

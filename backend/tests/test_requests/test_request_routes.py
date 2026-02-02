@@ -179,6 +179,22 @@ class TestGetPendingRequests:
         assert data[0]["id"] == req2["id"]
 
     @pytest.mark.asyncio
+    async def test_pending_includes_player_name(self, test_client):
+        """Verify that pending requests include the player_name field."""
+        game = await _create_game(test_client)
+        manager_token = game["player_token"]
+        bob = await _join_game(test_client, game["game_id"], "Bob")
+        await _create_request(test_client, game["game_id"], bob["player_token"])
+        resp = await test_client.get(
+            f"/api/games/{game['game_id']}/requests/pending",
+            headers={"X-Player-Token": manager_token},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["player_name"] == "Bob"
+
+    @pytest.mark.asyncio
     async def test_pending_requires_manager(self, test_client):
         game = await _create_game(test_client)
         bob = await _join_game(test_client, game["game_id"], "Bob")
