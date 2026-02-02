@@ -56,6 +56,8 @@ class CreateGameResponse(BaseModel):
     game_code: str
     player_token: str
     manager_name: str
+    manager_player_id: str
+    created_at: str
 
 
 class GameCodeLookupResponse(BaseModel):
