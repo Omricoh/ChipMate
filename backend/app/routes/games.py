@@ -80,7 +80,7 @@ class GameInfo(BaseModel):
     """Game information included in join response."""
     game_id: str
     game_code: str
-    manager_name: str
+    manager_name: Optional[str]
     status: str
 
 
