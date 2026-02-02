@@ -13,17 +13,16 @@ const apiClient = axios.create({
 // ── Request Interceptor: Attach auth tokens ────────────────────────────────
 
 apiClient.interceptors.request.use((config) => {
-  // Admin JWT takes priority
+  // Admin JWT in Authorization header
   const adminToken = localStorage.getItem('chipmate_admin_token');
   if (adminToken) {
     config.headers.Authorization = `Bearer ${adminToken}`;
-    return config;
   }
 
-  // Player token
+  // Player token in X-Player-Token header (backend expects this header for player auth)
   const playerToken = localStorage.getItem('chipmate_player_token');
   if (playerToken) {
-    config.headers.Authorization = `Bearer ${playerToken}`;
+    config.headers['X-Player-Token'] = playerToken;
   }
 
   return config;
