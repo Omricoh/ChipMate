@@ -208,9 +208,13 @@ class TestJoinGameRoute:
         )
         assert resp.status_code == 201
         join_data = resp.json()
+        assert "player_id" in join_data
         assert "player_token" in join_data
-        assert join_data["player_name"] == "Bob"
-        assert join_data["game_id"] == data["game_id"]
+        assert "game" in join_data
+        assert join_data["game"]["game_id"] == data["game_id"]
+        assert join_data["game"]["game_code"] == data["game_code"]
+        assert join_data["game"]["manager_name"] == "Alice"
+        assert join_data["game"]["status"] == "OPEN"
 
     @pytest.mark.asyncio
     async def test_join_settling_game_returns_400(

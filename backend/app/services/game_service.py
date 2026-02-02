@@ -172,7 +172,8 @@ class GameService:
             player_name: Display name for the joining player (2-30 chars).
 
         Returns:
-            A dict with player_token, player_name, and game_id.
+            A dict with player_id, player_token, and game object containing
+            game_id, game_code, manager_name, and status.
 
         Raises:
             HTTPException 404: Game not found.
@@ -196,16 +197,25 @@ class GameService:
             is_manager=False,
             joined_at=now,
         )
-        await self._player_dal.create(player)
+        player = await self._player_dal.create(player)
+
+        # Get manager player to obtain manager name
+        manager = await self._player_dal.get_by_token(game_id, game.manager_player_token)
+        manager_name = manager.display_name if manager else None
 
         logger.info(
             "Player joined: game_id=%s name=%s", game_id, player_name,
         )
 
         return {
+            "player_id": str(player.id),
             "player_token": player_token,
-            "player_name": player_name,
-            "game_id": game_id,
+            "game": {
+                "game_id": game_id,
+                "game_code": game.code,
+                "manager_name": manager_name,
+                "status": str(game.status),
+            },
         }
 
     # ------------------------------------------------------------------

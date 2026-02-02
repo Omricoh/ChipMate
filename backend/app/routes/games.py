@@ -76,11 +76,19 @@ class JoinGameRequest(BaseModel):
     )
 
 
+class GameInfo(BaseModel):
+    """Game information included in join response."""
+    game_id: str
+    game_code: str
+    manager_name: str
+    status: str
+
+
 class JoinGameResponse(BaseModel):
     """Response for POST /api/games/{game_id}/join."""
+    player_id: str
     player_token: str
-    player_name: str
-    game_id: str
+    game: GameInfo
 
 
 class PlayerInfo(BaseModel):
