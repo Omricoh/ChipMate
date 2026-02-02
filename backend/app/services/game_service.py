@@ -102,7 +102,7 @@ class GameService:
             is_manager=True,
             joined_at=now,
         )
-        await self._player_dal.create(manager_player)
+        manager_player = await self._player_dal.create(manager_player)
 
         logger.info(
             "Game created: id=%s code=%s manager=%s",
@@ -114,6 +114,8 @@ class GameService:
             "game_code": game.code,
             "player_token": manager_token,
             "manager_name": manager_name,
+            "manager_player_id": str(manager_player.id),
+            "created_at": game.created_at.isoformat(),
         }
 
     # ------------------------------------------------------------------
