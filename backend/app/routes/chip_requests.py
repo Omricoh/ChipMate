@@ -70,6 +70,7 @@ class ChipRequestOut(BaseModel):
     game_id: str
     player_token: str
     requested_by: str
+    player_name: Optional[str] = None
     request_type: RequestType
     amount: int
     status: str
@@ -83,7 +84,7 @@ class ChipRequestOut(BaseModel):
 # Serialization helper
 # ---------------------------------------------------------------------------
 
-def _to_response(chip_request) -> ChipRequestOut:
+def _to_response(chip_request, player_name: Optional[str] = None) -> ChipRequestOut:
     """Convert a ChipRequest domain model to the route response model."""
     created_at_str = (
         chip_request.created_at.isoformat()
@@ -101,6 +102,7 @@ def _to_response(chip_request) -> ChipRequestOut:
         game_id=chip_request.game_id,
         player_token=chip_request.player_token,
         requested_by=chip_request.requested_by,
+        player_name=player_name,
         request_type=chip_request.request_type,
         amount=chip_request.amount,
         status=str(chip_request.status),
@@ -154,7 +156,17 @@ async def get_pending_requests(
     """Get all pending chip requests for the game. Requires manager token."""
     service = _get_service()
     requests = await service.get_pending_requests(game_id=game_id)
-    return [_to_response(r) for r in requests]
+
+    # Build a mapping from player_token to display_name
+    db = get_database()
+    player_dal = PlayerDAL(db)
+    players = await player_dal.get_by_game(game_id, include_inactive=True)
+    token_to_name = {p.player_token: p.display_name for p in players}
+
+    return [
+        _to_response(r, player_name=token_to_name.get(r.player_token))
+        for r in requests
+    ]
 
 
 # ---------------------------------------------------------------------------
