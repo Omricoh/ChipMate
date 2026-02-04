@@ -102,6 +102,20 @@ class SettleDebtResponse(BaseModel):
     previous_credits_owed: int
     credits_owed: int
     settled: bool
+    allocations: list[dict[str, Any]]
+
+
+class SettleDebtAllocation(BaseModel):
+    """Allocation entry for settling a player's debt."""
+    recipient_token: str = Field(..., description="Recipient player token.")
+    amount: int = Field(..., gt=0, description="Amount allocated to recipient.")
+
+
+class SettleDebtRequest(BaseModel):
+    """Request body for settling a player's debt with allocations."""
+    allocations: list[SettleDebtAllocation] = Field(
+        ..., min_length=1, description="Allocation recipients and amounts."
+    )
 
 
 class CloseGameSummary(BaseModel):
@@ -209,6 +223,7 @@ async def checkout_all(
     summary="Settle a player's credit debt",
 )
 async def settle_debt(
+    body: SettleDebtRequest,
     game_id: str = Path(...),
     player_token: str = Path(...),
     manager: Player = Depends(get_current_manager),
@@ -222,6 +237,10 @@ async def settle_debt(
     result = await service.settle_player_debt(
         game_id=game_id,
         player_token=player_token,
+        allocations=[
+            {"recipient_token": a.recipient_token, "amount": a.amount}
+            for a in body.allocations
+        ],
     )
     return SettleDebtResponse(**result)
 

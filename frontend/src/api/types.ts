@@ -300,6 +300,11 @@ export interface SettleDebtResponse {
   previous_credits_owed: number;
   credits_owed: 0;
   settled: true;
+  allocations: Array<{
+    recipient_token: string;
+    recipient_name: string;
+    amount: number;
+  }>;
 }
 
 export interface CloseGameResponse {

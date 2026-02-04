@@ -19,6 +19,7 @@ import { PlayerListCard } from './PlayerListCard';
 import { GameShareSection } from './GameShareSection';
 import { CheckoutPlayerModal } from './CheckoutPlayerModal';
 import { BatchCheckoutModal } from './BatchCheckoutModal';
+import { SettleDebtModal } from './SettleDebtModal';
 import { GameStatus, RequestType } from '../../api/types';
 import type { Player } from '../../api/types';
 import {
@@ -113,6 +114,8 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
   const [checkoutTarget, setCheckoutTarget] = useState<Player | null>(null);
   const [isCheckoutProcessing, setIsCheckoutProcessing] = useState(false);
+  const [settleDebtTarget, setSettleDebtTarget] = useState<Player | null>(null);
+  const [isSettleDebtProcessing, setIsSettleDebtProcessing] = useState(false);
 
   // ── Batch Checkout Modal State ────────────────────────────────────────
 
@@ -338,40 +341,48 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
   // ── Settle Debt Handler ───────────────────────────────────────────────
 
-  const handleSettleDebt = useCallback(
-    (player: Player) => {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Settle Debt',
-        message: `Mark ${player.name}'s credit debt of ${player.credits_owed.toLocaleString()} as settled? This means they have repaid their credit.`,
-        confirmLabel: 'Settle Debt',
-        isDanger: false,
-        onConfirm: async () => {
-          closeModal();
-          setProcessingId(player.player_id);
-          try {
-            const result = await settleDebt(gameId, player.player_id);
-            addToast(
-              createToast(
-                'success',
-                `${result.player_name}'s debt of ${result.previous_credits_owed.toLocaleString()} has been settled`,
-              ),
-            );
-            await refreshGame();
-          } catch (err) {
-            addToast(
-              createToast(
-                'error',
-                getErrorMessage(err, `Failed to settle debt for ${player.name}`),
-              ),
-            );
-          } finally {
-            setProcessingId(null);
-          }
-        },
-      });
+  const handleSettleDebt = useCallback((player: Player) => {
+    setSettleDebtTarget(player);
+  }, []);
+
+  const handleSettleDebtSubmit = useCallback(
+    async (allocations: Array<{ recipient_token: string; amount: number }>) => {
+      if (!settleDebtTarget) return;
+      setIsSettleDebtProcessing(true);
+      setProcessingId(settleDebtTarget.player_id);
+      try {
+        const result = await settleDebt(
+          gameId,
+          settleDebtTarget.player_id,
+          allocations,
+        );
+        const recipients = result.allocations
+          .map((r) => `${r.recipient_name} (${r.amount.toLocaleString()})`)
+          .join(', ');
+        addToast(
+          createToast(
+            'success',
+            `${result.player_name}'s debt settled → ${recipients}`,
+          ),
+        );
+        setSettleDebtTarget(null);
+        await refreshGame();
+      } catch (err) {
+        addToast(
+          createToast(
+            'error',
+            getErrorMessage(
+              err,
+              `Failed to settle debt for ${settleDebtTarget.name}`,
+            ),
+          ),
+        );
+      } finally {
+        setIsSettleDebtProcessing(false);
+        setProcessingId(null);
+      }
     },
-    [gameId, addToast, closeModal, refreshGame],
+    [settleDebtTarget, gameId, addToast, refreshGame],
   );
 
   const handleManagerBuyIn = useCallback(async () => {
@@ -823,6 +834,18 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
           isProcessing={isCheckoutProcessing}
           onSubmit={handleCheckoutSubmit}
           onCancel={handleCheckoutCancel}
+        />
+      )}
+
+      {/* Settle Debt Modal */}
+      {settleDebtTarget && (
+        <SettleDebtModal
+          debtor={settleDebtTarget}
+          recipients={players}
+          isOpen={true}
+          isProcessing={isSettleDebtProcessing}
+          onSubmit={handleSettleDebtSubmit}
+          onCancel={() => setSettleDebtTarget(null)}
         />
       )}
 

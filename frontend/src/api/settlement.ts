@@ -60,9 +60,11 @@ export async function checkoutAllPlayers(
 export async function settleDebt(
   gameId: string,
   playerToken: string,
+  allocations: Array<{ recipient_token: string; amount: number }>,
 ): Promise<SettleDebtResponse> {
   const response = await apiClient.post<SettleDebtResponse>(
     `/api/games/${gameId}/players/${playerToken}/settle-debt`,
+    { allocations },
   );
   return response.data;
 }

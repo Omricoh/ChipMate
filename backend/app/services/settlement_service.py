@@ -300,6 +300,7 @@ class SettlementService:
         self,
         game_id: str,
         player_token: str,
+        allocations: list[dict[str, int]],
     ) -> dict[str, Any]:
         """Mark a player's credit debt as settled (set credits_owed to 0).
 
@@ -309,10 +310,11 @@ class SettlementService:
         Args:
             game_id: The game's string ObjectId.
             player_token: The player's UUID token.
+            allocations: List of dicts with recipient_token and amount.
 
         Returns:
             A dict with player_id, player_name, previous_credits_owed,
-            credits_owed (0), and settled (True).
+            credits_owed (0), settled (True), and allocations.
 
         Raises:
             HTTPException 404: Game or player not found.
@@ -341,21 +343,94 @@ class SettlementService:
 
         previous_credits_owed = player.credits_owed
 
+        if not allocations:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Allocations are required to settle debt",
+            )
+
+        total_allocated = 0
+        allocations_by_token: dict[str, int] = {}
+        for entry in allocations:
+            recipient_token = entry.get("recipient_token")
+            amount = entry.get("amount")
+            if not recipient_token or amount is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Each allocation must include recipient_token and amount",
+                )
+            if amount <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Allocation amounts must be greater than 0",
+                )
+            if recipient_token == player_token:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Recipient cannot be the same as the debtor",
+                )
+            allocations_by_token[recipient_token] = (
+                allocations_by_token.get(recipient_token, 0) + amount
+            )
+            total_allocated += amount
+
+        if total_allocated != previous_credits_owed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Allocated total ({total_allocated}) must equal "
+                    f"debt amount ({previous_credits_owed})"
+                ),
+            )
+
+        recipients = []
+        for recipient_token, amount in allocations_by_token.items():
+            recipient = await self._player_dal.get_by_token(
+                game_id, recipient_token
+            )
+            if recipient is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Recipient not found in this game",
+                )
+            recipients.append(
+                {
+                    "recipient_token": recipient_token,
+                    "recipient_name": recipient.display_name,
+                    "amount": amount,
+                }
+            )
+
         # Zero out the debt
         await self._player_dal.update_by_token(
             game_id, player_token, {"credits_owed": 0}
         )
 
-        # Send notification to the player
+        # Send notification to the debtor with recipients list
+        recipients_summary = ", ".join(
+            f"{r['recipient_name']} ({r['amount']})" for r in recipients
+        )
         await self._notification_service.create_notification(
             game_id=game_id,
             player_token=player_token,
             notification_type=NotificationType.DEBT_SETTLED,
             message=(
                 f"Your credit debt of {previous_credits_owed} chips "
-                f"has been settled by the manager."
+                f"was settled and allocated to: {recipients_summary}."
             ),
         )
+
+        # Notify recipients
+        for recipient in recipients:
+            await self._notification_service.create_notification(
+                game_id=game_id,
+                player_token=recipient["recipient_token"],
+                notification_type=NotificationType.DEBT_SETTLED,
+                message=(
+                    f"You received {recipient['amount']} chips from "
+                    f"{player.display_name}'s settled debt."
+                ),
+            )
 
         logger.info(
             "Settled debt for player_token=%s in game=%s (was %d)",
@@ -370,6 +445,7 @@ class SettlementService:
             "previous_credits_owed": previous_credits_owed,
             "credits_owed": 0,
             "settled": True,
+            "allocations": recipients,
         }
 
     # ------------------------------------------------------------------
