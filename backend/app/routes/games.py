@@ -13,7 +13,7 @@ Endpoints:
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Path, Response, status
+from fastapi import APIRouter, Depends, Path, Response, status, Request
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_admin_or_player
@@ -342,6 +342,7 @@ async def get_game_status(
 )
 async def get_qr_code(
     game_code: str = Path(..., min_length=6, max_length=6),
+    request: Request,
 ) -> Response:
     """Generate a QR code PNG for the game join URL. No auth required.
 
@@ -355,6 +356,21 @@ async def get_qr_code(
     await service.get_game_by_code(game_code)
 
     base_url = settings.FRONTEND_URL
+    origin = request.headers.get("origin")
+    if not base_url or (origin and "localhost" in base_url):
+        if origin:
+            base_url = origin
+        else:
+            xf_host = request.headers.get("x-forwarded-host")
+            xf_proto = request.headers.get("x-forwarded-proto")
+            host = request.headers.get("host")
+            scheme = xf_proto or request.url.scheme
+            if xf_host:
+                base_url = f"{scheme}://{xf_host}"
+            elif host:
+                base_url = f"{scheme}://{host}"
+            else:
+                base_url = str(request.base_url).rstrip("/")
     png_bytes = generate_qr_code(game_code=game_code.upper(), base_url=base_url)
 
     return Response(
