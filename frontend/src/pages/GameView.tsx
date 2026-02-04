@@ -333,7 +333,11 @@ export default function GameView() {
   if (isPlayerGameMismatch) {
     return (
       <Layout gameCode={gameCode}>
-        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+        <div 
+          className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+          role="status"
+          aria-live="polite"
+        >
           <p className="text-gray-500">Redirecting to your game...</p>
         </div>
       </Layout>
