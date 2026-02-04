@@ -57,6 +57,10 @@ class CreateChipRequestBody(BaseModel):
         default=None,
         description="If set, create request on behalf of this player.",
     )
+    on_behalf_of_player_id: Optional[str] = Field(
+        default=None,
+        description="Legacy alias for on_behalf_of_token.",
+    )
 
 
 class EditRequestBody(BaseModel):
@@ -130,12 +134,13 @@ async def create_chip_request(
 ) -> ChipRequestOut:
     """Create a chip buy-in request. Requires player token."""
     service = _get_service()
+    on_behalf_of_token = body.on_behalf_of_token or body.on_behalf_of_player_id
     chip_request = await service.create_request(
         game_id=game_id,
         player_token=player.player_token,
         request_type=body.request_type,
         amount=body.amount,
-        on_behalf_of_token=body.on_behalf_of_token,
+        on_behalf_of_token=on_behalf_of_token,
     )
     return _to_response(chip_request)
 

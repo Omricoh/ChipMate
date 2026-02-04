@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useGame } from '../../hooks/useGame';
 import { usePendingRequests } from '../../hooks/usePendingRequests';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -19,7 +19,7 @@ import { PlayerListCard } from './PlayerListCard';
 import { GameShareSection } from './GameShareSection';
 import { CheckoutPlayerModal } from './CheckoutPlayerModal';
 import { BatchCheckoutModal } from './BatchCheckoutModal';
-import { GameStatus } from '../../api/types';
+import { GameStatus, RequestType } from '../../api/types';
 import type { Player } from '../../api/types';
 import {
   settleGame,
@@ -28,6 +28,7 @@ import {
   settleDebt,
   closeGame,
 } from '../../api/settlement';
+import { createChipRequest } from '../../api/requests';
 import axios from 'axios';
 
 interface ManagerDashboardProps {
@@ -117,6 +118,28 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
   const [isBatchCheckoutOpen, setIsBatchCheckoutOpen] = useState(false);
   const [isBatchCheckoutProcessing, setIsBatchCheckoutProcessing] = useState(false);
+
+  // ── Manager Buy-in State ─────────────────────────────────────────────
+
+  const [buyInPlayerToken, setBuyInPlayerToken] = useState('');
+  const [buyInType, setBuyInType] = useState<RequestType>(RequestType.CASH);
+  const [buyInAmount, setBuyInAmount] = useState('');
+  const [buyInError, setBuyInError] = useState<string | null>(null);
+  const [isBuyInSubmitting, setIsBuyInSubmitting] = useState(false);
+  const [autoApproveBuyIn, setAutoApproveBuyIn] = useState(true);
+
+  useEffect(() => {
+    if (buyInEligiblePlayers.length === 0) {
+      setBuyInPlayerToken('');
+      return;
+    }
+    const stillValid = buyInEligiblePlayers.some(
+      (player) => player.player_id === buyInPlayerToken,
+    );
+    if (!buyInPlayerToken || !stillValid) {
+      setBuyInPlayerToken(buyInEligiblePlayers[0].player_id);
+    }
+  }, [buyInPlayerToken, buyInEligiblePlayers]);
 
   // ── Request Action Handlers ───────────────────────────────────────────
 
@@ -349,6 +372,61 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
     [gameId, addToast, closeModal, refreshGame],
   );
 
+  const handleManagerBuyIn = useCallback(async () => {
+    const amountValue = Number(buyInAmount);
+    if (!buyInPlayerToken) {
+      setBuyInError('Select a player to purchase chips for.');
+      return;
+    }
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setBuyInError('Enter a valid amount greater than 0.');
+      return;
+    }
+
+    setBuyInError(null);
+    setIsBuyInSubmitting(true);
+
+    try {
+      const created = await createChipRequest(gameId, {
+        type: buyInType,
+        amount: amountValue,
+        on_behalf_of_token: buyInPlayerToken,
+      });
+
+      if (autoApproveBuyIn) {
+        await approve(created.request_id);
+        addToast(
+          createToast(
+            'success',
+            `${buyInType === RequestType.CASH ? 'Cash' : 'Credit'} purchase approved`,
+          ),
+        );
+      } else {
+        addToast(createToast('info', 'Purchase submitted for approval'));
+      }
+
+      setBuyInAmount('');
+      await refreshGame();
+      refreshRequests();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to submit purchase';
+      setBuyInError(message);
+    } finally {
+      setIsBuyInSubmitting(false);
+    }
+  }, [
+    buyInAmount,
+    buyInPlayerToken,
+    buyInType,
+    autoApproveBuyIn,
+    gameId,
+    approve,
+    addToast,
+    refreshGame,
+    refreshRequests,
+  ]);
+
   // ── Loading State ─────────────────────────────────────────────────────
 
   const resolvedGameCode = gameCode ?? game?.game.game_code;
@@ -388,6 +466,8 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
     typeof game.credits_outstanding === 'number' ? game.credits_outstanding : 0;
   const activePlayers = players.filter((p) => p.is_active && !p.checked_out);
   const checkedOutCount = players.filter((p) => p.checked_out).length;
+  const buyInEligiblePlayers = players.filter((p) => !p.checked_out);
+  const buyInDisabled = gameStatus !== GameStatus.OPEN;
 
   return (
     <Layout gameCode={resolvedGameCode} notificationCount={unreadCount}>
@@ -412,6 +492,139 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
           pendingRequests={pendingRequestsCount}
           creditsOutstanding={creditsOutstanding}
         />
+
+        {/* Manager Buy-in */}
+        <section
+          className="rounded-xl bg-white border border-gray-200 shadow-sm p-4"
+          aria-label="Manager buy-in"
+        >
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            Purchase Chips For Player
+          </h2>
+
+          {buyInDisabled && (
+            <div className="mb-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
+              <p className="text-xs text-gray-500">
+                Purchases are only available when the game is open.
+              </p>
+            </div>
+          )}
+
+          {buyInError && (
+            <div className="mb-3">
+              <ErrorBanner message={buyInError} />
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <div>
+              <label
+                htmlFor="manager-buyin-player"
+                className="block text-sm font-medium text-gray-700 mb-1.5"
+              >
+                Player
+              </label>
+              <select
+                id="manager-buyin-player"
+                value={buyInPlayerToken}
+                onChange={(e) => {
+                  setBuyInPlayerToken(e.target.value);
+                  if (buyInError) setBuyInError(null);
+                }}
+                disabled={buyInDisabled || isBuyInSubmitting}
+                className="w-full rounded-xl border-2 border-gray-300 px-4 py-3 text-sm focus:outline-none focus:ring-0 focus:border-primary-500 disabled:bg-gray-50 disabled:text-gray-400"
+              >
+                {buyInEligiblePlayers.length === 0 && (
+                  <option value="">No players available</option>
+                )}
+                {buyInEligiblePlayers.map((player) => (
+                  <option key={player.player_id} value={player.player_id}>
+                    {player.name}
+                    {player.is_manager ? ' (Manager)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <fieldset className="flex rounded-lg bg-gray-100 p-1">
+              <legend className="sr-only">Buy-in type</legend>
+              <button
+                type="button"
+                onClick={() => setBuyInType(RequestType.CASH)}
+                className={`flex-1 rounded-md px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                  buyInType === RequestType.CASH
+                    ? 'bg-white text-green-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                aria-pressed={buyInType === RequestType.CASH}
+                disabled={buyInDisabled || isBuyInSubmitting}
+              >
+                Cash
+              </button>
+              <button
+                type="button"
+                onClick={() => setBuyInType(RequestType.CREDIT)}
+                className={`flex-1 rounded-md px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                  buyInType === RequestType.CREDIT
+                    ? 'bg-white text-sky-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                aria-pressed={buyInType === RequestType.CREDIT}
+                disabled={buyInDisabled || isBuyInSubmitting}
+              >
+                Credit
+              </button>
+            </fieldset>
+
+            <div>
+              <label
+                htmlFor="manager-buyin-amount"
+                className="block text-sm font-medium text-gray-700 mb-1.5"
+              >
+                Amount
+              </label>
+              <input
+                id="manager-buyin-amount"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                value={buyInAmount}
+                onChange={(e) => {
+                  setBuyInAmount(e.target.value);
+                  if (buyInError) setBuyInError(null);
+                }}
+                disabled={buyInDisabled || isBuyInSubmitting}
+                placeholder="Enter chip amount"
+                className="w-full rounded-xl border-2 border-gray-300 px-4 py-3 text-lg tabular-nums placeholder:text-gray-400 focus:outline-none focus:ring-0 focus:border-primary-500 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={autoApproveBuyIn}
+                onChange={(e) => setAutoApproveBuyIn(e.target.checked)}
+                disabled={buyInDisabled || isBuyInSubmitting}
+                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              Auto-approve purchase
+            </label>
+
+            <button
+              type="button"
+              onClick={handleManagerBuyIn}
+              disabled={
+                buyInDisabled ||
+                isBuyInSubmitting ||
+                buyInEligiblePlayers.length === 0
+              }
+              className="w-full rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 active:bg-primary-800 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isBuyInSubmitting ? 'Submitting...' : 'Add Buy-in'}
+            </button>
+          </div>
+        </section>
 
         {/* Settling progress banner */}
         {gameStatus === GameStatus.SETTLING && (

@@ -298,7 +298,7 @@ class GameService:
             )
             summaries.append(
                 {
-                    "player_id": str(p.id),
+                    "player_id": p.player_token,
                     "name": p.display_name,
                     "is_manager": p.is_manager,
                     "is_active": p.is_active,

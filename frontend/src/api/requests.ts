@@ -117,7 +117,7 @@ export async function createChipRequest(
     {
       request_type: data.type,
       amount: data.amount,
-      on_behalf_of_player_id: data.on_behalf_of_player_id ?? undefined,
+      on_behalf_of_token: data.on_behalf_of_token ?? undefined,
       note: data.note ?? undefined,
     },
   );

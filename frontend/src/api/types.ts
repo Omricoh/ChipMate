@@ -234,7 +234,7 @@ export interface NotificationsResponse {
 export interface CreateChipRequestPayload {
   type: RequestType;
   amount: number;
-  on_behalf_of_player_id?: string | null;
+  on_behalf_of_token?: string | null;
   note?: string | null;
 }
 
