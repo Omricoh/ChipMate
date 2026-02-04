@@ -284,7 +284,7 @@ export default function GameView() {
 
   // ── Manager Dashboard ─────────────────────────────────────────────────
 
-  if (isManager && gameCode) {
+  if (isManager) {
     return (
       <GameProvider gameId={gameId}>
         <ManagerDashboard gameId={gameId} gameCode={gameCode} />

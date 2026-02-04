@@ -32,7 +32,7 @@ import axios from 'axios';
 
 interface ManagerDashboardProps {
   gameId: string;
-  gameCode: string;
+  gameCode?: string;
 }
 
 /**
@@ -351,9 +351,11 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
   // ── Loading State ─────────────────────────────────────────────────────
 
+  const resolvedGameCode = gameCode ?? game?.game.game_code;
+
   if (isLoading) {
     return (
-      <Layout gameCode={gameCode} notificationCount={unreadCount}>
+      <Layout gameCode={resolvedGameCode} notificationCount={unreadCount}>
         <LoadingSpinner message="Loading game..." />
       </Layout>
     );
@@ -363,7 +365,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
   if (error || !game) {
     return (
-      <Layout gameCode={gameCode}>
+      <Layout gameCode={resolvedGameCode}>
         <ErrorBanner
           message={error ?? 'Could not load game data'}
           onRetry={refreshGame}
@@ -379,7 +381,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   const checkedOutCount = players.filter((p) => p.checked_out).length;
 
   return (
-    <Layout gameCode={gameCode} notificationCount={unreadCount}>
+    <Layout gameCode={resolvedGameCode} notificationCount={unreadCount}>
       <div className="space-y-6">
         {/* Game Header */}
         <div className="flex items-center justify-between">
@@ -537,7 +539,13 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
           <div className="space-y-4">
             {/* Share section -- always visible */}
-            <GameShareSection gameCode={gameCode} onToast={addToast} />
+            {resolvedGameCode ? (
+              <GameShareSection gameCode={resolvedGameCode} onToast={addToast} />
+            ) : (
+              <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4 text-sm text-gray-500">
+                Loading game code...
+              </div>
+            )}
 
             {/* Status-dependent controls */}
             {gameStatus === GameStatus.OPEN && (
