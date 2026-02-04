@@ -66,6 +66,10 @@ class CreateChipRequestBody(BaseModel):
 class EditRequestBody(BaseModel):
     """Request body for POST .../requests/{request_id}/edit."""
     new_amount: int = Field(..., gt=0, description="Manager-adjusted chip amount.")
+    new_type: Optional[RequestType] = Field(
+        default=None,
+        description="Optional new request type (CASH or CREDIT).",
+    )
 
 
 class ChipRequestOut(BaseModel):
@@ -265,6 +269,7 @@ async def edit_and_approve_request(
         game_id=game_id,
         request_id=request_id,
         new_amount=body.new_amount,
+        new_type=body.new_type,
         manager_token=manager.player_token,
     )
     return _to_response(chip_request)

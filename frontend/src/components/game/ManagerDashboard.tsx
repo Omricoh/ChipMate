@@ -196,11 +196,16 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   );
 
   const handleEditApprove = useCallback(
-    async (requestId: string, newAmount: number) => {
+    async (requestId: string, newAmount: number, newType: RequestType) => {
       setProcessingId(requestId);
       try {
-        await editApprove(requestId, newAmount);
-        addToast(createToast('success', `Approved with adjusted amount: ${newAmount.toLocaleString()}`));
+        await editApprove(requestId, newAmount, newType);
+        addToast(
+          createToast(
+            'success',
+            `Approved ${newType.toLowerCase()} amount: ${newAmount.toLocaleString()}`,
+          ),
+        );
         refreshGame();
       } catch {
         addToast(createToast('error', 'Failed to edit and approve request'));

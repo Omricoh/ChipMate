@@ -379,6 +379,7 @@ class RequestService:
         game_id: str,
         request_id: str,
         new_amount: int,
+        new_type: Optional[RequestType],
         manager_token: str,
     ) -> ChipRequest:
         """Edit a request's amount and approve it atomically.
@@ -412,12 +413,14 @@ class RequestService:
         self._validate_request_pending(chip_request)
 
         original_amount = chip_request.amount
+        effective_type = new_type or chip_request.request_type
 
         updated = await self._chip_request_dal.update_status(
             request_id=request_id,
             new_status=RequestStatus.EDITED,
             resolved_by=manager_token,
             edited_amount=new_amount,
+            edited_request_type=new_type,
         )
         if not updated:
             raise HTTPException(
@@ -429,7 +432,7 @@ class RequestService:
         await self._apply_bank_and_player_updates(
             game_id=game_id,
             player_token=chip_request.player_token,
-            request_type=chip_request.request_type,
+            request_type=effective_type,
             amount=new_amount,
         )
 
@@ -439,8 +442,8 @@ class RequestService:
             player_token=chip_request.player_token,
             notification_type=NotificationType.REQUEST_EDITED,
             message=(
-                f"Your buy-in was edited to {new_amount} chips and approved "
-                f"(original: {original_amount})"
+                f"Your {effective_type.value.lower()} buy-in was edited to "
+                f"{new_amount} chips and approved (original: {original_amount})"
             ),
             related_id=request_id,
         )

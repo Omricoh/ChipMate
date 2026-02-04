@@ -12,7 +12,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.chip_request import ChipRequest
-from app.models.common import RequestStatus
+from app.models.common import RequestStatus, RequestType
 
 logger = logging.getLogger("chipmate.dal.chip_requests")
 
@@ -180,6 +180,7 @@ class ChipRequestDAL:
         new_status: RequestStatus,
         resolved_by: str,
         edited_amount: Optional[int] = None,
+        edited_request_type: Optional[RequestType] = None,
     ) -> bool:
         """Update the status of a chip request (approve / decline / edit).
 
@@ -206,6 +207,8 @@ class ChipRequestDAL:
         }
         if edited_amount is not None:
             update_fields["edited_amount"] = edited_amount
+        if edited_request_type is not None:
+            update_fields["request_type"] = str(edited_request_type)
 
         result = await self._collection.update_one(
             {"_id": ObjectId(request_id), "status": "PENDING"},

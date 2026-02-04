@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { RequestTypeBadge } from '../common/Badge';
+import { RequestType } from '../../api/types';
 import type { ChipRequest } from '../../api/types';
 
 interface PendingRequestCardProps {
@@ -9,7 +10,7 @@ interface PendingRequestCardProps {
   /** Called when the manager taps Decline */
   onDecline: (requestId: string) => void;
   /** Called when the manager edits the amount and confirms */
-  onEditApprove: (requestId: string, newAmount: number) => void;
+  onEditApprove: (requestId: string, newAmount: number, newType: RequestType) => void;
   /** Whether any action is currently processing */
   isProcessing?: boolean;
 }
@@ -27,11 +28,13 @@ export function PendingRequestCard({
 }: PendingRequestCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editAmount, setEditAmount] = useState(String(request.amount));
+  const [editType, setEditType] = useState<RequestType>(request.type);
   const [editError, setEditError] = useState<string | null>(null);
 
   const handleEditToggle = () => {
     setIsEditing((prev) => !prev);
     setEditAmount(String(request.amount));
+    setEditType(request.type);
     setEditError(null);
   };
 
@@ -42,7 +45,7 @@ export function PendingRequestCard({
       return;
     }
     setEditError(null);
-    onEditApprove(request.request_id, parsed);
+    onEditApprove(request.request_id, parsed, editType);
     setIsEditing(false);
   };
 
@@ -78,6 +81,33 @@ export function PendingRequestCard({
       {/* Edit mode */}
       {isEditing ? (
         <div className="space-y-2">
+          <fieldset className="flex rounded-lg bg-gray-100 p-1">
+            <legend className="sr-only">Request type</legend>
+            <button
+              type="button"
+              onClick={() => setEditType(RequestType.CASH)}
+              className={`flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                editType === RequestType.CASH
+                  ? 'bg-white text-green-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+              aria-pressed={editType === RequestType.CASH}
+            >
+              Cash
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditType(RequestType.CREDIT)}
+              className={`flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                editType === RequestType.CREDIT
+                  ? 'bg-white text-sky-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+              aria-pressed={editType === RequestType.CREDIT}
+            >
+              Credit
+            </button>
+          </fieldset>
           <div>
             <label
               htmlFor={`edit-amount-${request.request_id}`}

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ChipRequest } from '../api/types';
+import { RequestType } from '../api/types';
 import {
   getPendingRequests,
   approveRequest,
@@ -17,7 +18,7 @@ interface UsePendingRequestsResult {
   /** Decline a pending request */
   decline: (requestId: string) => Promise<void>;
   /** Edit the amount and approve a pending request */
-  editApprove: (requestId: string, newAmount: number) => Promise<void>;
+  editApprove: (requestId: string, newAmount: number, newType: RequestType) => Promise<void>;
   /** Force a refresh of pending requests */
   refresh: () => Promise<void>;
 }
@@ -79,9 +80,9 @@ export function usePendingRequests(
   );
 
   const editApprove = useCallback(
-    async (requestId: string, newAmount: number) => {
+    async (requestId: string, newAmount: number, newType: RequestType) => {
       if (!gameId) return;
-      await editAndApproveRequest(gameId, requestId, newAmount);
+      await editAndApproveRequest(gameId, requestId, newAmount, newType);
       // Optimistic removal
       setRequests((prev) =>
         prev.filter((r) => r.request_id !== requestId),

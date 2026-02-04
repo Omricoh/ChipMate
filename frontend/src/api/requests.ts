@@ -96,10 +96,11 @@ export async function editAndApproveRequest(
   gameId: string,
   requestId: string,
   newAmount: number,
+  newType?: RequestType,
 ): Promise<ChipRequest> {
   const response = await apiClient.post<ChipRequestRaw>(
     `/api/games/${gameId}/requests/${requestId}/edit`,
-    { new_amount: newAmount },
+    { new_amount: newAmount, new_type: newType },
   );
   return toChipRequest(response.data);
 }
