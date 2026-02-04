@@ -22,10 +22,7 @@ def generate_qr_code(game_code: str, base_url: str) -> bytes:
     Returns:
         PNG image data as bytes.
     """
-    if base_url:
-        join_url = f"{base_url.rstrip('/')}/join/{game_code}"
-    else:
-        join_url = f"/join/{game_code}"
+    join_url = f"{base_url.rstrip('/')}/join/{game_code}"
 
     qr = qrcode.QRCode(
         version=1,
