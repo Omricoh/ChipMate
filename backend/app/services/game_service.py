@@ -19,6 +19,7 @@ from app.dal.chip_requests_dal import ChipRequestDAL
 from app.models.common import GameStatus
 from app.models.game import Game
 from app.models.player import Player
+from app.models.common import RequestType
 
 logger = logging.getLogger("chipmate.services.game")
 
@@ -55,6 +56,28 @@ class GameService:
                 detail="Game manager player record is missing or invalid",
             )
         return manager
+
+    async def _compute_player_totals(self, game_id: str, player_token: str) -> dict[str, int]:
+        """Compute total cash/credit buy-ins for a player from approved/edited requests."""
+        requests = await self._chip_request_dal.get_by_player(
+            game_id, player_token, limit=10000
+        )
+        total_cash_in = 0
+        total_credit_in = 0
+
+        for req in requests:
+            amount = req.effective_amount
+            if amount <= 0:
+                continue
+            if req.request_type == RequestType.CASH:
+                total_cash_in += amount
+            else:
+                total_credit_in += amount
+
+        return {
+            "total_cash_in": total_cash_in,
+            "total_credit_in": total_credit_in,
+        }
 
     # ------------------------------------------------------------------
     # Game code generation
@@ -257,6 +280,38 @@ class GameService:
         game = await self.get_game(game_id)
         await self._require_manager_player(game_id, game.manager_player_token)
         return await self._player_dal.get_by_game(game_id, include_inactive=True)
+
+    async def get_game_players_summary(self, game_id: str) -> list[dict[str, Any]]:
+        """Return players with computed buy-in totals and current chip balance."""
+        game = await self.get_game(game_id)
+        await self._require_manager_player(game_id, game.manager_player_token)
+        players = await self._player_dal.get_by_game(game_id, include_inactive=True)
+
+        summaries: list[dict[str, Any]] = []
+        for p in players:
+            totals = await self._compute_player_totals(game_id, p.player_token)
+            total_buy_in = totals["total_cash_in"] + totals["total_credit_in"]
+            current_chips = (
+                p.final_chip_count
+                if p.checked_out and p.final_chip_count is not None
+                else total_buy_in
+            )
+            summaries.append(
+                {
+                    "player_id": str(p.id),
+                    "name": p.display_name,
+                    "is_manager": p.is_manager,
+                    "is_active": p.is_active,
+                    "credits_owed": p.credits_owed,
+                    "checked_out": p.checked_out,
+                    "joined_at": p.joined_at,
+                    "total_cash_in": totals["total_cash_in"],
+                    "total_credit_in": totals["total_credit_in"],
+                    "current_chips": current_chips,
+                }
+            )
+
+        return summaries
 
     # ------------------------------------------------------------------
     # Game status with bankroll

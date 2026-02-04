@@ -74,7 +74,11 @@ function PlayerRow({
   onCheckout,
   onSettleDebt,
 }: PlayerRowProps) {
-  const totalBuyIn = player.total_cash_in + player.total_credit_in;
+  const totalCashIn = player.total_cash_in ?? 0;
+  const totalCreditIn = player.total_credit_in ?? 0;
+  const creditsOwed = player.credits_owed ?? 0;
+  const currentChips = player.current_chips ?? 0;
+  const totalBuyIn = totalCashIn + totalCreditIn;
   const showSettlementInfo = isSettling || isClosed;
 
   // Calculate P/L for checked-out players
@@ -99,7 +103,7 @@ function PlayerRow({
             {!player.is_active && !player.checked_out && (
               <Badge label="Inactive" color="red" />
             )}
-            {player.checked_out && player.credits_owed > 0 && (
+            {player.checked_out && creditsOwed > 0 && (
               <Badge label="Has Debt" color="sky" />
             )}
           </div>
@@ -112,11 +116,11 @@ function PlayerRow({
                 {totalBuyIn.toLocaleString()}
               </span>
             </span>
-            {player.credits_owed > 0 && (
+            {creditsOwed > 0 && (
               <span>
                 Credit:{' '}
                 <span className="font-medium text-sky-700 tabular-nums">
-                  {player.credits_owed.toLocaleString()}
+                  {creditsOwed.toLocaleString()}
                 </span>
               </span>
             )}
@@ -146,7 +150,7 @@ function PlayerRow({
           ) : (
             <>
               <span className="text-sm font-bold text-gray-900 tabular-nums">
-                {player.current_chips.toLocaleString()}
+                {currentChips.toLocaleString()}
               </span>
               <span className="block text-[10px] uppercase tracking-wide text-gray-400 font-medium">
                 chips
@@ -172,7 +176,7 @@ function PlayerRow({
           )}
 
           {/* Settle Debt button for checked-out players with outstanding credit */}
-          {player.checked_out && player.credits_owed > 0 && onSettleDebt && (
+          {player.checked_out && creditsOwed > 0 && onSettleDebt && (
             <button
               type="button"
               onClick={() => onSettleDebt(player)}
@@ -184,7 +188,7 @@ function PlayerRow({
           )}
 
           {/* Status indicator for fully-settled players */}
-          {player.checked_out && player.credits_owed === 0 && (
+          {player.checked_out && creditsOwed === 0 && (
             <span className="text-xs text-green-600 font-medium">
               Settled
             </span>

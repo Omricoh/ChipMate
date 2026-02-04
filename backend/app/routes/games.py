@@ -97,12 +97,15 @@ class JoinGameResponse(BaseModel):
 class PlayerInfo(BaseModel):
     """A single player entry in the players list response."""
     player_id: str
-    display_name: str
+    name: str
     is_manager: bool
     is_active: bool
     credits_owed: int
     checked_out: bool
     joined_at: str
+    total_cash_in: int
+    total_credit_in: int
+    current_chips: int
 
 
 class PlayersListResponse(BaseModel):
@@ -273,24 +276,27 @@ async def list_players(
 ) -> PlayersListResponse:
     """List all players in a game. Requires player token or admin JWT."""
     service = _get_service()
-    players = await service.get_game_players(game_id)
+    players = await service.get_game_players_summary(game_id)
 
     player_infos = []
     for p in players:
         joined_at_str = (
-            p.joined_at.isoformat()
-            if hasattr(p.joined_at, "isoformat")
-            else str(p.joined_at)
+            p["joined_at"].isoformat()
+            if hasattr(p["joined_at"], "isoformat")
+            else str(p["joined_at"])
         )
         player_infos.append(
             PlayerInfo(
-                player_id=p.player_token,
-                display_name=p.display_name,
-                is_manager=p.is_manager,
-                is_active=p.is_active,
-                credits_owed=p.credits_owed,
-                checked_out=p.checked_out,
+                player_id=p["player_id"],
+                name=p["name"],
+                is_manager=p["is_manager"],
+                is_active=p["is_active"],
+                credits_owed=p["credits_owed"],
+                checked_out=p["checked_out"],
                 joined_at=joined_at_str,
+                total_cash_in=p["total_cash_in"],
+                total_credit_in=p["total_credit_in"],
+                current_chips=p["current_chips"],
             )
         )
 
