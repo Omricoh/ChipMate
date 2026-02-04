@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Layout } from '../components/common/Layout';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { ErrorBanner } from '../components/common/ErrorBanner';
@@ -201,6 +201,28 @@ function PlayerView({ gameId }: { gameId: string }) {
             pendingRequests={game.pending_requests ?? 0}
             creditsOutstanding={game.credits_outstanding ?? 0}
           />
+        )}
+
+        {gameStatus === GameStatus.CLOSED && (
+          <section className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-center space-y-3">
+            <p className="text-sm font-medium text-gray-600">
+              This game has been closed
+            </p>
+            <div className="flex flex-col gap-2">
+              <Link
+                to="/create"
+                className="rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+              >
+                Create New Game
+              </Link>
+              <Link
+                to="/join"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              >
+                Join a Game
+              </Link>
+            </div>
+          </section>
         )}
 
         {/* Chip Request Form */}

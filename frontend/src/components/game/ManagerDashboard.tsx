@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useGame } from '../../hooks/useGame';
 import { usePendingRequests } from '../../hooks/usePendingRequests';
 import { useNotifications } from '../../hooks/useNotifications';
@@ -810,10 +811,24 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             )}
 
             {gameStatus === GameStatus.CLOSED && (
-              <div className="rounded-xl bg-gray-100 px-6 py-4 text-center">
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-center space-y-3">
                 <p className="text-sm font-medium text-gray-600">
                   This game has been closed
                 </p>
+                <div className="flex flex-col gap-2">
+                  <Link
+                    to="/create"
+                    className="rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+                  >
+                    Create New Game
+                  </Link>
+                  <Link
+                    to="/join"
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                  >
+                    Join a Game
+                  </Link>
+                </div>
               </div>
             )}
           </div>
