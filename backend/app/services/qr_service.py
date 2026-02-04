@@ -17,12 +17,15 @@ def generate_qr_code(game_code: str, base_url: str) -> bytes:
 
     Args:
         game_code: The 6-character game code.
-        base_url: The application base URL (e.g. "http://localhost:3000").
+        base_url: Optional application base URL. If empty, use a relative path.
 
     Returns:
         PNG image data as bytes.
     """
-    join_url = f"{base_url.rstrip('/')}/join/{game_code}"
+    if base_url:
+        join_url = f"{base_url.rstrip('/')}/join/{game_code}"
+    else:
+        join_url = f"/join/{game_code}"
 
     qr = qrcode.QRCode(
         version=1,

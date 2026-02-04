@@ -31,9 +31,6 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "admin123"
     JWT_SECRET: Optional[str] = None
 
-    # CORS Configuration
-    FRONTEND_URL: str = "http://localhost:3000"
-
     # Application Metadata
     APP_VERSION: str = "2.0.0"
     
@@ -60,16 +57,7 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         """Return list of allowed CORS origins."""
-        origins = [self.FRONTEND_URL]
-        # Add common development ports
-        if "localhost" in self.FRONTEND_URL:
-            origins.extend([
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://127.0.0.1:3000",
-                "http://127.0.0.1:5173",
-            ])
-        return list(set(origins))
+        return []
 
 
 # Global settings instance
