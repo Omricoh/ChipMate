@@ -99,6 +99,12 @@ class ChipRequestDAL:
             requests.append(ChipRequest(**doc))
         return requests
 
+    async def count_pending_by_game(self, game_id: str) -> int:
+        """Count all pending requests for a game."""
+        return await self._collection.count_documents(
+            {"game_id": game_id, "status": "PENDING"}
+        )
+
     async def get_by_player(
         self,
         game_id: str,

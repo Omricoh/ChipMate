@@ -377,6 +377,15 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   // ── Render ────────────────────────────────────────────────────────────
 
   const gameStatus = game.game.status;
+  const bankSummary = game.chips ?? {
+    total_cash_in: 0,
+    total_credit_in: 0,
+    total_in_play: 0,
+    total_checked_out: 0,
+  };
+  const pendingRequestsCount = game.pending_requests ?? 0;
+  const creditsOutstanding =
+    typeof game.credits_outstanding === 'number' ? game.credits_outstanding : 0;
   const activePlayers = players.filter((p) => p.is_active && !p.checked_out);
   const checkedOutCount = players.filter((p) => p.checked_out).length;
 
@@ -399,9 +408,9 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
 
         {/* Bank Summary */}
         <BankSummaryCard
-          chips={game.chips}
-          pendingRequests={game.pending_requests}
-          creditsOutstanding={game.credits_outstanding}
+          chips={bankSummary}
+          pendingRequests={pendingRequestsCount}
+          creditsOutstanding={creditsOutstanding}
         />
 
         {/* Settling progress banner */}

@@ -15,6 +15,7 @@ from fastapi import HTTPException, status
 from app.auth.player_token import generate_player_token
 from app.dal.games_dal import GameDAL
 from app.dal.players_dal import PlayerDAL
+from app.dal.chip_requests_dal import ChipRequestDAL
 from app.models.common import GameStatus
 from app.models.game import Game
 from app.models.player import Player
@@ -31,9 +32,29 @@ _MAX_CODE_RETRIES = 10
 class GameService:
     """Service layer for game-related operations."""
 
-    def __init__(self, game_dal: GameDAL, player_dal: PlayerDAL) -> None:
+    def __init__(
+        self,
+        game_dal: GameDAL,
+        player_dal: PlayerDAL,
+        chip_request_dal: ChipRequestDAL,
+    ) -> None:
         self._game_dal = game_dal
         self._player_dal = player_dal
+        self._chip_request_dal = chip_request_dal
+
+    # ------------------------------------------------------------------
+    # Validation helpers
+    # ------------------------------------------------------------------
+
+    async def _require_manager_player(self, game_id: str, manager_token: str) -> Player:
+        """Ensure the game manager also exists as a player in the same game."""
+        manager = await self._player_dal.get_by_token(game_id, manager_token)
+        if manager is None or not manager.is_manager:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Game manager player record is missing or invalid",
+            )
+        return manager
 
     # ------------------------------------------------------------------
     # Game code generation
@@ -233,6 +254,8 @@ class GameService:
         Returns:
             A list of Player model instances.
         """
+        game = await self.get_game(game_id)
+        await self._require_manager_player(game_id, game.manager_player_token)
         return await self._player_dal.get_by_game(game_id, include_inactive=True)
 
     # ------------------------------------------------------------------
@@ -252,16 +275,21 @@ class GameService:
             HTTPException 404: Game not found.
         """
         game = await self.get_game(game_id)
+        manager = await self._require_manager_player(game_id, game.manager_player_token)
         players = await self._player_dal.get_by_game(game_id, include_inactive=True)
 
         active_count = sum(1 for p in players if p.is_active)
         checked_out_count = sum(1 for p in players if p.checked_out)
+        credits_outstanding = sum(p.credits_owed for p in players)
+
+        pending_requests = await self._chip_request_dal.count_pending_by_game(game_id)
 
         return {
             "game": {
                 "game_id": str(game.id),
                 "game_code": game.code,
                 "status": str(game.status),
+                "manager_name": manager.display_name,
                 "created_at": game.created_at.isoformat() if isinstance(game.created_at, datetime) else str(game.created_at),
             },
             "players": {
@@ -269,11 +297,12 @@ class GameService:
                 "active": active_count,
                 "checked_out": checked_out_count,
             },
-            "bank": {
+            "chips": {
                 "total_cash_in": game.bank.total_cash_in,
                 "total_credit_in": game.bank.total_credits_issued,
-                "total_chips_in_play": game.bank.chips_in_play,
-                "total_chips_issued": game.bank.total_chips_issued,
-                "cash_balance": game.bank.cash_balance,
+                "total_in_play": game.bank.chips_in_play,
+                "total_checked_out": game.bank.total_chips_returned,
             },
+            "pending_requests": pending_requests,
+            "credits_outstanding": credits_outstanding,
         }

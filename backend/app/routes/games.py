@@ -21,6 +21,7 @@ from app.config import settings
 from app.dal.database import get_database
 from app.dal.games_dal import GameDAL
 from app.dal.players_dal import PlayerDAL
+from app.dal.chip_requests_dal import ChipRequestDAL
 from app.services.game_service import GameService
 
 logger = logging.getLogger("chipmate.routes.games")
@@ -35,7 +36,7 @@ router = APIRouter(prefix="/games", tags=["Games"])
 def _get_service() -> GameService:
     """Build a GameService wired to the current database."""
     db = get_database()
-    return GameService(GameDAL(db), PlayerDAL(db))
+    return GameService(GameDAL(db), PlayerDAL(db), ChipRequestDAL(db))
 
 
 # ---------------------------------------------------------------------------
