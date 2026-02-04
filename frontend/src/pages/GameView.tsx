@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/common/Layout';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { ErrorBanner } from '../components/common/ErrorBanner';
@@ -300,8 +300,25 @@ function PlayerView({ gameId }: { gameId: string }) {
 export default function GameView() {
   const { gameId } = useParams<{ gameId: string }>();
   const { user, isManager } = useAuth();
+  const navigate = useNavigate();
 
   const gameCode = user?.kind === 'player' ? user.gameCode : undefined;
+  const userGameId = user?.kind === 'player' ? user.gameId : undefined;
+  
+  // Check if player is trying to access a different game (needs redirect)
+  const isPlayerGameMismatch =
+    user?.kind === 'player' && gameId && userGameId && userGameId !== gameId;
+
+  // Guard: Verify the URL gameId matches the player's stored gameId
+  // This prevents players from accessing other games by manipulating the URL
+  // The navigate() with replace: true updates the URL immediately, preventing
+  // infinite redirect loops as the condition becomes false after navigation
+  useEffect(() => {
+    if (isPlayerGameMismatch && userGameId) {
+      // Auto-redirect to the correct game
+      navigate(`/game/${userGameId}`, { replace: true });
+    }
+  }, [isPlayerGameMismatch, userGameId, navigate]);
 
   // Guard: gameId is required (should always be present due to route config)
   if (!gameId) {
@@ -309,6 +326,21 @@ export default function GameView() {
       <Layout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
           <p className="text-gray-500">Invalid game URL</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show loading state during redirect to avoid flash of wrong content
+  if (isPlayerGameMismatch) {
+    return (
+      <Layout gameCode={gameCode}>
+        <div 
+          className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="text-gray-500">Redirecting to your game...</p>
         </div>
       </Layout>
     );
