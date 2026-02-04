@@ -307,10 +307,12 @@ export default function GameView() {
   
   // Check if player is trying to access a different game (needs redirect)
   const isPlayerGameMismatch =
-    user?.kind === 'player' && gameId && userGameId !== gameId;
+    user?.kind === 'player' && gameId && userGameId && userGameId !== gameId;
 
   // Guard: Verify the URL gameId matches the player's stored gameId
   // This prevents players from accessing other games by manipulating the URL
+  // The navigate() with replace: true updates the URL immediately, preventing
+  // infinite redirect loops as the condition becomes false after navigation
   useEffect(() => {
     if (isPlayerGameMismatch && userGameId) {
       // Auto-redirect to the correct game
