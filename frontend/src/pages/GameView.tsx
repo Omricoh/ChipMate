@@ -303,15 +303,20 @@ export default function GameView() {
   const navigate = useNavigate();
 
   const gameCode = user?.kind === 'player' ? user.gameCode : undefined;
+  const userGameId = user?.kind === 'player' ? user.gameId : undefined;
+  
+  // Check if player is trying to access a different game (needs redirect)
+  const isPlayerGameMismatch =
+    user?.kind === 'player' && gameId && userGameId !== gameId;
 
   // Guard: Verify the URL gameId matches the player's stored gameId
   // This prevents players from accessing other games by manipulating the URL
   useEffect(() => {
-    if (user?.kind === 'player' && gameId && user.gameId !== gameId) {
+    if (isPlayerGameMismatch && userGameId) {
       // Auto-redirect to the correct game
-      navigate(`/game/${user.gameId}`, { replace: true });
+      navigate(`/game/${userGameId}`, { replace: true });
     }
-  }, [user, gameId, navigate]);
+  }, [isPlayerGameMismatch, userGameId, navigate]);
 
   // Guard: gameId is required (should always be present due to route config)
   if (!gameId) {
@@ -325,7 +330,7 @@ export default function GameView() {
   }
 
   // Show loading state during redirect to avoid flash of wrong content
-  if (user?.kind === 'player' && user.gameId !== gameId) {
+  if (isPlayerGameMismatch) {
     return (
       <Layout gameCode={gameCode}>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
