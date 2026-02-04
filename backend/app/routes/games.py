@@ -341,8 +341,8 @@ async def get_game_status(
     },
 )
 async def get_qr_code(
-    game_code: str = Path(..., min_length=6, max_length=6),
     request: Request,
+    game_code: str = Path(..., min_length=6, max_length=6),
 ) -> Response:
     """Generate a QR code PNG for the game join URL. No auth required.
 
