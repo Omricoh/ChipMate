@@ -128,6 +128,8 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   const [isBuyInSubmitting, setIsBuyInSubmitting] = useState(false);
   const [autoApproveBuyIn, setAutoApproveBuyIn] = useState(true);
 
+  const buyInEligiblePlayers = players.filter((p) => !p.checked_out);
+
   useEffect(() => {
     if (buyInEligiblePlayers.length === 0) {
       setBuyInPlayerToken('');
@@ -466,7 +468,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
     typeof game.credits_outstanding === 'number' ? game.credits_outstanding : 0;
   const activePlayers = players.filter((p) => p.is_active && !p.checked_out);
   const checkedOutCount = players.filter((p) => p.checked_out).length;
-  const buyInEligiblePlayers = players.filter((p) => !p.checked_out);
   const buyInDisabled = gameStatus !== GameStatus.OPEN;
 
   return (
