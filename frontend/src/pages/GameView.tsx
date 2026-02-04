@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/common/Layout';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { ErrorBanner } from '../components/common/ErrorBanner';
@@ -300,8 +300,18 @@ function PlayerView({ gameId }: { gameId: string }) {
 export default function GameView() {
   const { gameId } = useParams<{ gameId: string }>();
   const { user, isManager } = useAuth();
+  const navigate = useNavigate();
 
   const gameCode = user?.kind === 'player' ? user.gameCode : undefined;
+
+  // Guard: Verify the URL gameId matches the player's stored gameId
+  // This prevents players from accessing other games by manipulating the URL
+  useEffect(() => {
+    if (user?.kind === 'player' && gameId && user.gameId !== gameId) {
+      // Auto-redirect to the correct game
+      navigate(`/game/${user.gameId}`, { replace: true });
+    }
+  }, [user, gameId, navigate]);
 
   // Guard: gameId is required (should always be present due to route config)
   if (!gameId) {
@@ -309,6 +319,17 @@ export default function GameView() {
       <Layout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
           <p className="text-gray-500">Invalid game URL</p>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show loading state during redirect to avoid flash of wrong content
+  if (user?.kind === 'player' && user.gameId !== gameId) {
+    return (
+      <Layout gameCode={gameCode}>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+          <p className="text-gray-500">Redirecting to your game...</p>
         </div>
       </Layout>
     );
