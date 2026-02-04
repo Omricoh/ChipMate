@@ -30,7 +30,9 @@ export function CheckoutPlayerModal({
   const [validationError, setValidationError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const totalBuyIn = player.total_cash_in + player.total_credit_in;
+  const totalCashIn = player.total_cash_in ?? 0;
+  const creditsOwed = player.credits_owed ?? 0;
+  const totalBuyIn = (player.total_cash_in ?? 0) + (player.total_credit_in ?? 0);
 
   // Focus the input when the modal opens and reset state
   useEffect(() => {
@@ -63,7 +65,7 @@ export function CheckoutPlayerModal({
 
   const parsedCount = parseInt(chipCount, 10);
   const isValidNumber = chipCount.trim() !== '' && !isNaN(parsedCount) && parsedCount >= 0;
-  const profitLoss = isValidNumber ? parsedCount - totalBuyIn : null;
+  const profitLoss = isValidNumber ? parsedCount - creditsOwed - totalCashIn : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

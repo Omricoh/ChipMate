@@ -190,7 +190,7 @@ async def _setup_settled_game_with_credit_player(test_client: AsyncClient):
         test_client, game_id, manager_token,
         [
             {"player_id": manager_token, "final_chip_count": 0},
-            {"player_id": bob["player_token"], "final_chip_count": 80},
+            {"player_id": bob["player_token"], "final_chip_count": 120},
         ],
     )
 
@@ -215,6 +215,11 @@ class TestSettleDebt:
         resp = await test_client.post(
             f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
             headers={"X-Player-Token": manager_token},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 100}
+                ]
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -223,6 +228,39 @@ class TestSettleDebt:
         assert data["previous_credits_owed"] == 100
         assert data["credits_owed"] == 0
         assert data["settled"] is True
+        assert data["allocations"][0]["recipient_token"] == manager_token
+
+        # Verify Bob's chips are reduced by the settled debt amount
+        players_resp = await test_client.get(
+            f"/api/games/{game_id}/players",
+            headers={"X-Player-Token": manager_token},
+        )
+        assert players_resp.status_code == 200
+        players = players_resp.json()["players"]
+        bob_row = next(p for p in players if p["player_id"] == bob["player_token"])
+        assert bob_row["current_chips"] == 20
+
+    @pytest.mark.asyncio
+    async def test_settle_debt_allocations_must_match_debt(
+        self, test_client: AsyncClient
+    ):
+        """Allocations must add up to the debt amount."""
+        game, manager_token, bob = await _setup_settled_game_with_credit_player(
+            test_client
+        )
+        game_id = game["game_id"]
+
+        resp = await test_client.post(
+            f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
+            headers={"X-Player-Token": manager_token},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 50}
+                ]
+            },
+        )
+        assert resp.status_code == 400
+        assert "allocated total" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_settle_debt_player_not_found(self, test_client: AsyncClient):
@@ -234,6 +272,11 @@ class TestSettleDebt:
         resp = await test_client.post(
             f"/api/games/{game_id}/players/nonexistent-token/settle-debt",
             headers={"X-Player-Token": manager_token},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 100}
+                ]
+            },
         )
         assert resp.status_code == 404
 
@@ -256,6 +299,11 @@ class TestSettleDebt:
         resp = await test_client.post(
             f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
             headers={"X-Player-Token": manager_token},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 100}
+                ]
+            },
         )
         assert resp.status_code == 400
         assert "checked out" in resp.json()["detail"].lower()
@@ -289,6 +337,11 @@ class TestSettleDebt:
         resp = await test_client.post(
             f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
             headers={"X-Player-Token": manager_token},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 100}
+                ]
+            },
         )
         assert resp.status_code == 400
         assert "no outstanding debt" in resp.json()["detail"].lower()
@@ -304,6 +357,11 @@ class TestSettleDebt:
         resp = await test_client.post(
             f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
             headers={"X-Player-Token": bob["player_token"]},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 100}
+                ]
+            },
         )
         assert resp.status_code == 403
 
@@ -315,6 +373,11 @@ class TestSettleDebt:
 
         resp = await test_client.post(
             f"/api/games/{game_id}/players/some-token/settle-debt",
+            json={
+                "allocations": [
+                    {"recipient_token": "someone", "amount": 100}
+                ]
+            },
         )
         assert resp.status_code == 401
 
@@ -338,6 +401,11 @@ class TestCloseGame:
         await test_client.post(
             f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
             headers={"X-Player-Token": manager_token},
+            json={
+                "allocations": [
+                    {"recipient_token": manager_token, "amount": 100}
+                ]
+            },
         )
 
         resp = await test_client.post(

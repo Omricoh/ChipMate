@@ -343,6 +343,9 @@ class SettlementService:
 
         previous_credits_owed = player.credits_owed
 
+        final_chip_count = player.final_chip_count or 0
+        adjusted_final_chips = max(0, final_chip_count - previous_credits_owed)
+
         if not allocations:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -403,7 +406,12 @@ class SettlementService:
 
         # Zero out the debt
         await self._player_dal.update_by_token(
-            game_id, player_token, {"credits_owed": 0}
+            game_id,
+            player_token,
+            {
+                "credits_owed": 0,
+                "final_chip_count": adjusted_final_chips,
+            },
         )
 
         # Send notification to the debtor with recipients list

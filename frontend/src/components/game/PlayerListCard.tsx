@@ -84,7 +84,7 @@ function PlayerRow({
   // Calculate P/L for checked-out players
   // When checked out, current_chips represents the final chip count
   const profitLoss = player.checked_out
-    ? player.current_chips - totalBuyIn
+    ? currentChips - creditsOwed - totalCashIn
     : null;
 
   return (
