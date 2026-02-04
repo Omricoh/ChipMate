@@ -14,6 +14,7 @@ import { ChipRequestForm } from '../components/game/ChipRequestForm';
 import { RequestHistoryList } from '../components/game/RequestHistoryList';
 import { NotificationPanel } from '../components/game/NotificationPanel';
 import { ManagerDashboard } from '../components/game/ManagerDashboard';
+import { BankSummaryCard } from '../components/game/BankSummaryCard';
 import { GameProvider } from '../context/GameContext';
 import { useGame } from '../hooks/useGame';
 import { useAuth } from '../hooks/useAuth';
@@ -192,6 +193,15 @@ function PlayerView({ gameId }: { gameId: string }) {
           creditsOwed={playerTotals.creditsOwed}
           gameStatus={gameStatus}
         />
+
+        {/* Bank Summary */}
+        {game && (
+          <BankSummaryCard
+            chips={game.chips}
+            pendingRequests={game.pending_requests ?? 0}
+            creditsOutstanding={game.credits_outstanding ?? 0}
+          />
+        )}
 
         {/* Chip Request Form */}
         <ChipRequestForm
