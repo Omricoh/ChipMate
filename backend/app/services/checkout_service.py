@@ -152,9 +152,17 @@ class CheckoutService:
         # 3. Calculate profit/loss
         buy_in_totals = await self._compute_total_buy_in(game_id, player_token)
         total_buy_in = buy_in_totals["total_buy_in"]
+        total_credit_in = buy_in_totals["total_credit_in"]
         profit_loss = final_chip_count - total_buy_in
 
-        # 4. Update player record
+        # 4. Calculate remaining credits owed after checkout
+        # When a player cashes out, their chips first repay credit debt
+        # Example: 300 credit buy-in, 200 chips returned → 100 still owed
+        # Example: 300 credit buy-in, 400 chips returned → 0 owed (100 profit)
+        credits_repaid = min(final_chip_count, total_credit_in)
+        credits_owed = total_credit_in - credits_repaid
+
+        # 5. Update player record
         now = datetime.now(timezone.utc)
         await self._player_dal.update(
             str(player.id),
@@ -163,21 +171,21 @@ class CheckoutService:
                 "checked_out_at": now,
                 "final_chip_count": final_chip_count,
                 "profit_loss": profit_loss,
+                "credits_owed": credits_owed,
             },
         )
 
-        # 5. Update bank
+        # 6. Update bank
         bank_increments: dict[str, int] = {
             "bank.chips_in_play": -total_buy_in,
             "bank.total_chips_returned": final_chip_count,
         }
         await self._game_dal.update_bank(game_id, bank_increments)
 
-        # 6. Determine debt status
-        credits_owed = player.credits_owed
+        # 7. Determine debt status
         has_debt = credits_owed > 0
 
-        # 7. Send notification
+        # 8. Send notification
         pl_prefix = "+" if profit_loss > 0 else ""
         message = (
             f"You have been checked out. Final chips: {final_chip_count}. "
@@ -196,16 +204,17 @@ class CheckoutService:
 
         logger.info(
             "Player checked out: game=%s player=%s final_chips=%d "
-            "total_buy_in=%d profit_loss=%d has_debt=%s",
+            "total_buy_in=%d profit_loss=%d credits_owed=%d has_debt=%s",
             game_id,
             player_token,
             final_chip_count,
             total_buy_in,
             profit_loss,
+            credits_owed,
             has_debt,
         )
 
-        # 8. Return checkout summary
+        # 9. Return checkout summary
         return {
             "player_id": player_token,
             "player_name": player.display_name,

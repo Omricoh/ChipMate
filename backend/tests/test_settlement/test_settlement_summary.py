@@ -485,35 +485,53 @@ class TestSettlementSummary:
     async def test_summary_debt_settled_updates_correctly(
         self, test_client: AsyncClient
     ):
-        """Summary reflects debt settlement correctly."""
+        """Summary reflects debt settlement correctly.
+
+        Bob buys in 200 credit, loses chips, cashes out with 100.
+        He repays 100 of his 200 credit, leaving 100 debt.
+        After manual debt settlement, debt should be 0.
+        """
         game = await _create_game(test_client, "Alice")
         manager_token = game["player_token"]
         game_id = game["game_id"]
 
         bob = await _join_game(test_client, game_id, "Bob")
 
-        # Bob buys in on CREDIT
+        # Alice buys in 200 on CASH (to receive Bob's debt allocation)
+        alice_req = await _create_request(
+            test_client, game_id, manager_token, "CASH", 200
+        )
+        await _approve_request(test_client, game_id, alice_req["id"], manager_token)
+
+        # Bob buys in 200 on CREDIT
         bob_req = await _create_request(
-            test_client, game_id, bob["player_token"], "CREDIT", 100
+            test_client, game_id, bob["player_token"], "CREDIT", 200
         )
         await _approve_request(test_client, game_id, bob_req["id"], manager_token)
 
-        # Check summary before settlement
+        # Check summary before settlement - Bob has 200 credit outstanding
         data_before = await _get_settlement_summary(test_client, game_id, manager_token)
-        assert data_before["total_outstanding_debt"] == 100
+        assert data_before["total_outstanding_debt"] == 200
         assert data_before["all_debts_settled"] is False
 
         # Settle game and checkout
+        # Bob cashes out 100 chips (repays 100 of 200 credit = 100 still owed)
+        # Alice gets remaining 300 chips
         await _settle_game(test_client, game_id, manager_token)
         await _checkout_all(
             test_client, game_id, manager_token,
             [
-                {"player_id": manager_token, "final_chip_count": 0},
+                {"player_id": manager_token, "final_chip_count": 300},
                 {"player_id": bob["player_token"], "final_chip_count": 100},
             ],
         )
 
-        # Settle Bob's debt
+        # Check summary after checkout - Bob still owes 100
+        data_mid = await _get_settlement_summary(test_client, game_id, manager_token)
+        assert data_mid["total_outstanding_debt"] == 100
+        assert data_mid["all_debts_settled"] is False
+
+        # Settle Bob's remaining 100 debt
         resp = await test_client.post(
             f"/api/games/{game_id}/players/{bob['player_token']}/settle-debt",
             headers={"X-Player-Token": manager_token},

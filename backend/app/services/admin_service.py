@@ -254,3 +254,121 @@ class AdminService:
             "closed_games": closed_games,
             "total_players": total_players,
         }
+
+    # ------------------------------------------------------------------
+    # Get manager token (impersonation)
+    # ------------------------------------------------------------------
+
+    async def get_manager_token(self, game_id: str) -> dict[str, Any]:
+        """Get the manager's player token for a game.
+
+        Used by admins to impersonate the game manager for support.
+
+        Args:
+            game_id: String ObjectId of the game.
+
+        Returns:
+            A dict with game_id, game_code, manager_player_token,
+            and manager_name.
+
+        Raises:
+            HTTPException 404: Game or manager not found.
+        """
+        game = await self._game_dal.get_by_id(game_id)
+        if game is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Game not found",
+            )
+
+        # Find the manager player
+        manager = await self._player_dal.get_by_token(
+            game_id, game.manager_player_token
+        )
+        if manager is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Manager player not found",
+            )
+
+        logger.info(
+            "Admin retrieved manager token for game %s (manager: %s)",
+            game_id,
+            manager.display_name,
+        )
+
+        return {
+            "game_id": str(game.id),
+            "game_code": game.code,
+            "manager_player_token": game.manager_player_token,
+            "manager_name": manager.display_name,
+        }
+
+    # ------------------------------------------------------------------
+    # Delete game
+    # ------------------------------------------------------------------
+
+    async def delete_game(
+        self, game_id: str, force: bool = False
+    ) -> dict[str, Any]:
+        """Permanently delete a game and all associated data.
+
+        By default, only CLOSED games can be deleted. Use force=True
+        to delete games in any status.
+
+        Args:
+            game_id: String ObjectId of the game.
+            force: If True, delete even if game is not CLOSED.
+
+        Returns:
+            A dict with game_id, deleted, players_deleted,
+            requests_deleted, and notifications_deleted.
+
+        Raises:
+            HTTPException 404: Game not found.
+            HTTPException 400: Game is not CLOSED and force=False.
+        """
+        game = await self._game_dal.get_by_id(game_id)
+        if game is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Game not found",
+            )
+
+        if not force and game.status != GameStatus.CLOSED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Game is {game.status}. Only CLOSED games can be deleted. "
+                    f"Use force=true to delete anyway."
+                ),
+            )
+
+        # Delete associated data
+        players_deleted = await self._player_dal.delete_by_game(game_id)
+        requests_deleted = await self._chip_request_dal.delete_by_game(game_id)
+
+        notifications_deleted = 0
+        if self._notification_dal:
+            notifications_deleted = await self._notification_dal.delete_by_game(
+                game_id
+            )
+
+        # Delete the game itself
+        await self._game_dal.delete(game_id)
+
+        logger.info(
+            "Deleted game %s (players=%d, requests=%d, notifications=%d)",
+            game_id,
+            players_deleted,
+            requests_deleted,
+            notifications_deleted,
+        )
+
+        return {
+            "game_id": game_id,
+            "deleted": True,
+            "players_deleted": players_deleted,
+            "requests_deleted": requests_deleted,
+            "notifications_deleted": notifications_deleted,
+        }

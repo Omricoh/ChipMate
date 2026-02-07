@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "admin123"
     JWT_SECRET: Optional[str] = None
 
+    # CORS Configuration
+    # Comma-separated list of allowed origins, or "*" for all origins
+    CORS_ORIGINS: str = ""
+
     # Application Metadata
     APP_VERSION: str = "2.0.0"
     
@@ -56,8 +60,35 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        """Return list of allowed CORS origins."""
-        return []
+        """Return list of allowed CORS origins.
+
+        If CORS_ORIGINS is empty, allows all origins in development
+        (localhost:3000, localhost:5173) but returns empty in production.
+
+        Set CORS_ORIGINS environment variable to a comma-separated list
+        of allowed origins, or "*" for all origins.
+        """
+        if self.CORS_ORIGINS:
+            if self.CORS_ORIGINS == "*":
+                return ["*"]
+            return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
+        # Default development origins if not in production
+        is_production = os.getenv("RAILWAY_ENVIRONMENT") == "production"
+        if is_production:
+            logger.warning(
+                "CORS_ORIGINS not configured in production. "
+                "Set CORS_ORIGINS environment variable."
+            )
+            return []
+
+        # Development defaults
+        return [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+        ]
 
 
 # Global settings instance

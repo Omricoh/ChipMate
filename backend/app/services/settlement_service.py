@@ -60,14 +60,34 @@ class SettlementService:
 
         Only counts APPROVED and EDITED requests.
         """
+        totals = await self._compute_buy_in_breakdown(game_id, player_token)
+        return totals["total_buy_in"]
+
+    async def _compute_buy_in_breakdown(
+        self, game_id: str, player_token: str
+    ) -> dict[str, int]:
+        """Compute a player's total buy-in broken down by type.
+
+        Returns a dict with total_cash_in, total_credit_in, and total_buy_in.
+        Only counts APPROVED and EDITED requests.
+        """
         requests = await self._chip_request_dal.get_by_player(
             game_id, player_token
         )
-        total = 0
+        total_cash_in = 0
+        total_credit_in = 0
         for req in requests:
             if req.status in (RequestStatus.APPROVED, RequestStatus.EDITED):
-                total += req.effective_amount
-        return total
+                amount = req.effective_amount
+                if req.request_type.value == "CASH":
+                    total_cash_in += amount
+                else:
+                    total_credit_in += amount
+        return {
+            "total_cash_in": total_cash_in,
+            "total_credit_in": total_credit_in,
+            "total_buy_in": total_cash_in + total_credit_in,
+        }
 
     # ------------------------------------------------------------------
     # Start settling
@@ -214,11 +234,18 @@ class SettlementService:
 
         for player in sorted_players:
             final_chips = submitted_tokens[player.player_token]
-            total_buy_in = await self._compute_total_buy_in(
+            buy_in_breakdown = await self._compute_buy_in_breakdown(
                 game_id, player.player_token
             )
+            total_buy_in = buy_in_breakdown["total_buy_in"]
+            total_credit_in = buy_in_breakdown["total_credit_in"]
             profit_loss = final_chips - total_buy_in
-            has_debt = player.credits_owed > 0
+
+            # Calculate remaining credits owed after checkout
+            # When a player cashes out, their chips first repay credit debt
+            credits_repaid = min(final_chips, total_credit_in)
+            credits_owed = total_credit_in - credits_repaid
+            has_debt = credits_owed > 0
 
             # Update player record
             await self._player_dal.update(
@@ -227,6 +254,7 @@ class SettlementService:
                     "checked_out": True,
                     "final_chip_count": final_chips,
                     "profit_loss": profit_loss,
+                    "credits_owed": credits_owed,
                     "checked_out_at": now,
                 },
             )

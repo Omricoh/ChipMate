@@ -28,7 +28,9 @@
       "Bash(git -C /Users/b/Documents/GitHub/ChipMate show main:src/models/bank.py)",
       "Bash(python3:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

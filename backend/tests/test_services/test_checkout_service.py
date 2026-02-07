@@ -156,6 +156,11 @@ class TestCheckoutWithCredits:
     async def test_checkout_with_credit_debt(
         self, checkout_service, game_service, request_service
     ):
+        """Player with credit buy-in partially repays when cashing out.
+
+        Bob buys in 100 on CREDIT, cashes out with 80 chips.
+        He repays 80 of the 100 credit, so still owes 20.
+        """
         game = await game_service.create_game("Alice")
         bob = await game_service.join_game(game["game_id"], "Bob")
 
@@ -170,7 +175,8 @@ class TestCheckoutWithCredits:
         result = await checkout_service.checkout_player(
             game["game_id"], bob["player_token"], final_chip_count=80,
         )
-        assert result["credits_owed"] == 100
+        # Bob cashed out 80 chips, which repays 80 of his 100 credit debt
+        assert result["credits_owed"] == 20  # 100 - 80 = 20 still owed
         assert result["has_debt"] is True
         assert result["total_buy_in"] == 100
         assert result["profit_loss"] == -20
@@ -179,6 +185,12 @@ class TestCheckoutWithCredits:
     async def test_checkout_mixed_cash_and_credit(
         self, checkout_service, game_service, request_service
     ):
+        """Player with mixed cash/credit fully repays credit when in profit.
+
+        Bob buys in 100 CASH + 50 CREDIT = 150 total.
+        He cashes out with 200 chips (50 profit).
+        Since he has 200 chips, he fully repays the 50 credit debt.
+        """
         game = await game_service.create_game("Alice")
         bob = await game_service.join_game(game["game_id"], "Bob")
 
@@ -201,8 +213,9 @@ class TestCheckoutWithCredits:
         )
         assert result["total_buy_in"] == 150
         assert result["profit_loss"] == 50
-        assert result["credits_owed"] == 50
-        assert result["has_debt"] is True
+        # Bob cashed out 200 chips, which fully covers his 50 credit debt
+        assert result["credits_owed"] == 0  # min(200, 50) = 50 repaid, 50 - 50 = 0
+        assert result["has_debt"] is False
 
 
 # ---------------------------------------------------------------------------

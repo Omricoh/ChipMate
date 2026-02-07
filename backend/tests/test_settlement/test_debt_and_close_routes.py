@@ -162,11 +162,12 @@ async def _setup_settled_game_with_credit_player(test_client: AsyncClient):
     """Setup a game in SETTLING status with one credit-debt player checked out.
 
     Creates:
-    - Alice (manager) with no buy-in
-    - Bob with a 100-chip CREDIT buy-in (will have credits_owed=100)
+    - Alice (manager) with 200-chip CASH buy-in (ends with 280 chips = profit)
+    - Bob with a 200-chip CREDIT buy-in, cashes out with 100 chips
+      (repays 100 of 200 credit, so still owes 100)
 
-    Settles game, then checks out all players. Bob ends with 80 chips
-    and still has credit debt.
+    Settles game, then checks out all players. Bob ends with 100 chips
+    and still has 100 credit debt.
 
     Returns (game, manager_token, bob).
     """
@@ -176,9 +177,15 @@ async def _setup_settled_game_with_credit_player(test_client: AsyncClient):
 
     bob = await _join_game(test_client, game_id, "Bob")
 
-    # Bob buys in 100 on CREDIT
+    # Alice buys in 200 on CASH
+    alice_req = await _create_request(
+        test_client, game_id, manager_token, "CASH", 200
+    )
+    await _approve_request(test_client, game_id, alice_req["id"], manager_token)
+
+    # Bob buys in 200 on CREDIT
     bob_req = await _create_request(
-        test_client, game_id, bob["player_token"], "CREDIT", 100
+        test_client, game_id, bob["player_token"], "CREDIT", 200
     )
     await _approve_request(test_client, game_id, bob_req["id"], manager_token)
 
@@ -186,11 +193,13 @@ async def _setup_settled_game_with_credit_player(test_client: AsyncClient):
     await _settle_game(test_client, game_id, manager_token)
 
     # Checkout all players
+    # Bob cashes out 100 chips, repaying 100 of his 200 credit = still owes 100
+    # Alice gets all remaining 300 chips (200 buy-in + 100 from Bob)
     await _checkout_all(
         test_client, game_id, manager_token,
         [
-            {"player_id": manager_token, "final_chip_count": 0},
-            {"player_id": bob["player_token"], "final_chip_count": 120},
+            {"player_id": manager_token, "final_chip_count": 300},
+            {"player_id": bob["player_token"], "final_chip_count": 100},
         ],
     )
 
@@ -231,6 +240,7 @@ class TestSettleDebt:
         assert data["allocations"][0]["recipient_token"] == manager_token
 
         # Verify Bob's chips are reduced by the settled debt amount
+        # Bob had 100 chips and 100 debt, so after settling he has 0 chips
         players_resp = await test_client.get(
             f"/api/games/{game_id}/players",
             headers={"X-Player-Token": manager_token},
@@ -238,7 +248,7 @@ class TestSettleDebt:
         assert players_resp.status_code == 200
         players = players_resp.json()["players"]
         bob_row = next(p for p in players if p["player_id"] == bob["player_token"])
-        assert bob_row["current_chips"] == 20
+        assert bob_row["current_chips"] == 0
 
     @pytest.mark.asyncio
     async def test_settle_debt_allocations_must_match_debt(

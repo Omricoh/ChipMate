@@ -9,6 +9,8 @@ import os
 
 # Set required env vars before any app imports
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-unit-tests-only")
+# Disable rate limiting in tests
+os.environ["TESTING"] = "1"
 
 import pytest
 import pytest_asyncio

@@ -24,6 +24,7 @@ from app.dal.database import get_database
 from app.dal.games_dal import GameDAL
 from app.dal.players_dal import PlayerDAL
 from app.dal.chip_requests_dal import ChipRequestDAL
+from app.middleware.rate_limit import rate_limiter
 from app.models.player import Player
 from app.services.game_service import GameService
 
@@ -139,11 +140,13 @@ class GameDetailResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
     summary="Create a new game",
 )
-async def create_game(body: CreateGameRequest) -> CreateGameResponse:
+async def create_game(request: Request, body: CreateGameRequest) -> CreateGameResponse:
     """Create a new game. The creator becomes the manager.
 
     No authentication required -- anyone can create a game.
+    Rate limited to 5 games per IP per hour.
     """
+    rate_limiter.check_rate_limit(request, "game_create")
     service = _get_service()
     result = await service.create_game(manager_name=body.manager_name)
     return CreateGameResponse(**result)
@@ -159,12 +162,15 @@ async def create_game(body: CreateGameRequest) -> CreateGameResponse:
     summary="Look up game by code (public)",
 )
 async def get_game_by_code(
+    request: Request,
     game_code: str = Path(..., min_length=6, max_length=6),
 ) -> GameCodeLookupResponse:
     """Look up a game by its 6-character join code. No auth required.
 
     Used by the join screen to display game info before joining.
+    Rate limited to 10 requests per IP per minute.
     """
+    rate_limiter.check_rate_limit(request, "game_lookup")
     service = _get_service()
     game = await service.get_game_by_code(game_code)
 
@@ -252,13 +258,16 @@ async def get_game(
     summary="Join a game",
 )
 async def join_game(
+    request: Request,
     body: JoinGameRequest,
     game_id: str = Path(...),
 ) -> JoinGameResponse:
     """Join a game. No auth required.
 
     The game must be OPEN. Returns a player token on success.
+    Rate limited to 10 joins per IP per game per hour.
     """
+    rate_limiter.check_rate_limit(request, "game_join", extra_key=game_id)
     service = _get_service()
     result = await service.join_game(game_id=game_id, player_name=body.player_name)
     return JoinGameResponse(**result)

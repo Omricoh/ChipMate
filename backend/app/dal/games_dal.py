@@ -181,6 +181,27 @@ class GameDAL:
             games.append(Game(**doc))
         return games
 
+    async def get_expired_games(self, as_of: datetime) -> list[Game]:
+        """Find all OPEN or SETTLING games whose expires_at has passed.
+
+        Args:
+            as_of: The datetime to compare expires_at against.
+
+        Returns:
+            A list of expired Game instances.
+        """
+        cursor = self._collection.find(
+            {
+                "status": {"$in": ["OPEN", "SETTLING"]},
+                "expires_at": {"$lte": as_of},
+            }
+        )
+        games: list[Game] = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            games.append(Game(**doc))
+        return games
+
     # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------

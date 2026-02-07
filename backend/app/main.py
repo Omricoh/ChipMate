@@ -25,6 +25,7 @@ from app.routes.admin import router as admin_router
 from app.routes.checkout import router as checkout_router
 from app.routes.checkout import checkout_order_router
 from app.routes.settlement import router as settlement_router
+from app.tasks import start_expiry_checker, stop_expiry_checker
 
 logger = logging.getLogger("chipmate.app")
 
@@ -41,6 +42,9 @@ async def lifespan(app: FastAPI):
         db = get_database()
         await ensure_indexes(db)
         logger.info("ChipMate v%s started with database connection", settings.APP_VERSION)
+
+        # Start background task for game expiry
+        start_expiry_checker()
     except Exception as e:
         # Allow the app to start even if MongoDB is not available
         # This enables Railway health checks to pass during initial deployment
@@ -53,7 +57,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: Close MongoDB connection
+    # Shutdown: Stop background tasks and close MongoDB connection
+    stop_expiry_checker()
     await close_mongo_connection()
     logger.info("ChipMate v2 shutdown complete")
 

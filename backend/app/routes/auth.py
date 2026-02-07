@@ -9,7 +9,7 @@ Endpoints:
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from app.auth.jwt import create_access_token, decode_token
@@ -17,6 +17,7 @@ from app.auth.player_token import validate_player_token
 from app.config import settings
 from app.dal.database import get_database
 from app.dal.games_dal import GameDAL
+from app.middleware.rate_limit import rate_limiter
 from app.models.common import GameStatus
 from app.dal.players_dal import PlayerDAL
 
@@ -93,7 +94,7 @@ class ValidateResponseInvalid(BaseModel):
     response_model=AdminLoginResponse,
     status_code=status.HTTP_200_OK,
 )
-async def admin_login(body: AdminLoginRequest) -> AdminLoginResponse:
+async def admin_login(request: Request, body: AdminLoginRequest) -> AdminLoginResponse:
     """Authenticate admin and return a JWT.
 
     Validates the provided credentials against ``ADMIN_USERNAME`` and
@@ -104,12 +105,10 @@ async def admin_login(body: AdminLoginRequest) -> AdminLoginResponse:
 
     Raises:
         HTTPException 401: Invalid credentials.
-
-    .. note::
-        Rate limiting should be applied to this endpoint (see T24).
-        Target: 5 failed attempts per IP per 15 minutes.
+        HTTPException 429: Too many failed login attempts.
     """
-    # NOTE: Rate limiting (5 attempts / 15 min per IP) to be added in T24.
+    # Rate limit: 5 attempts per IP per 15 minutes
+    rate_limiter.check_rate_limit(request, "admin_login")
 
     # Constant-time-ish comparison is not critical here since credentials are
     # fixed env vars, but we avoid short-circuiting anyway.

@@ -1,10 +1,12 @@
 """Admin route handlers.
 
 Endpoints:
-    GET  /api/admin/games                       -- List all games (admin).
-    GET  /api/admin/games/{game_id}             -- Get detailed game info (admin).
-    POST /api/admin/games/{game_id}/force-close -- Force close a game (admin).
-    GET  /api/admin/stats                       -- Dashboard statistics (admin).
+    GET    /api/admin/games                       -- List all games (admin).
+    GET    /api/admin/games/{game_id}             -- Get detailed game info (admin).
+    POST   /api/admin/games/{game_id}/force-close -- Force close a game (admin).
+    POST   /api/admin/games/{game_id}/impersonate -- Get manager token for game (admin).
+    DELETE /api/admin/games/{game_id}             -- Delete a game and all data (admin).
+    GET    /api/admin/stats                       -- Dashboard statistics (admin).
 """
 
 import logging
@@ -17,6 +19,7 @@ from app.auth.dependencies import get_current_admin
 from app.dal.chip_requests_dal import ChipRequestDAL
 from app.dal.database import get_database
 from app.dal.games_dal import GameDAL
+from app.dal.notifications_dal import NotificationDAL
 from app.dal.players_dal import PlayerDAL
 from app.models.common import GameStatus
 from app.services.admin_service import AdminService
@@ -37,6 +40,7 @@ def _get_service() -> AdminService:
         game_dal=GameDAL(db),
         player_dal=PlayerDAL(db),
         chip_request_dal=ChipRequestDAL(db),
+        notification_dal=NotificationDAL(db),
     )
 
 
@@ -133,6 +137,23 @@ class DashboardStatsResponse(BaseModel):
     settling_games: int
     closed_games: int
     total_players: int
+
+
+class ImpersonateResponse(BaseModel):
+    """Response for POST /api/admin/games/{game_id}/impersonate."""
+    game_id: str
+    game_code: str
+    manager_player_token: str
+    manager_name: str
+
+
+class DeleteGameResponse(BaseModel):
+    """Response for DELETE /api/admin/games/{game_id}."""
+    game_id: str
+    deleted: bool
+    players_deleted: int
+    requests_deleted: int
+    notifications_deleted: int
 
 
 # ---------------------------------------------------------------------------
@@ -235,3 +256,77 @@ async def get_dashboard_stats(
     service = _get_service()
     stats = await service.get_dashboard_stats()
     return DashboardStatsResponse(**stats)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/games/{game_id}/impersonate -- Get manager token
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/games/{game_id}/impersonate",
+    response_model=ImpersonateResponse,
+    summary="Get manager token for a game (admin only)",
+)
+async def impersonate_manager(
+    game_id: str = Path(...),
+    admin: dict[str, Any] = Depends(get_current_admin),
+) -> ImpersonateResponse:
+    """Get the manager's player token for a game to impersonate them.
+
+    This is useful for admin support and debugging. The returned token
+    can be used to access the game as the manager.
+
+    Requires admin JWT.
+    """
+    service = _get_service()
+    result = await service.get_manager_token(game_id)
+
+    logger.info(
+        "Admin %s impersonated manager for game %s",
+        admin.get("username", "unknown"),
+        game_id,
+    )
+
+    return ImpersonateResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/admin/games/{game_id} -- Delete game and all data
+# ---------------------------------------------------------------------------
+
+@router.delete(
+    "/games/{game_id}",
+    response_model=DeleteGameResponse,
+    summary="Delete a game and all associated data (admin only)",
+)
+async def delete_game(
+    game_id: str = Path(...),
+    force: bool = Query(
+        False,
+        description="Force delete even if game is not CLOSED.",
+    ),
+    admin: dict[str, Any] = Depends(get_current_admin),
+) -> DeleteGameResponse:
+    """Permanently delete a game and all associated data.
+
+    By default, only CLOSED games can be deleted. Use force=true to
+    delete games in any status.
+
+    This action is irreversible. All players, chip requests, and
+    notifications associated with the game will be deleted.
+
+    Requires admin JWT.
+    """
+    service = _get_service()
+    result = await service.delete_game(game_id, force=force)
+
+    logger.info(
+        "Admin %s deleted game %s (players=%d, requests=%d, notifications=%d)",
+        admin.get("username", "unknown"),
+        game_id,
+        result["players_deleted"],
+        result["requests_deleted"],
+        result["notifications_deleted"],
+    )
+
+    return DeleteGameResponse(**result)

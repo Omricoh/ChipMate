@@ -219,6 +219,12 @@ class TestCheckoutPlayerWithCredits:
 
     @pytest.mark.asyncio
     async def test_checkout_with_credits_owed(self, test_client):
+        """Player with credit buy-in partially repays when cashing out.
+
+        Bob buys in with 100 CASH + 200 CREDIT = 300 total.
+        Bob cashes out with 120 chips.
+        Bob repays 120 of his 200 credit, so still owes 80.
+        """
         game = await _create_game(test_client)
         manager_token = game["player_token"]
         game_id = game["game_id"]
@@ -233,9 +239,9 @@ class TestCheckoutPlayerWithCredits:
         )
         await _approve_request(test_client, game_id, cash_req["id"], manager_token)
 
-        # Credit buy-in of 50
+        # Credit buy-in of 200
         credit_req = await _create_request(
-            test_client, game_id, bob_token, "CREDIT", 50
+            test_client, game_id, bob_token, "CREDIT", 200
         )
         await _approve_request(test_client, game_id, credit_req["id"], manager_token)
 
@@ -246,9 +252,10 @@ class TestCheckoutPlayerWithCredits:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_buy_in"] == 150  # 100 cash + 50 credit
-        assert data["profit_loss"] == -30   # 120 - 150
-        assert data["credits_owed"] == 50
+        assert data["total_buy_in"] == 300  # 100 cash + 200 credit
+        assert data["profit_loss"] == -180  # 120 - 300
+        # Bob repaid 120 of his 200 credit debt, so 80 still owed
+        assert data["credits_owed"] == 80   # 200 - 120
         assert data["has_debt"] is True
 
 
