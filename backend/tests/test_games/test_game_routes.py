@@ -334,7 +334,7 @@ class TestListPlayersRoute:
         assert resp.status_code == 200
         result = resp.json()
         assert result["total_count"] == 3
-        names = {p["display_name"] for p in result["players"]}
+        names = {p["name"] for p in result["players"]}
         assert names == {"Alice", "Bob", "Charlie"}
 
     @pytest.mark.asyncio
@@ -376,7 +376,7 @@ class TestGameStatusRoute:
         status_data = resp.json()
         assert "game" in status_data
         assert "players" in status_data
-        assert "bank" in status_data
+        assert "chips" in status_data
         assert status_data["game"]["status"] == "OPEN"
 
     @pytest.mark.asyncio
@@ -398,10 +398,10 @@ class TestGameStatusRoute:
             f"/api/games/{data['game_id']}/status",
             headers={"X-Player-Token": data["player_token"]},
         )
-        bank = resp.json()["bank"]
-        assert bank["total_cash_in"] == 0
-        assert bank["total_credit_in"] == 0
-        assert bank["total_chips_in_play"] == 0
+        chips = resp.json()["chips"]
+        assert chips["total_cash_in"] == 0
+        assert chips["total_credit_in"] == 0
+        assert chips["total_in_play"] == 0
 
     @pytest.mark.asyncio
     async def test_status_without_auth_returns_401(self, test_client: AsyncClient):

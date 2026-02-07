@@ -59,8 +59,8 @@ async def notification_dal(mock_db) -> NotificationDAL:
 
 
 @pytest_asyncio.fixture
-async def game_service(game_dal, player_dal) -> GameService:
-    return GameService(game_dal, player_dal)
+async def game_service(game_dal, player_dal, chip_request_dal) -> GameService:
+    return GameService(game_dal, player_dal, chip_request_dal)
 
 
 @pytest_asyncio.fixture
@@ -359,6 +359,7 @@ class TestEditAndApproveRequest:
         )
         result = await request_service.edit_and_approve_request(
             open_game["game_id"], req.id, new_amount=60,
+            new_type=None,
             manager_token=open_game["player_token"],
         )
         assert result.status == RequestStatus.EDITED
@@ -382,6 +383,7 @@ class TestEditAndApproveRequest:
         with pytest.raises(HTTPException) as exc_info:
             await request_service.edit_and_approve_request(
                 open_game["game_id"], req.id, new_amount=0,
+                new_type=None,
                 manager_token=open_game["player_token"],
             )
         assert exc_info.value.status_code == 400
@@ -402,6 +404,7 @@ class TestEditAndApproveRequest:
         with pytest.raises(HTTPException) as exc_info:
             await request_service.edit_and_approve_request(
                 open_game["game_id"], req.id, new_amount=50,
+                new_type=None,
                 manager_token=open_game["player_token"],
             )
         assert exc_info.value.status_code == 400

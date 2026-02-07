@@ -252,3 +252,24 @@ class GameDAL:
         if result.modified_count > 0:
             logger.info("Auto-closed %d expired games", result.modified_count)
         return result.modified_count
+
+    # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    async def delete(self, game_id: str) -> bool:
+        """Delete a game document by its MongoDB ``_id``.
+
+        Args:
+            game_id: String representation of the ObjectId.
+
+        Returns:
+            True if a document was deleted, False otherwise.
+        """
+        if not ObjectId.is_valid(game_id):
+            return False
+
+        result = await self._collection.delete_one({"_id": ObjectId(game_id)})
+        if result.deleted_count > 0:
+            logger.info("Deleted game %s", game_id)
+        return result.deleted_count > 0

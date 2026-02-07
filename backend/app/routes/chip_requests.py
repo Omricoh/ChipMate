@@ -10,12 +10,16 @@ Endpoints:
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 
-from app.auth.dependencies import get_current_manager, get_current_player
+from app.auth.dependencies import (
+    get_admin_or_player,
+    get_current_manager,
+    get_current_player,
+)
 from app.dal.chip_requests_dal import ChipRequestDAL
 from app.dal.database import get_database
 from app.dal.games_dal import GameDAL
@@ -198,6 +202,86 @@ async def get_my_requests(
         player_token=player.player_token,
     )
     return [_to_response(r) for r in requests]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/games/{game_id}/requests/history -- Full request history
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/history",
+    response_model=list[ChipRequestOut],
+    summary="Get chip request history (manager sees all, player sees own)",
+)
+async def get_request_history(
+    game_id: str = Path(...),
+    auth_ctx: dict[str, Any] = Depends(get_admin_or_player),
+) -> list[ChipRequestOut]:
+    """Get chip request history for the game.
+
+    Managers and admins see all requests. Regular players see only their own.
+    Returns all statuses (PENDING, APPROVED, DECLINED, EDITED), sorted by
+    created_at descending (newest first).
+    """
+    service = _get_service()
+
+    # Determine if caller can see all requests or only their own
+    if auth_ctx["auth_type"] in ("admin", "manager"):
+        # Manager or admin: see all requests
+        requests = await service.get_request_history(game_id=game_id)
+    else:
+        # Regular player: see only own requests
+        player = auth_ctx["player"]
+        requests = await service.get_request_history(
+            game_id=game_id,
+            player_token=player.player_token,
+        )
+
+    # Build player name mapping
+    db = get_database()
+    player_dal = PlayerDAL(db)
+    players = await player_dal.get_by_game(game_id, include_inactive=True)
+    token_to_name = {p.player_token: p.display_name for p in players}
+
+    return [
+        _to_response(r, player_name=token_to_name.get(r.player_token))
+        for r in requests
+    ]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/games/{game_id}/requests/{request_id} -- Single request detail
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{request_id}",
+    response_model=ChipRequestOut,
+    summary="Get a single chip request by ID",
+)
+async def get_request_by_id(
+    game_id: str = Path(...),
+    request_id: str = Path(...),
+    player: Player = Depends(get_current_player),
+) -> ChipRequestOut:
+    """Get details for a single chip request.
+
+    Any authenticated player in the game can view request details.
+    """
+    service = _get_service()
+    chip_request = await service.get_request_by_id(
+        game_id=game_id,
+        request_id=request_id,
+    )
+
+    # Get player name for the response
+    db = get_database()
+    player_dal = PlayerDAL(db)
+    request_player = await player_dal.get_by_token(
+        game_id, chip_request.player_token
+    )
+    player_name = request_player.display_name if request_player else None
+
+    return _to_response(chip_request, player_name=player_name)
 
 
 # ---------------------------------------------------------------------------

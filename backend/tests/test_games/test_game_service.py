@@ -15,6 +15,7 @@ import pytest
 import pytest_asyncio
 from mongomock_motor import AsyncMongoMockClient
 
+from app.dal.chip_requests_dal import ChipRequestDAL
 from app.dal.games_dal import GameDAL
 from app.dal.players_dal import PlayerDAL
 from app.models.common import GameStatus
@@ -40,7 +41,8 @@ async def service(mock_db) -> GameService:
     """Provide a GameService instance backed by the mock database."""
     game_dal = GameDAL(mock_db)
     player_dal = PlayerDAL(mock_db)
-    return GameService(game_dal, player_dal)
+    chip_request_dal = ChipRequestDAL(mock_db)
+    return GameService(game_dal, player_dal, chip_request_dal)
 
 
 @pytest_asyncio.fixture
@@ -299,7 +301,7 @@ class TestGameStatus:
 
         assert "game" in status_data
         assert "players" in status_data
-        assert "bank" in status_data
+        assert "chips" in status_data
 
         assert status_data["game"]["game_id"] == game_result["game_id"]
         assert status_data["game"]["status"] == "OPEN"
@@ -322,10 +324,10 @@ class TestGameStatus:
     async def test_status_bank_starts_at_zero(self, service: GameService):
         game_result = await service.create_game(manager_name="Alice")
         status_data = await service.get_game_status(game_result["game_id"])
-        bank = status_data["bank"]
-        assert bank["total_cash_in"] == 0
-        assert bank["total_credit_in"] == 0
-        assert bank["total_chips_in_play"] == 0
+        chips = status_data["chips"]
+        assert chips["total_cash_in"] == 0
+        assert chips["total_credit_in"] == 0
+        assert chips["total_in_play"] == 0
 
 
 # ---------------------------------------------------------------------------

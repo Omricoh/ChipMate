@@ -324,3 +324,23 @@ class PlayerDAL:
             doc["_id"] = str(doc["_id"])
             players.append(Player(**doc))
         return players
+
+    # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    async def delete_by_game(self, game_id: str) -> int:
+        """Delete all player documents for a given game.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+
+        Returns:
+            The number of player documents deleted.
+        """
+        result = await self._collection.delete_many({"game_id": game_id})
+        if result.deleted_count > 0:
+            logger.info(
+                "Deleted %d players for game %s", result.deleted_count, game_id
+            )
+        return result.deleted_count

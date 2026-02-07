@@ -128,14 +128,17 @@ export interface AdminLoginResponse {
 
 export interface ValidateTokenResponse {
   valid: boolean;
-  user: {
+  user?: {
     user_id: string;
     role: 'ADMIN' | 'MANAGER' | 'PLAYER';
-    player_id: string | null;
-    game_id: string | null;
-    game_code: string | null;
-    is_manager: boolean | null;
+    username?: string;
+    player_id?: string;
+    game_id?: string;
+    game_code?: string;
+    is_manager?: boolean;
+    display_name?: string;
   };
+  error?: string;
 }
 
 // ── Game Types ─────────────────────────────────────────────────────────────

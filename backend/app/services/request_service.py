@@ -481,3 +481,51 @@ class RequestService:
         """
         await self._get_game_or_404(game_id)
         return await self._chip_request_dal.get_by_player(game_id, player_token)
+
+    async def get_request_by_id(
+        self, game_id: str, request_id: str
+    ) -> ChipRequest:
+        """Get a single chip request by ID.
+
+        Args:
+            game_id: The game's string ObjectId.
+            request_id: The chip request's string ObjectId.
+
+        Returns:
+            The ChipRequest instance.
+
+        Raises:
+            HTTPException 404: Game or request not found, or request
+                does not belong to the specified game.
+        """
+        await self._get_game_or_404(game_id)
+        chip_request = await self._get_request_or_404(request_id)
+        self._validate_request_belongs_to_game(chip_request, game_id)
+        return chip_request
+
+    async def get_request_history(
+        self, game_id: str, player_token: Optional[str] = None
+    ) -> list[ChipRequest]:
+        """Get all chip requests for a game, optionally filtered by player.
+
+        Returns all statuses (PENDING, APPROVED, DECLINED, EDITED),
+        sorted by created_at descending (newest first).
+
+        Args:
+            game_id: The game's string ObjectId.
+            player_token: If provided, filter to only this player's requests.
+
+        Returns:
+            A list of ChipRequest instances sorted by created_at descending.
+
+        Raises:
+            HTTPException 404: Game not found.
+        """
+        await self._get_game_or_404(game_id)
+
+        if player_token is not None:
+            return await self._chip_request_dal.get_by_player(
+                game_id, player_token
+            )
+        else:
+            return await self._chip_request_dal.get_by_game(game_id)

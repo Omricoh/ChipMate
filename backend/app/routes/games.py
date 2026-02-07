@@ -1,13 +1,15 @@
 """Game route handlers.
 
 Endpoints:
-    POST /api/games                     -- Create a new game.
-    GET  /api/games/{game_id}           -- Get game details.
-    GET  /api/games/code/{game_code}    -- Look up game by code (public).
-    POST /api/games/{game_id}/join      -- Join a game.
-    GET  /api/games/{game_id}/players   -- List all players in a game.
-    GET  /api/games/{game_id}/status    -- Get game status with bankroll.
-    GET  /api/games/{game_code}/qr      -- Generate QR code PNG.
+    POST /api/games                           -- Create a new game.
+    GET  /api/games/{game_id}                 -- Get game details.
+    GET  /api/games/code/{game_code}          -- Look up game by code (public).
+    POST /api/games/{game_id}/join            -- Join a game.
+    GET  /api/games/{game_id}/players         -- List all players in a game.
+    GET  /api/games/{game_id}/players/{player_id} -- Get specific player details.
+    POST /api/games/{game_id}/players/me/leave -- Player leaves the game.
+    GET  /api/games/{game_id}/status          -- Get game status with bankroll.
+    GET  /api/games/{game_code}/qr            -- Generate QR code PNG.
 """
 
 import logging
@@ -16,12 +18,13 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Path, Response, status, Request
 from pydantic import BaseModel, Field
 
-from app.auth.dependencies import get_admin_or_player
+from app.auth.dependencies import get_admin_or_manager, get_admin_or_player, get_current_player
 from app.config import settings
 from app.dal.database import get_database
 from app.dal.games_dal import GameDAL
 from app.dal.players_dal import PlayerDAL
 from app.dal.chip_requests_dal import ChipRequestDAL
+from app.models.player import Player
 from app.services.game_service import GameService
 
 logger = logging.getLogger("chipmate.routes.games")

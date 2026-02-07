@@ -266,3 +266,39 @@ class ChipRequestDAL:
         return await self._collection.count_documents(
             {"game_id": game_id, "status": "PENDING"}
         )
+
+    async def count_pending_by_player(self, game_id: str, player_token: str) -> int:
+        """Count pending chip requests for a specific player in a game.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+            player_token: The player's UUID token.
+
+        Returns:
+            The number of pending requests for this player.
+        """
+        return await self._collection.count_documents(
+            {"game_id": game_id, "player_token": player_token, "status": "PENDING"}
+        )
+
+    # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    async def delete_by_game(self, game_id: str) -> int:
+        """Delete all chip request documents for a given game.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+
+        Returns:
+            The number of chip request documents deleted.
+        """
+        result = await self._collection.delete_many({"game_id": game_id})
+        if result.deleted_count > 0:
+            logger.info(
+                "Deleted %d chip requests for game %s",
+                result.deleted_count,
+                game_id,
+            )
+        return result.deleted_count

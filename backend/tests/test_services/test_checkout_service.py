@@ -62,8 +62,8 @@ async def notification_dal(mock_db):
 
 
 @pytest_asyncio.fixture
-async def game_service(game_dal, player_dal):
-    return GameService(game_dal, player_dal)
+async def game_service(game_dal, player_dal, chip_request_dal):
+    return GameService(game_dal, player_dal, chip_request_dal)
 
 
 @pytest_asyncio.fixture
@@ -348,6 +348,7 @@ class TestComputeTotalBuyIn:
         )
         await request_service.edit_and_approve_request(
             game["game_id"], req.id, new_amount=75,
+            new_type=None,
             manager_token=game["player_token"],
         )
 

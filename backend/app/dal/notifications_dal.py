@@ -220,3 +220,25 @@ class NotificationDAL:
                 "is_read": False,
             }
         )
+
+    # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    async def delete_by_game(self, game_id: str) -> int:
+        """Delete all notification documents for a given game.
+
+        Args:
+            game_id: String representation of the game's ObjectId.
+
+        Returns:
+            The number of notification documents deleted.
+        """
+        result = await self._collection.delete_many({"game_id": game_id})
+        if result.deleted_count > 0:
+            logger.info(
+                "Deleted %d notifications for game %s",
+                result.deleted_count,
+                game_id,
+            )
+        return result.deleted_count

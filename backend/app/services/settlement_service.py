@@ -457,6 +457,102 @@ class SettlementService:
         }
 
     # ------------------------------------------------------------------
+    # Settlement summary
+    # ------------------------------------------------------------------
+
+    async def get_settlement_summary(self, game_id: str) -> dict[str, Any]:
+        """Get a comprehensive summary of the settlement state for a game.
+
+        Returns game status, player checkout status with P/L and credits owed,
+        debtors paired with potential recipients, and overall debt totals.
+
+        Args:
+            game_id: The game's string ObjectId.
+
+        Returns:
+            A dict with:
+            - game_id, game_status, game_code
+            - players: list of player summaries
+            - debtors: list of players with outstanding debt
+            - recipients: list of players with positive profit (potential recipients)
+            - total_outstanding_debt: sum of all credits_owed
+            - all_debts_settled: True if no outstanding debt
+
+        Raises:
+            HTTPException 404: Game not found.
+        """
+        game = await self._get_game_or_404(game_id)
+
+        # Get all players (both active and inactive)
+        all_players = await self._player_dal.get_by_game(
+            game_id, include_inactive=True
+        )
+
+        players_summary: list[dict[str, Any]] = []
+        debtors: list[dict[str, Any]] = []
+        recipients: list[dict[str, Any]] = []
+        total_outstanding_debt = 0
+
+        for player in all_players:
+            # Compute total buy-in for this player
+            total_buy_in = await self._compute_total_buy_in(
+                game_id, player.player_token
+            )
+
+            player_info = {
+                "player_token": player.player_token,
+                "display_name": player.display_name,
+                "is_manager": player.is_manager,
+                "is_active": player.is_active,
+                "checked_out": player.checked_out,
+                "total_buy_in": total_buy_in,
+                "final_chip_count": player.final_chip_count,
+                "profit_loss": player.profit_loss,
+                "credits_owed": player.credits_owed,
+            }
+            players_summary.append(player_info)
+
+            # Track debtors (players with outstanding credit debt)
+            if player.credits_owed > 0:
+                debtors.append({
+                    "player_token": player.player_token,
+                    "display_name": player.display_name,
+                    "credits_owed": player.credits_owed,
+                    "checked_out": player.checked_out,
+                })
+                total_outstanding_debt += player.credits_owed
+
+            # Track recipients (checked-out players with positive profit)
+            # Only checked-out players have finalized profit_loss
+            if player.checked_out and player.profit_loss is not None and player.profit_loss > 0:
+                recipients.append({
+                    "player_token": player.player_token,
+                    "display_name": player.display_name,
+                    "profit": player.profit_loss,
+                })
+
+        all_debts_settled = total_outstanding_debt == 0
+
+        logger.info(
+            "Settlement summary for game %s: %d players, %d debtors, debt=%d",
+            game_id,
+            len(all_players),
+            len(debtors),
+            total_outstanding_debt,
+        )
+
+        return {
+            "game_id": game_id,
+            "game_status": str(game.status),
+            "game_code": game.code,
+            "players": players_summary,
+            "debtors": debtors,
+            "recipients": recipients,
+            "total_outstanding_debt": total_outstanding_debt,
+            "all_debts_settled": all_debts_settled,
+        }
+
+    # ------------------------------------------------------------------
     # Close game
     # ------------------------------------------------------------------
 
@@ -555,3 +651,184 @@ class SettlementService:
                 "unsettled_debts": unsettled_debts,
             },
         }
+
+    # ------------------------------------------------------------------
+    # Finalize settlement (strict close)
+    # ------------------------------------------------------------------
+
+    async def finalize_settlement(self, game_id: str) -> dict[str, Any]:
+        """Finalize and close a game, ensuring all debts are settled first.
+
+        This is a stricter version of close_game that requires all players
+        to have zero credits_owed before allowing the game to close.
+
+        Args:
+            game_id: The game's string ObjectId.
+
+        Returns:
+            A dict with game_id, status, closed_at, and summary.
+
+        Raises:
+            HTTPException 404: Game not found.
+            HTTPException 400: Game not in SETTLING status, has unchecked-out
+                players, or has unsettled debts.
+        """
+        game = await self._get_game_or_404(game_id)
+
+        if game.status != GameStatus.SETTLING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Game is {game.status}, can only finalize a SETTLING game"
+                ),
+            )
+
+        # Check for unchecked-out active players
+        active_players = await self._player_dal.get_active_players(game_id)
+        if active_players:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"{len(active_players)} player(s) have not been "
+                    f"checked out yet"
+                ),
+            )
+
+        # Check for unsettled debts (strict requirement for finalize)
+        all_players = await self._player_dal.get_by_game(
+            game_id, include_inactive=True
+        )
+        players_with_debt = [p for p in all_players if p.credits_owed > 0]
+        if players_with_debt:
+            debt_names = [p.display_name for p in players_with_debt]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cannot finalize: {len(players_with_debt)} player(s) "
+                    f"have unsettled debts: {', '.join(debt_names)}"
+                ),
+            )
+
+        # Gather summary data
+        total_profit = 0
+        total_loss = 0
+        for p in all_players:
+            if p.profit_loss is not None:
+                if p.profit_loss > 0:
+                    total_profit += p.profit_loss
+                elif p.profit_loss < 0:
+                    total_loss += abs(p.profit_loss)
+
+        # Transition to CLOSED
+        now = datetime.now(timezone.utc)
+        updated = await self._game_dal.update_status(
+            game_id, GameStatus.CLOSED, closed_at=now
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update game status",
+            )
+
+        # Notify all players
+        player_tokens = [p.player_token for p in all_players if p.is_active]
+        await self._notification_service.create_bulk_notifications(
+            game_id=game_id,
+            player_tokens=player_tokens,
+            notification_type=NotificationType.GAME_CLOSED,
+            message="The game has been finalized and closed by the manager.",
+        )
+
+        logger.info(
+            "Game %s finalized and closed (players=%d, profit=%d, loss=%d)",
+            game_id,
+            len(all_players),
+            total_profit,
+            total_loss,
+        )
+
+        return {
+            "game_id": game_id,
+            "status": str(GameStatus.CLOSED),
+            "closed_at": now.isoformat(),
+            "summary": {
+                "total_players": len(all_players),
+                "total_profit": total_profit,
+                "total_loss": total_loss,
+                "unsettled_debts": 0,
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Settlement report
+    # ------------------------------------------------------------------
+
+    async def get_settlement_report(
+        self, game_id: str, report_format: str
+    ) -> dict[str, Any]:
+        """Generate a settlement report for a game.
+
+        Args:
+            game_id: The game's string ObjectId.
+            report_format: Output format - "json" or "csv".
+
+        Returns:
+            A dict with format and data. For JSON, data is a list of dicts.
+            For CSV, data is a string with CSV content.
+
+        Raises:
+            HTTPException 404: Game not found.
+            HTTPException 400: Invalid format.
+        """
+        if report_format not in ("json", "csv"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid format '{report_format}'. Must be 'json' or 'csv'.",
+            )
+
+        await self._get_game_or_404(game_id)
+
+        # Gather all players
+        all_players = await self._player_dal.get_by_game(
+            game_id, include_inactive=True
+        )
+
+        # Build report rows
+        rows: list[dict[str, Any]] = []
+        for player in all_players:
+            total_buy_in = await self._compute_total_buy_in(
+                game_id, player.player_token
+            )
+            rows.append(
+                {
+                    "player_name": player.display_name,
+                    "is_manager": player.is_manager,
+                    "total_buy_in": total_buy_in,
+                    "final_chips": player.final_chip_count or 0,
+                    "profit_loss": player.profit_loss or 0,
+                    "credits_owed": player.credits_owed,
+                    "checked_out": player.checked_out,
+                }
+            )
+
+        if report_format == "json":
+            return {"format": "json", "data": rows}
+
+        # Build CSV string
+        csv_columns = [
+            "player_name",
+            "is_manager",
+            "total_buy_in",
+            "final_chips",
+            "profit_loss",
+            "credits_owed",
+            "checked_out",
+        ]
+        csv_lines = [",".join(csv_columns)]
+        for row in rows:
+            csv_lines.append(
+                ",".join(str(row[col]) for col in csv_columns)
+            )
+        csv_content = "\n".join(csv_lines)
+
+        return {"format": "csv", "data": csv_content}

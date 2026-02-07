@@ -361,3 +361,144 @@ class GameService:
             "pending_requests": pending_requests,
             "credits_outstanding": credits_outstanding,
         }
+
+    # ------------------------------------------------------------------
+    # Player details
+    # ------------------------------------------------------------------
+
+    async def get_player_details(self, game_id: str, player_id: str) -> dict[str, Any]:
+        """Get specific player details by player_token.
+
+        Args:
+            game_id: String ObjectId of the game.
+            player_id: The player's UUID token.
+
+        Returns:
+            A dict with full player details including computed totals.
+
+        Raises:
+            HTTPException 404: Game or player not found.
+        """
+        # Ensure game exists
+        await self.get_game(game_id)
+
+        player = await self._player_dal.get_by_token(game_id, player_id)
+        if player is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Player not found in this game",
+            )
+
+        totals = await self._compute_player_totals(game_id, player.player_token)
+        total_buy_in = totals["total_cash_in"] + totals["total_credit_in"]
+        current_chips = (
+            player.final_chip_count
+            if player.checked_out and player.final_chip_count is not None
+            else total_buy_in
+        )
+
+        pending_requests = await self._chip_request_dal.count_pending_by_player(
+            game_id, player.player_token
+        )
+
+        return {
+            "player_id": str(player.id),
+            "player_token": player.player_token,
+            "display_name": player.display_name,
+            "is_manager": player.is_manager,
+            "is_active": player.is_active,
+            "credits_owed": player.credits_owed,
+            "checked_out": player.checked_out,
+            "final_chip_count": player.final_chip_count,
+            "profit_loss": player.profit_loss,
+            "joined_at": player.joined_at.isoformat() if isinstance(player.joined_at, datetime) else str(player.joined_at),
+            "checked_out_at": player.checked_out_at.isoformat() if player.checked_out_at else None,
+            "total_cash_in": totals["total_cash_in"],
+            "total_credit_in": totals["total_credit_in"],
+            "current_chips": current_chips,
+            "pending_requests": pending_requests,
+        }
+
+    # ------------------------------------------------------------------
+    # Leave game
+    # ------------------------------------------------------------------
+
+    async def leave_game(self, game_id: str, player_token: str) -> dict[str, Any]:
+        """Player leaves the game (soft delete by setting is_active=False).
+
+        Args:
+            game_id: String ObjectId of the game.
+            player_token: The player's UUID token.
+
+        Returns:
+            A dict confirming the leave action with player details.
+
+        Raises:
+            HTTPException 404: Game or player not found.
+            HTTPException 400: Player is not active, game is not OPEN,
+                               manager cannot leave, player has pending requests,
+                               or player has outstanding credits.
+        """
+        game = await self.get_game(game_id)
+
+        # Game must be OPEN
+        if game.status != GameStatus.OPEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot leave game: game is {game.status}",
+            )
+
+        player = await self._player_dal.get_by_token(game_id, player_token)
+        if player is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Player not found in this game",
+            )
+
+        # Player must be active
+        if not player.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Player is not active in this game",
+            )
+
+        # Manager cannot leave their own game
+        if player.is_manager:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Manager cannot leave their own game",
+            )
+
+        # Player must have no pending chip requests
+        pending_count = await self._chip_request_dal.count_pending_by_player(
+            game_id, player_token
+        )
+        if pending_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot leave: player has {pending_count} pending chip request(s)",
+            )
+
+        # Player must have no credits owed
+        if player.credits_owed > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot leave: player owes {player.credits_owed} in credits",
+            )
+
+        # Soft delete: set is_active to False
+        await self._player_dal.update_by_token(game_id, player_token, {"is_active": False})
+
+        logger.info(
+            "Player left game: game_id=%s player_token=%s name=%s",
+            game_id,
+            player_token,
+            player.display_name,
+        )
+
+        return {
+            "player_id": str(player.id),
+            "player_token": player.player_token,
+            "display_name": player.display_name,
+            "left_at": datetime.now(timezone.utc).isoformat(),
+        }

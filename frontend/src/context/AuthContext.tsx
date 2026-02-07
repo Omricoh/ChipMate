@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { validateSession } from '../api/auth';
 
 // ── Auth State Types ───────────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ export interface AuthContextValue {
   isManager: boolean;
   isPlayer: boolean;
   isAuthenticated: boolean;
+  isLoading: boolean;
   loginAdmin: (token: string, username: string) => void;
   joinGame: (params: {
     token: string;
@@ -59,29 +61,86 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Restore session from localStorage on mount
+  // Restore and validate session from localStorage on mount
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
+    const restoreSession = async () => {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (!stored) {
+          setIsLoading(false);
+          return;
+        }
 
-      const parsed = JSON.parse(stored) as AuthUser;
-      if (!parsed) return;
+        const parsed = JSON.parse(stored) as AuthUser;
+        if (!parsed) {
+          setIsLoading(false);
+          return;
+        }
 
-      if (parsed.kind === 'admin') {
-        localStorage.setItem(ADMIN_TOKEN_KEY, parsed.token);
-      } else if (parsed.kind === 'player') {
-        localStorage.setItem(PLAYER_TOKEN_KEY, parsed.token);
+        // Set token headers for the validation request
+        if (parsed.kind === 'admin') {
+          localStorage.setItem(ADMIN_TOKEN_KEY, parsed.token);
+        } else if (parsed.kind === 'player') {
+          localStorage.setItem(PLAYER_TOKEN_KEY, parsed.token);
+        }
+
+        // Validate session with the backend
+        try {
+          const response = await validateSession();
+
+          if (response.valid && response.user) {
+            // Session is valid - update local state with fresh data from server
+            if (response.user.role === 'ADMIN' && parsed.kind === 'admin') {
+              // Admin session still valid
+              setUser(parsed);
+            } else if (
+              (response.user.role === 'MANAGER' || response.user.role === 'PLAYER') &&
+              parsed.kind === 'player' &&
+              response.user.game_id &&
+              response.user.game_code
+            ) {
+              // Player session still valid - update with fresh data from server
+              const updatedPlayer: PlayerUser = {
+                kind: 'player',
+                token: parsed.token,
+                playerId: response.user.player_id || parsed.playerId,
+                gameId: response.user.game_id,
+                gameCode: response.user.game_code,
+                name: response.user.display_name || parsed.name,
+                isManager: response.user.is_manager ?? parsed.isManager,
+              };
+              setUser(updatedPlayer);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPlayer));
+            } else {
+              // Role mismatch - clear session
+              clearStorage();
+            }
+          } else {
+            // Session invalid - clear storage
+            clearStorage();
+          }
+        } catch {
+          // Network error during validation - trust local session
+          // This allows offline access while game is active
+          setUser(parsed);
+        }
+      } catch {
+        // Corrupt storage -- clear it
+        clearStorage();
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      setUser(parsed);
-    } catch {
-      // Corrupt storage -- clear it
+    const clearStorage = () => {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(ADMIN_TOKEN_KEY);
       localStorage.removeItem(PLAYER_TOKEN_KEY);
-    }
+    };
+
+    restoreSession();
   }, []);
 
   const persist = useCallback((value: AuthUser) => {
@@ -151,11 +210,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isManager,
       isPlayer,
       isAuthenticated,
+      isLoading,
       loginAdmin,
       joinGame,
       logout,
     }),
-    [user, isAdmin, isManager, isPlayer, isAuthenticated, loginAdmin, joinGame, logout],
+    [user, isAdmin, isManager, isPlayer, isAuthenticated, isLoading, loginAdmin, joinGame, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

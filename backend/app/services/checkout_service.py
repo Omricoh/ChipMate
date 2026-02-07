@@ -216,3 +216,106 @@ class CheckoutService:
             "has_debt": has_debt,
             "checked_out_at": checked_out_at_str,
         }
+
+    # ------------------------------------------------------------------
+    # Checkout Order
+    # ------------------------------------------------------------------
+
+    async def get_checkout_order(self, game_id: str) -> list[dict[str, Any]]:
+        """Get the ordered list of active players for checkout.
+
+        The order prioritizes:
+        1. Players with credits_owed > 0 (sorted alphabetically by name)
+        2. Remaining players (sorted alphabetically by name)
+
+        Args:
+            game_id: The game's string ObjectId.
+
+        Returns:
+            A list of dicts with player_token, display_name, credits_owed,
+            and has_debt for each active, non-checked-out player.
+
+        Raises:
+            HTTPException 404: Game not found.
+        """
+        # Validate game exists
+        await self._get_game_or_404(game_id)
+
+        # Get all active, non-checked-out players
+        active_players = await self._player_dal.get_active_players(game_id)
+
+        # Separate players with credits_owed > 0 from others
+        credit_players = [p for p in active_players if p.credits_owed > 0]
+        other_players = [p for p in active_players if p.credits_owed <= 0]
+
+        # Sort each group alphabetically by display_name (case-insensitive)
+        credit_players.sort(key=lambda p: p.display_name.lower())
+        other_players.sort(key=lambda p: p.display_name.lower())
+
+        # Combine: credit players first, then others
+        ordered_players = credit_players + other_players
+
+        logger.info(
+            "Checkout order for game=%s: %d players (%d with credits)",
+            game_id,
+            len(ordered_players),
+            len(credit_players),
+        )
+
+        return [
+            {
+                "player_token": p.player_token,
+                "display_name": p.display_name,
+                "credits_owed": p.credits_owed,
+                "has_debt": p.credits_owed > 0,
+            }
+            for p in ordered_players
+        ]
+
+    async def checkout_next_player(
+        self,
+        game_id: str,
+        final_chip_count: int,
+    ) -> dict[str, Any]:
+        """Checkout the next player in the checkout queue.
+
+        Uses the checkout order (credit-debt players first, then alphabetical)
+        to determine which player to check out.
+
+        Args:
+            game_id: The game's string ObjectId.
+            final_chip_count: The number of chips the player has at checkout.
+
+        Returns:
+            A dict with checkout summary fields (same as checkout_player).
+
+        Raises:
+            HTTPException 400: No players remaining to checkout.
+            HTTPException 404: Game not found.
+        """
+        # Get the checkout order
+        checkout_order = await self.get_checkout_order(game_id)
+
+        if not checkout_order:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No players remaining to checkout",
+            )
+
+        # Get the first player in the queue
+        next_player = checkout_order[0]
+        player_token = next_player["player_token"]
+
+        logger.info(
+            "Checking out next player: game=%s player=%s (%s)",
+            game_id,
+            player_token,
+            next_player["display_name"],
+        )
+
+        # Use the existing checkout_player method
+        return await self.checkout_player(
+            game_id=game_id,
+            player_token=player_token,
+            final_chip_count=final_chip_count,
+        )

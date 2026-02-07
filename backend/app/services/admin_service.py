@@ -1,7 +1,7 @@
 """Admin business logic service.
 
 Provides methods for admin dashboard: listing games, game detail,
-force-closing games, and aggregate statistics.
+force-closing games, impersonation, deletion, and aggregate statistics.
 """
 
 import logging
@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 
 from app.dal.chip_requests_dal import ChipRequestDAL
 from app.dal.games_dal import GameDAL
+from app.dal.notifications_dal import NotificationDAL
 from app.dal.players_dal import PlayerDAL
 from app.models.common import GameStatus
 from app.models.game import Game
@@ -27,10 +28,12 @@ class AdminService:
         game_dal: GameDAL,
         player_dal: PlayerDAL,
         chip_request_dal: ChipRequestDAL,
+        notification_dal: Optional[NotificationDAL] = None,
     ) -> None:
         self._game_dal = game_dal
         self._player_dal = player_dal
         self._chip_request_dal = chip_request_dal
+        self._notification_dal = notification_dal
 
     # ------------------------------------------------------------------
     # List games

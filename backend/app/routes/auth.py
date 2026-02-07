@@ -3,6 +3,7 @@
 Endpoints:
     POST /api/auth/admin/login  -- Admin JWT login.
     GET  /api/auth/me           -- Return current user info (admin or player).
+    GET  /api/auth/validate     -- Validate token and return user context.
 """
 
 import logging
@@ -15,6 +16,8 @@ from app.auth.jwt import create_access_token, decode_token
 from app.auth.player_token import validate_player_token
 from app.config import settings
 from app.dal.database import get_database
+from app.dal.games_dal import GameDAL
+from app.models.common import GameStatus
 from app.dal.players_dal import PlayerDAL
 
 logger = logging.getLogger("chipmate.routes.auth")
@@ -50,6 +53,35 @@ class MeResponsePlayer(BaseModel):
     name: str
     game_id: str
     player_token: str
+
+
+class ValidateUserAdmin(BaseModel):
+    """User info for admin in validate response."""
+    user_id: str
+    role: str
+    username: str
+
+
+class ValidateUserPlayer(BaseModel):
+    """User info for player/manager in validate response."""
+    user_id: str
+    role: str
+    player_id: str
+    game_id: str
+    game_code: str
+    is_manager: bool
+
+
+class ValidateResponseValid(BaseModel):
+    """Validate response for a valid token."""
+    valid: bool = True
+    user: ValidateUserAdmin | ValidateUserPlayer
+
+
+class ValidateResponseInvalid(BaseModel):
+    """Validate response for an invalid token."""
+    valid: bool = False
+    error: str
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +210,110 @@ async def get_me(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/auth/validate
+# ---------------------------------------------------------------------------
+
+@router.get("/validate")
+async def validate_token(
+    authorization: str | None = Header(None),
+    x_player_token: str | None = Header(None),
+) -> dict[str, Any]:
+    """Validate a token and return user context for session restoration.
+
+    Accepts either:
+    * ``Authorization: Bearer <jwt>`` for admin,
+    * ``X-Player-Token: <uuid>`` for player/manager.
+
+    Returns:
+        Valid admin: ``{"valid": true, "user": {"user_id": "admin", "role": "ADMIN", "username": str}}``
+        Valid player: ``{"valid": true, "user": {"user_id": str, "role": "MANAGER"|"PLAYER", "player_id": str, "game_id": str, "game_code": str, "is_manager": bool}}``
+        Invalid/expired: ``{"valid": false, "error": str}``
+    """
+    # --- Admin path ---
+    if authorization is not None and authorization.startswith("Bearer "):
+        from jose import ExpiredSignatureError, JWTError
+
+        token = authorization[len("Bearer "):]
+        try:
+            payload = decode_token(token)
+        except ExpiredSignatureError:
+            logger.debug("Validate: admin token expired")
+            return {"valid": False, "error": "Token has expired"}
+        except JWTError:
+            logger.debug("Validate: invalid admin token")
+            return {"valid": False, "error": "Invalid token"}
+
+        if payload.get("role") == "admin":
+            username = payload.get("sub", "admin")
+            logger.debug("Validate: valid admin token for user=%s", username)
+            return {
+                "valid": True,
+                "user": {
+                    "user_id": "admin",
+                    "role": "ADMIN",
+                    "username": username,
+                },
+            }
+        else:
+            # JWT is valid but not admin role
+            logger.debug("Validate: JWT has non-admin role")
+            return {"valid": False, "error": "Invalid token role"}
+
+    # --- Player / Manager path ---
+    if x_player_token is not None:
+        if not validate_player_token(x_player_token):
+            logger.debug("Validate: invalid player token format")
+            return {"valid": False, "error": "Invalid player token format"}
+
+        db = get_database()
+        player_dal = PlayerDAL(db)
+        game_dal = GameDAL(db)
+
+        # Look up player by token only (session restoration doesn't have game_id)
+        player = await player_dal.get_by_token_only(x_player_token)
+
+        if player is None:
+            logger.debug("Validate: player not found for token")
+            return {"valid": False, "error": "Player not found"}
+
+        # Look up game to get game_code and check status
+        game = await game_dal.get_by_id(player.game_id)
+        if game is None:
+            logger.debug("Validate: game not found for player")
+            return {"valid": False, "error": "Game not found"}
+
+        # Check if game is closed - players can still reconnect to OPEN or SETTLING games
+        if game.status == GameStatus.CLOSED:
+            logger.debug("Validate: game is closed, session invalid")
+            return {"valid": False, "error": "Game has ended"}
+
+        # Check if player is still active
+        if not player.is_active:
+            logger.debug("Validate: player is inactive")
+            return {"valid": False, "error": "Player is inactive"}
+
+        role = "MANAGER" if player.is_manager else "PLAYER"
+        logger.debug(
+            "Validate: valid player token, player_id=%s, role=%s",
+            player.id,
+            role,
+        )
+        return {
+            "valid": True,
+            "user": {
+                "user_id": player.id or player.player_token,
+                "role": role,
+                "player_id": player.player_token,
+                "game_id": player.game_id,
+                "game_code": game.code,
+                "is_manager": player.is_manager,
+                "display_name": player.display_name,
+            },
+        }
+
+    # --- No auth provided ---
+    logger.debug("Validate: no authentication provided")
+    return {"valid": False, "error": "No authentication provided"}
