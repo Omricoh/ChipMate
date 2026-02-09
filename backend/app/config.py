@@ -27,9 +27,32 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = "chipmate"
 
     # Authentication
+    # Supports both ADMIN_USERNAME/ADMIN_PASSWORD and ADMIN_USER/ADMIN_PASS
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"
     JWT_SECRET: Optional[str] = None
+
+    @field_validator("ADMIN_USERNAME", mode="before")
+    @classmethod
+    def resolve_admin_username(cls, v):
+        """Support ADMIN_USER as an alias for ADMIN_USERNAME."""
+        if v is None or v == "admin":
+            # Check for alternative env var name
+            alt = os.getenv("ADMIN_USER")
+            if alt:
+                return alt
+        return v or "admin"
+
+    @field_validator("ADMIN_PASSWORD", mode="before")
+    @classmethod
+    def resolve_admin_password(cls, v):
+        """Support ADMIN_PASS as an alias for ADMIN_PASSWORD."""
+        if v is None or v == "admin123":
+            # Check for alternative env var name
+            alt = os.getenv("ADMIN_PASS")
+            if alt:
+                return alt
+        return v or "admin123"
 
     # CORS Configuration
     # Comma-separated list of allowed origins, or "*" for all origins
