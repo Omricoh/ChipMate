@@ -364,16 +364,42 @@ export interface AdminGamesResponse {
   total: number;
 }
 
-export interface AdminGameDetail {
+export interface AdminBankDetail {
+  cash_balance: number;
+  total_cash_in: number;
+  total_cash_out: number;
+  total_credits_issued: number;
+  total_credits_repaid: number;
+  total_chips_issued: number;
+  total_chips_returned: number;
+  chips_in_play: number;
+}
+
+export interface AdminGameInfo {
   game_id: string;
   game_code: string;
   status: GameStatus;
-  manager_name: string;
-  player_count: number;
+  manager_player_token: string;
   created_at: string;
   closed_at: string | null;
-  bank: BankSummary;
-  players: Player[];
+  expires_at: string;
+  bank: AdminBankDetail;
+}
+
+export interface AdminPlayerInfo {
+  player_id: string;
+  player_token: string;
+  display_name: string;
+  is_manager: boolean;
+  is_active: boolean;
+  credits_owed: number;
+  checked_out: boolean;
+  joined_at: string;
+}
+
+export interface AdminGameDetail {
+  game: AdminGameInfo;
+  players: AdminPlayerInfo[];
   request_stats: {
     total: number;
     pending: number;

@@ -99,15 +99,18 @@ function GameDetailPanel({
   onImpersonate,
   onClose,
 }: GameDetailPanelProps) {
-  const isCloseable = detail.status !== GameStatus.CLOSED;
-  const canImpersonate = detail.status !== GameStatus.CLOSED;
+  const gameInfo = detail.game;
+  const isCloseable = gameInfo.status !== GameStatus.CLOSED;
+  const canImpersonate = gameInfo.status !== GameStatus.CLOSED;
+  const managerPlayer = detail.players.find((p) => p.is_manager);
+  const managerName = managerPlayer?.display_name ?? 'Unknown';
 
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
       {/* Header row */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">
-          Game Detail: {detail.game_code}
+          Game Detail: {gameInfo.game_code}
         </h3>
         <button
           type="button"
@@ -132,21 +135,21 @@ function GameDetailPanel({
         <div>
           <span className="text-gray-500">Status</span>
           <div className="mt-0.5">
-            <GameStatusBadge status={detail.status} />
+            <GameStatusBadge status={gameInfo.status} />
           </div>
         </div>
         <div>
           <span className="text-gray-500">Manager</span>
-          <p className="font-medium text-gray-900 mt-0.5">{detail.manager_name}</p>
+          <p className="font-medium text-gray-900 mt-0.5">{managerName}</p>
         </div>
         <div>
           <span className="text-gray-500">Created</span>
-          <p className="font-medium text-gray-900 mt-0.5">{formatDate(detail.created_at)}</p>
+          <p className="font-medium text-gray-900 mt-0.5">{formatDate(gameInfo.created_at)}</p>
         </div>
-        {detail.closed_at && (
+        {gameInfo.closed_at && (
           <div>
             <span className="text-gray-500">Closed</span>
-            <p className="font-medium text-gray-900 mt-0.5">{formatDate(detail.closed_at)}</p>
+            <p className="font-medium text-gray-900 mt-0.5">{formatDate(gameInfo.closed_at)}</p>
           </div>
         )}
       </div>
@@ -159,19 +162,19 @@ function GameDetailPanel({
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
             <p className="text-xs text-gray-500">Cash In</p>
-            <p className="font-semibold text-gray-900">{formatCurrency(detail.bank.total_cash_in)}</p>
+            <p className="font-semibold text-gray-900">{formatCurrency(gameInfo.bank.total_cash_in)}</p>
           </div>
           <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
             <p className="text-xs text-gray-500">Credit In</p>
-            <p className="font-semibold text-gray-900">{formatCurrency(detail.bank.total_credit_in)}</p>
+            <p className="font-semibold text-gray-900">{formatCurrency(gameInfo.bank.total_credits_issued)}</p>
           </div>
           <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
             <p className="text-xs text-gray-500">In Play</p>
-            <p className="font-semibold text-gray-900">{formatCurrency(detail.bank.total_in_play)}</p>
+            <p className="font-semibold text-gray-900">{formatCurrency(gameInfo.bank.chips_in_play)}</p>
           </div>
           <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
             <p className="text-xs text-gray-500">Checked Out</p>
-            <p className="font-semibold text-gray-900">{formatCurrency(detail.bank.total_checked_out)}</p>
+            <p className="font-semibold text-gray-900">{formatCurrency(gameInfo.bank.total_chips_returned)}</p>
           </div>
         </div>
       </div>
@@ -217,7 +220,7 @@ function GameDetailPanel({
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-medium text-gray-900 truncate">
-                    {player.name}
+                    {player.display_name}
                   </span>
                   {player.is_manager && (
                     <span className="shrink-0 text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
@@ -229,10 +232,13 @@ function GameDetailPanel({
                       OUT
                     </span>
                   )}
+                  {!player.is_active && (
+                    <span className="shrink-0 text-[10px] font-semibold text-red-500 bg-red-100 px-1.5 py-0.5 rounded-full">
+                      INACTIVE
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-gray-500 shrink-0">
-                  <span>Chips: {formatCurrency(player.current_chips)}</span>
-                  <span>Cash: {formatCurrency(player.total_cash_in)}</span>
                   {player.credits_owed > 0 && (
                     <span className="text-red-500">
                       Owes: {formatCurrency(player.credits_owed)}
@@ -439,7 +445,7 @@ export default function AdminDashboard() {
 
     setIsImpersonating(true);
     try {
-      const result = await impersonateManager(gameDetail.game_id);
+      const result = await impersonateManager(gameDetail.game.game_id);
 
       // Join game as manager
       joinGame({
