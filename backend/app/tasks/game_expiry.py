@@ -1,7 +1,8 @@
 """Background task for auto-closing expired games.
 
-Games have an expires_at field (default 12 hours from creation).
+Games have an expires_at field (default 24 hours from creation).
 This task periodically checks for expired games and closes them.
+Games without an expires_at field are also closed if older than 24 hours.
 """
 
 import asyncio

@@ -11,7 +11,10 @@ import {
   getAdminGames,
   getAdminGameDetail,
   forceCloseGame,
+  impersonateManager,
 } from '../api/admin';
+import { useAuth } from '../hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 import { GameStatus } from '../api/types';
 import type {
   AdminStats,
@@ -82,17 +85,22 @@ function StatCard({ label, value, color, icon }: StatCardProps) {
 interface GameDetailPanelProps {
   detail: AdminGameDetail;
   isForceClosing: boolean;
+  isImpersonating: boolean;
   onForceClose: () => void;
+  onImpersonate: () => void;
   onClose: () => void;
 }
 
 function GameDetailPanel({
   detail,
   isForceClosing,
+  isImpersonating,
   onForceClose,
+  onImpersonate,
   onClose,
 }: GameDetailPanelProps) {
   const isCloseable = detail.status !== GameStatus.CLOSED;
+  const canImpersonate = detail.status !== GameStatus.CLOSED;
 
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
@@ -237,17 +245,29 @@ function GameDetailPanel({
         )}
       </div>
 
-      {/* Force close */}
-      {isCloseable && (
-        <div className="pt-2 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={onForceClose}
-            disabled={isForceClosing}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:bg-red-800 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {isForceClosing ? 'Closing...' : 'Force Close Game'}
-          </button>
+      {/* Actions */}
+      {(isCloseable || canImpersonate) && (
+        <div className="pt-2 border-t border-gray-200 flex gap-2">
+          {canImpersonate && (
+            <button
+              type="button"
+              onClick={onImpersonate}
+              disabled={isImpersonating}
+              className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-purple-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 active:bg-purple-800 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isImpersonating ? 'Loading...' : 'Open as Manager'}
+            </button>
+          )}
+          {isCloseable && (
+            <button
+              type="button"
+              onClick={onForceClose}
+              disabled={isForceClosing}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:bg-red-800 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isForceClosing ? 'Closing...' : 'Force Close Game'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -278,6 +298,11 @@ export default function AdminDashboard() {
   // ── Force close state ─────────────────────────────────────────────────
   const [forceCloseTarget, setForceCloseTarget] = useState<AdminGameSummary | null>(null);
   const [isForceClosing, setIsForceClosing] = useState(false);
+
+  // ── Impersonate state ────────────────────────────────────────────────
+  const [isImpersonating, setIsImpersonating] = useState(false);
+  const { joinGame } = useAuth();
+  const navigate = useNavigate();
 
   // ── Fetch stats (polled) ──────────────────────────────────────────────
 
@@ -406,6 +431,34 @@ export default function AdminDashboard() {
       setIsForceClosing(false);
     }
   }, [forceCloseTarget, expandedGameId, fetchStats, fetchGames, fetchDetail]);
+
+  // ── Impersonate ──────────────────────────────────────────────────────
+
+  const handleImpersonate = useCallback(async () => {
+    if (!gameDetail) return;
+
+    setIsImpersonating(true);
+    try {
+      const result = await impersonateManager(gameDetail.game_id);
+
+      // Join game as manager
+      joinGame({
+        token: result.manager_player_token,
+        playerId: result.manager_player_token, // Use token as ID for manager
+        gameId: result.game_id,
+        gameCode: result.game_code,
+        name: result.manager_name,
+        isManager: true,
+      });
+
+      // Navigate to game page
+      navigate(`/game/${result.game_id}`);
+    } catch (err) {
+      console.error('Failed to impersonate manager:', err);
+    } finally {
+      setIsImpersonating(false);
+    }
+  }, [gameDetail, joinGame, navigate]);
 
   // ── Render ────────────────────────────────────────────────────────────
 
@@ -644,7 +697,9 @@ export default function AdminDashboard() {
                         <GameDetailPanel
                           detail={gameDetail}
                           isForceClosing={isForceClosing}
+                          isImpersonating={isImpersonating}
                           onForceClose={() => setForceCloseTarget(game)}
+                          onImpersonate={handleImpersonate}
                           onClose={() => {
                             setExpandedGameId(null);
                             setGameDetail(null);

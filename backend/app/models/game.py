@@ -46,7 +46,7 @@ class Game(BaseModel):
     )
     closed_at: Optional[datetime] = None
     expires_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=12)
+        default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=24)
     )
     bank: Bank = Field(default_factory=Bank)
 

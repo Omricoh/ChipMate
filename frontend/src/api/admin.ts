@@ -69,3 +69,24 @@ export async function getAdminGameDetail(
 export async function forceCloseGame(gameId: string): Promise<void> {
   await apiClient.post(`/api/admin/games/${gameId}/force-close`);
 }
+
+/**
+ * Impersonate response from the API.
+ */
+export interface ImpersonateResponse {
+  game_id: string;
+  game_code: string;
+  manager_player_token: string;
+  manager_name: string;
+}
+
+/**
+ * Get manager token to impersonate them (admin action).
+ * POST /api/admin/games/{gameId}/impersonate
+ */
+export async function impersonateManager(gameId: string): Promise<ImpersonateResponse> {
+  const response = await apiClient.post<ImpersonateResponse>(
+    `/api/admin/games/${gameId}/impersonate`,
+  );
+  return response.data;
+}

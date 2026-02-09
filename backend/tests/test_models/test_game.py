@@ -64,14 +64,14 @@ class TestGame:
         assert isinstance(game.bank, Bank)
         assert game.bank.cash_balance == 0
 
-    def test_game_expires_at_is_12h_after_created(self):
+    def test_game_expires_at_is_24h_after_created(self):
         game = Game(
             code="XYZ789",
             manager_player_token="token-123",
         )
         delta = game.expires_at - game.created_at
-        # Should be approximately 12 hours (allow 1 second tolerance)
-        assert abs(delta.total_seconds() - 43200) < 1  # 12 * 60 * 60 = 43200
+        # Should be approximately 24 hours (allow 1 second tolerance)
+        assert abs(delta.total_seconds() - 86400) < 1  # 24 * 60 * 60 = 86400
 
     def test_game_with_objectid_string(self):
         oid = str(ObjectId())

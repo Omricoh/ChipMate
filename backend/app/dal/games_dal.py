@@ -181,19 +181,36 @@ class GameDAL:
             games.append(Game(**doc))
         return games
 
-    async def get_expired_games(self, as_of: datetime) -> list[Game]:
-        """Find all OPEN or SETTLING games whose expires_at has passed.
+    async def get_expired_games(self, as_of: datetime, fallback_hours: int = 24) -> list[Game]:
+        """Find all OPEN or SETTLING games that should be auto-closed.
+
+        A game is considered expired if:
+        1. expires_at exists and has passed, OR
+        2. expires_at doesn't exist and created_at is older than fallback_hours
 
         Args:
-            as_of: The datetime to compare expires_at against.
+            as_of: The datetime to compare against.
+            fallback_hours: Hours after creation to consider expired if no expires_at.
 
         Returns:
             A list of expired Game instances.
         """
+        from datetime import timedelta
+
+        fallback_cutoff = as_of - timedelta(hours=fallback_hours)
+
         cursor = self._collection.find(
             {
                 "status": {"$in": ["OPEN", "SETTLING"]},
-                "expires_at": {"$lte": as_of},
+                "$or": [
+                    # Games with expires_at that has passed
+                    {"expires_at": {"$lte": as_of}},
+                    # Games without expires_at that are older than fallback
+                    {
+                        "expires_at": {"$exists": False},
+                        "created_at": {"$lte": fallback_cutoff},
+                    },
+                ],
             }
         )
         games: list[Game] = []
