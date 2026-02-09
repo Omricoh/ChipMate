@@ -34,6 +34,14 @@ export function BankSummaryCard({
   pendingRequests,
   creditsOutstanding,
 }: BankSummaryCardProps) {
+  // Defensive fallback for missing chips data
+  const safeChips = chips ?? {
+    total_cash_in: 0,
+    total_credit_in: 0,
+    total_in_play: 0,
+    total_checked_out: 0,
+  };
+
   return (
     <section
       className="rounded-xl bg-white border border-gray-200 shadow-sm p-4"
@@ -46,21 +54,21 @@ export function BankSummaryCard({
       <div className="grid grid-cols-2 gap-4">
         <StatItem
           label="Cash In"
-          value={chips.total_cash_in}
+          value={safeChips.total_cash_in ?? 0}
           color="text-green-700"
         />
         <StatItem
           label="Credit In"
-          value={chips.total_credit_in}
+          value={safeChips.total_credit_in ?? 0}
           color="text-sky-700"
         />
         <StatItem
           label="In Play"
-          value={chips.total_in_play}
+          value={safeChips.total_in_play ?? 0}
         />
         <StatItem
           label="Checked Out"
-          value={chips.total_checked_out}
+          value={safeChips.total_checked_out ?? 0}
           color="text-gray-500"
         />
       </div>
