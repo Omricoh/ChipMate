@@ -202,6 +202,25 @@ class SettlementSummaryResponse(BaseModel):
     all_debts_settled: bool
 
 
+class SettlementSuggestion(BaseModel):
+    """A single suggested transfer in the smart settlement."""
+    from_token: str
+    from_name: str
+    to_token: str
+    to_name: str
+    amount: int
+    note: Optional[str] = None
+
+
+class SettlementSuggestionsResponse(BaseModel):
+    """Response for GET /api/games/{game_id}/settlement/suggestions."""
+    game_id: str
+    game_code: str
+    suggestions: list[SettlementSuggestion]
+    total_debt: int
+    transfer_count: int
+
+
 # ---------------------------------------------------------------------------
 # GET /api/games/{game_id}/settlement/summary -- Settlement summary
 # ---------------------------------------------------------------------------
@@ -234,6 +253,40 @@ async def get_settlement_summary(
         recipients=[RecipientInfo(**r) for r in result["recipients"]],
         total_outstanding_debt=result["total_outstanding_debt"],
         all_debts_settled=result["all_debts_settled"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/games/{game_id}/settlement/suggestions -- Smart settlement suggestions
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/settlement/suggestions",
+    response_model=SettlementSuggestionsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get smart settlement suggestions",
+)
+async def get_settlement_suggestions(
+    game_id: str = Path(...),
+    manager: Player = Depends(get_current_manager),
+) -> SettlementSuggestionsResponse:
+    """Calculate optimal settlement transfers to minimize number of payments.
+
+    Uses a greedy algorithm to match debtors with recipients, generating
+    a suggested "who pays who" list that minimizes total transfers.
+
+    This is a suggestion only - no changes are made to the game state.
+    Requires manager token.
+    """
+    service = _get_service()
+    result = await service.get_settlement_suggestions(game_id=game_id)
+
+    return SettlementSuggestionsResponse(
+        game_id=result["game_id"],
+        game_code=result["game_code"],
+        suggestions=[SettlementSuggestion(**s) for s in result["suggestions"]],
+        total_debt=result["total_debt"],
+        transfer_count=result["transfer_count"],
     )
 
 

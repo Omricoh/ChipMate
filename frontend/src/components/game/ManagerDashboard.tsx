@@ -21,6 +21,7 @@ import { GameShareSection } from './GameShareSection';
 import { CheckoutPlayerModal } from './CheckoutPlayerModal';
 import { BatchCheckoutModal } from './BatchCheckoutModal';
 import { SettleDebtModal } from './SettleDebtModal';
+import { SettlementSuggestionsCard } from './SettlementSuggestionsCard';
 import { GameStatus, RequestType } from '../../api/types';
 import type { Player } from '../../api/types';
 import {
@@ -657,6 +658,14 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
                 : ' \u2014 all done!'}
             </p>
           </div>
+        )}
+
+        {/* Smart Settlement Suggestions -- shown when settling and there are debtors */}
+        {gameStatus === GameStatus.SETTLING && creditsOutstanding > 0 && (
+          <SettlementSuggestionsCard
+            gameId={gameId}
+            hasDebtors={creditsOutstanding > 0}
+          />
         )}
 
         {/* Pending Requests -- only shown when game is OPEN */}

@@ -860,3 +860,162 @@ class SettlementService:
         csv_content = "\n".join(csv_lines)
 
         return {"format": "csv", "data": csv_content}
+
+    # ------------------------------------------------------------------
+    # Smart settlement suggestions
+    # ------------------------------------------------------------------
+
+    async def get_settlement_suggestions(
+        self, game_id: str
+    ) -> dict[str, Any]:
+        """Calculate optimal settlement transfers to minimize number of payments.
+
+        Uses a greedy algorithm to match debtors with recipients, minimizing
+        the total number of transfers needed to settle all debts.
+
+        Args:
+            game_id: The game's string ObjectId.
+
+        Returns:
+            A dict with:
+            - game_id, game_code
+            - suggestions: list of suggested transfers (from, to, amount)
+            - total_debt: sum of all credits owed
+            - transfer_count: number of transfers suggested
+
+        Raises:
+            HTTPException 404: Game not found.
+        """
+        game = await self._get_game_or_404(game_id)
+
+        # Get all players
+        all_players = await self._player_dal.get_by_game(
+            game_id, include_inactive=True
+        )
+
+        # Build lists of debtors and recipients with their balances
+        # Debtors: players who owe money (credits_owed > 0)
+        # Recipients: players who are owed money (profit > 0)
+        debtors: list[dict[str, Any]] = []
+        recipients: list[dict[str, Any]] = []
+
+        for player in all_players:
+            if player.credits_owed > 0:
+                debtors.append({
+                    "player_token": player.player_token,
+                    "display_name": player.display_name,
+                    "amount": player.credits_owed,
+                })
+            # Recipients are checked-out players with positive profit
+            if (
+                player.checked_out
+                and player.profit_loss is not None
+                and player.profit_loss > 0
+            ):
+                recipients.append({
+                    "player_token": player.player_token,
+                    "display_name": player.display_name,
+                    "amount": player.profit_loss,
+                })
+
+        # Calculate total debt
+        total_debt = sum(d["amount"] for d in debtors)
+
+        # If no debtors, return empty suggestions
+        if not debtors:
+            return {
+                "game_id": game_id,
+                "game_code": game.code,
+                "suggestions": [],
+                "total_debt": 0,
+                "transfer_count": 0,
+            }
+
+        # Greedy algorithm: match largest debtor with largest recipient
+        # Sort by amount descending
+        debtors_copy = sorted(debtors, key=lambda x: x["amount"], reverse=True)
+        recipients_copy = sorted(recipients, key=lambda x: x["amount"], reverse=True)
+
+        suggestions: list[dict[str, Any]] = []
+
+        # Track remaining amounts
+        debtor_remaining = {d["player_token"]: d["amount"] for d in debtors_copy}
+        recipient_remaining = {r["player_token"]: r["amount"] for r in recipients_copy}
+
+        # Name lookup
+        debtor_names = {d["player_token"]: d["display_name"] for d in debtors_copy}
+        recipient_names = {r["player_token"]: r["display_name"] for r in recipients_copy}
+
+        # Process until all debts are settled or no recipients left
+        while any(amt > 0 for amt in debtor_remaining.values()):
+            # Find debtor with most remaining debt
+            debtor_token = max(
+                (t for t, a in debtor_remaining.items() if a > 0),
+                key=lambda t: debtor_remaining[t],
+                default=None,
+            )
+            if debtor_token is None:
+                break
+
+            # Find recipient with most remaining capacity
+            recipient_token = max(
+                (t for t, a in recipient_remaining.items() if a > 0),
+                key=lambda t: recipient_remaining[t],
+                default=None,
+            )
+
+            if recipient_token is None:
+                # No more recipients with positive profit
+                # Remaining debt goes to the host/manager
+                # Find the manager
+                manager_player = next(
+                    (p for p in all_players if p.is_manager), None
+                )
+                if manager_player and manager_player.player_token != debtor_token:
+                    remaining_debt = debtor_remaining[debtor_token]
+                    suggestions.append({
+                        "from_token": debtor_token,
+                        "from_name": debtor_names[debtor_token],
+                        "to_token": manager_player.player_token,
+                        "to_name": manager_player.display_name,
+                        "amount": remaining_debt,
+                        "note": "Host (covers remaining)",
+                    })
+                    debtor_remaining[debtor_token] = 0
+                else:
+                    # Can't settle this debt
+                    break
+                continue
+
+            # Calculate transfer amount
+            debtor_amt = debtor_remaining[debtor_token]
+            recipient_amt = recipient_remaining[recipient_token]
+            transfer_amount = min(debtor_amt, recipient_amt)
+
+            # Create suggestion
+            suggestions.append({
+                "from_token": debtor_token,
+                "from_name": debtor_names[debtor_token],
+                "to_token": recipient_token,
+                "to_name": recipient_names[recipient_token],
+                "amount": transfer_amount,
+            })
+
+            # Update remaining amounts
+            debtor_remaining[debtor_token] -= transfer_amount
+            recipient_remaining[recipient_token] -= transfer_amount
+
+        logger.info(
+            "Generated %d settlement suggestions for game %s (total_debt=%d)",
+            len(suggestions),
+            game_id,
+            total_debt,
+        )
+
+        return {
+            "game_id": game_id,
+            "game_code": game.code,
+            "suggestions": suggestions,
+            "total_debt": total_debt,
+            "transfer_count": len(suggestions),
+        }

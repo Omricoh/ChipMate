@@ -5,6 +5,7 @@ import type {
   CheckoutAllResponse,
   SettleDebtResponse,
   CloseGameResponse,
+  SettlementSuggestionsResponse,
 } from './types';
 
 // ── Settlement API Functions ────────────────────────────────────────────────
@@ -78,6 +79,19 @@ export async function closeGame(
 ): Promise<CloseGameResponse> {
   const response = await apiClient.post<CloseGameResponse>(
     `/api/games/${gameId}/close`,
+  );
+  return response.data;
+}
+
+/**
+ * Get smart settlement suggestions for optimal debt resolution.
+ * GET /api/games/{gameId}/settlement/suggestions
+ */
+export async function getSettlementSuggestions(
+  gameId: string,
+): Promise<SettlementSuggestionsResponse> {
+  const response = await apiClient.get<SettlementSuggestionsResponse>(
+    `/api/games/${gameId}/settlement/suggestions`,
   );
   return response.data;
 }

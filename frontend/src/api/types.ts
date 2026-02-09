@@ -322,6 +322,23 @@ export interface CloseGameResponse {
   };
 }
 
+export interface SettlementSuggestion {
+  from_token: string;
+  from_name: string;
+  to_token: string;
+  to_name: string;
+  amount: number;
+  note?: string;
+}
+
+export interface SettlementSuggestionsResponse {
+  game_id: string;
+  game_code: string;
+  suggestions: SettlementSuggestion[];
+  total_debt: number;
+  transfer_count: number;
+}
+
 // ── Admin Types ──────────────────────────────────────────────────────────
 
 export interface AdminStats {
