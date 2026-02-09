@@ -36,10 +36,18 @@ class AdminLoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
+class AdminLoginUser(BaseModel):
+    """User info returned in admin login response."""
+    user_id: str
+    role: str = "ADMIN"
+    username: str
+
+
 class AdminLoginResponse(BaseModel):
     """Response for a successful admin login."""
     access_token: str
     token_type: str = "bearer"
+    user: AdminLoginUser
 
 
 class MeResponseAdmin(BaseModel):
@@ -122,7 +130,13 @@ async def admin_login(request: Request, body: AdminLoginRequest) -> AdminLoginRe
 
     token = create_access_token(data={"sub": body.username, "role": "admin"})
     logger.info("Admin login successful for user=%s", body.username)
-    return AdminLoginResponse(access_token=token)
+    return AdminLoginResponse(
+        access_token=token,
+        user=AdminLoginUser(
+            user_id="admin",
+            username=body.username,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
