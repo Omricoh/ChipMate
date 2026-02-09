@@ -10,7 +10,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -105,11 +105,50 @@ app.include_router(settlement_router, prefix="/api")
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 if _FRONTEND_DIST.is_dir():
-    # Mount the entire frontend dist directory at root with html=True for SPA support.
-    # The html=True flag serves index.html for directory requests and handles SPA routing.
-    # API routes are matched first since they're registered before this mount.
-    app.mount("/", StaticFiles(directory=str(_FRONTEND_DIST), html=True), name="frontend")
-    logger.info("Serving frontend from %s", _FRONTEND_DIST)
+    from fastapi.responses import FileResponse
+
+    # Mount static assets (JS, CSS, images, etc.) at /assets
+    # The Vite build outputs these to dist/assets/
+    _ASSETS_DIR = _FRONTEND_DIST / "assets"
+    if _ASSETS_DIR.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
+
+    # Serve other static files (favicon, etc.) from the dist root
+    @app.get("/favicon.ico")
+    async def favicon():
+        favicon_path = _FRONTEND_DIST / "favicon.ico"
+        if favicon_path.exists():
+            return FileResponse(str(favicon_path))
+        return Response(status_code=404)
+
+    @app.get("/vite.svg")
+    async def vite_svg():
+        svg_path = _FRONTEND_DIST / "vite.svg"
+        if svg_path.exists():
+            return FileResponse(str(svg_path), media_type="image/svg+xml")
+        return Response(status_code=404)
+
+    # SPA catch-all: serve index.html for all non-API routes
+    # This enables client-side routing (React Router)
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the SPA index.html for all non-API routes.
+
+        This catch-all route enables client-side routing. When a user
+        navigates directly to /game/abc123 or /join/XYZ789, the server
+        returns index.html and React Router handles the routing.
+        """
+        # Don't serve index.html for API routes (they're handled above)
+        # or for requests that look like static files
+        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi"):
+            return Response(status_code=404)
+
+        index_path = _FRONTEND_DIST / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path), media_type="text/html")
+        return Response(status_code=404)
+
+    logger.info("Serving frontend SPA from %s", _FRONTEND_DIST)
 else:
     @app.get("/")
     async def root():
