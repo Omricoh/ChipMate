@@ -270,6 +270,7 @@ export default function CreateGame() {
             </label>
             <input
               id="manager-name"
+              name="manager-nickname"
               type="text"
               value={managerName}
               onChange={(e) => {
@@ -280,7 +281,7 @@ export default function CreateGame() {
               placeholder="e.g. Alex"
               maxLength={NAME_MAX}
               autoFocus
-              autoComplete="off"
+              autoComplete="nickname"
               enterKeyHint="done"
               aria-invalid={nameError ? 'true' : undefined}
               aria-describedby={nameError ? 'name-error' : undefined}

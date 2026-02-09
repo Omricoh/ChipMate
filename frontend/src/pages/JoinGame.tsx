@@ -269,6 +269,7 @@ export default function JoinGame() {
                   </label>
                   <input
                     id="player-name"
+                    name="player-nickname"
                     type="text"
                     value={playerName}
                     onChange={(e) => {
@@ -279,7 +280,7 @@ export default function JoinGame() {
                     placeholder="e.g. Alex"
                     maxLength={NAME_MAX}
                     autoFocus
-                    autoComplete="off"
+                    autoComplete="nickname"
                     enterKeyHint="done"
                     aria-invalid={nameError ? 'true' : undefined}
                     aria-describedby={nameError ? 'name-error' : undefined}
