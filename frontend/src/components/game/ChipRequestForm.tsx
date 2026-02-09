@@ -17,7 +17,7 @@ interface ChipRequestFormProps {
  * Disabled when the game is not in OPEN status.
  */
 export function ChipRequestForm({ gameStatus, onSubmit }: ChipRequestFormProps) {
-  const [requestType, setRequestType] = useState<RequestType>(RequestType.CASH);
+  const [requestType, setRequestType] = useState<RequestType | null>(null);
   const [amount, setAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +25,13 @@ export function ChipRequestForm({ gameStatus, onSubmit }: ChipRequestFormProps) 
   const isDisabled = gameStatus !== GameStatus.OPEN;
   const parsedAmount = Number(amount);
   const isValidAmount = amount.trim() !== '' && Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const isFormValid = requestType !== null && isValidAmount;
 
   const handleSubmit = async () => {
+    if (requestType === null) {
+      setError('Please select Cash or Credit.');
+      return;
+    }
     if (!isValidAmount) {
       setError('Please enter a valid amount greater than 0.');
       return;
@@ -36,8 +41,9 @@ export function ChipRequestForm({ gameStatus, onSubmit }: ChipRequestFormProps) 
     setIsSubmitting(true);
 
     try {
-      await onSubmit(requestType, parsedAmount);
+      await onSubmit(requestType!, parsedAmount);
       // Reset form on success
+      setRequestType(null);
       setAmount('');
     } catch (err) {
       const message =
@@ -141,7 +147,7 @@ export function ChipRequestForm({ gameStatus, onSubmit }: ChipRequestFormProps) 
       <button
         type="button"
         onClick={handleSubmit}
-        disabled={isDisabled || isSubmitting || !isValidAmount}
+        disabled={isDisabled || isSubmitting || !isFormValid}
         className="w-full rounded-xl bg-primary-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 active:bg-primary-800 disabled:opacity-60 disabled:cursor-not-allowed"
       >
         {isSubmitting ? (
@@ -149,6 +155,8 @@ export function ChipRequestForm({ gameStatus, onSubmit }: ChipRequestFormProps) 
             <LoadingSpinner size="sm" />
             <span>Submitting...</span>
           </span>
+        ) : requestType === null ? (
+          'Request Chips'
         ) : (
           `Request ${requestType === RequestType.CASH ? 'Cash' : 'Credit'}`
         )}
