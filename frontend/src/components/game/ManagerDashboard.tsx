@@ -18,19 +18,7 @@ import { BankSummaryCard } from './BankSummaryCard';
 import { PendingRequestCard } from './PendingRequestCard';
 import { PlayerListCard } from './PlayerListCard';
 import { GameShareSection } from './GameShareSection';
-import { CheckoutPlayerModal } from './CheckoutPlayerModal';
-import { BatchCheckoutModal } from './BatchCheckoutModal';
-import { SettleDebtModal } from './SettleDebtModal';
-import { SettlementSuggestionsCard } from './SettlementSuggestionsCard';
 import { GameStatus, RequestType } from '../../api/types';
-import type { Player } from '../../api/types';
-import {
-  settleGame,
-  checkoutPlayer,
-  checkoutAllPlayers,
-  settleDebt,
-  closeGame,
-} from '../../api/settlement';
 import { createChipRequest } from '../../api/requests';
 import axios from 'axios';
 
@@ -87,8 +75,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   // ── Processing State ──────────────────────────────────────────────────
 
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [isSettleLoading, setIsSettleLoading] = useState(false);
-  const [isCloseLoading, setIsCloseLoading] = useState(false);
 
   // ── Confirm Modal State ───────────────────────────────────────────────
 
@@ -111,18 +97,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   const closeModal = useCallback(() => {
     setConfirmModal((prev) => ({ ...prev, isOpen: false }));
   }, []);
-
-  // ── Checkout Modal State ──────────────────────────────────────────────
-
-  const [checkoutTarget, setCheckoutTarget] = useState<Player | null>(null);
-  const [isCheckoutProcessing, setIsCheckoutProcessing] = useState(false);
-  const [settleDebtTarget, setSettleDebtTarget] = useState<Player | null>(null);
-  const [isSettleDebtProcessing, setIsSettleDebtProcessing] = useState(false);
-
-  // ── Batch Checkout Modal State ────────────────────────────────────────
-
-  const [isBatchCheckoutOpen, setIsBatchCheckoutOpen] = useState(false);
-  const [isBatchCheckoutProcessing, setIsBatchCheckoutProcessing] = useState(false);
 
   // ── Manager Buy-in State ─────────────────────────────────────────────
 
@@ -219,179 +193,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
     [editApprove, addToast, refreshGame, refreshRequests],
   );
 
-  // ── Settlement Action Handlers ────────────────────────────────────────
-
-  const handleStartSettling = useCallback(() => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Start Settling',
-      message:
-        'This will move the game to settling mode. Players will no longer be able to buy more chips. Are you ready to start cashing out?',
-      confirmLabel: 'Start Settling',
-      isDanger: false,
-      onConfirm: async () => {
-        closeModal();
-        setIsSettleLoading(true);
-        try {
-          await settleGame(gameId);
-          addToast(createToast('success', 'Game is now in settling mode'));
-          await refreshGame();
-        } catch (err) {
-          addToast(
-            createToast('error', getErrorMessage(err, 'Failed to start settling')),
-          );
-        } finally {
-          setIsSettleLoading(false);
-        }
-      },
-    });
-  }, [gameId, addToast, closeModal, refreshGame]);
-
-  const handleCloseGame = useCallback(() => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Close Game',
-      message:
-        'This will permanently close the game. Make sure all players have been settled first. This action cannot be undone.',
-      confirmLabel: 'Close Game',
-      isDanger: true,
-      onConfirm: async () => {
-        closeModal();
-        setIsCloseLoading(true);
-        try {
-          await closeGame(gameId);
-          addToast(createToast('success', 'Game has been closed'));
-          await refreshGame();
-        } catch (err) {
-          addToast(
-            createToast('error', getErrorMessage(err, 'Failed to close game')),
-          );
-        } finally {
-          setIsCloseLoading(false);
-        }
-      },
-    });
-  }, [gameId, addToast, closeModal, refreshGame]);
-
-  // ── Checkout Handlers ─────────────────────────────────────────────────
-
-  const handleCheckoutClick = useCallback((player: Player) => {
-    setCheckoutTarget(player);
-  }, []);
-
-  const handleCheckoutSubmit = useCallback(
-    async (finalChipCount: number) => {
-      if (!checkoutTarget) return;
-
-      setIsCheckoutProcessing(true);
-      try {
-        const result = await checkoutPlayer(
-          gameId,
-          checkoutTarget.player_id,
-          finalChipCount,
-        );
-        const plSign = result.profit_loss >= 0 ? '+' : '';
-        addToast(
-          createToast(
-            'success',
-            `${result.player_name} checked out (${plSign}${result.profit_loss.toLocaleString()} P/L)`,
-          ),
-        );
-        setCheckoutTarget(null);
-        await refreshGame();
-      } catch (err) {
-        addToast(
-          createToast(
-            'error',
-            getErrorMessage(err, `Failed to checkout ${checkoutTarget.name}`),
-          ),
-        );
-      } finally {
-        setIsCheckoutProcessing(false);
-      }
-    },
-    [gameId, checkoutTarget, addToast, refreshGame],
-  );
-
-  const handleCheckoutCancel = useCallback(() => {
-    setCheckoutTarget(null);
-  }, []);
-
-  // ── Batch Checkout Handlers ───────────────────────────────────────────
-
-  const handleBatchCheckoutSubmit = useCallback(
-    async (playerChips: Array<{ player_id: string; final_chip_count: number }>) => {
-      setIsBatchCheckoutProcessing(true);
-      try {
-        const result = await checkoutAllPlayers(gameId, playerChips);
-        addToast(
-          createToast(
-            'success',
-            `Checked out ${result.summary.total_checked_out} player${result.summary.total_checked_out !== 1 ? 's' : ''}`,
-          ),
-        );
-        setIsBatchCheckoutOpen(false);
-        await refreshGame();
-      } catch (err) {
-        addToast(
-          createToast(
-            'error',
-            getErrorMessage(err, 'Failed to batch checkout players'),
-          ),
-        );
-      } finally {
-        setIsBatchCheckoutProcessing(false);
-      }
-    },
-    [gameId, addToast, refreshGame],
-  );
-
-  // ── Settle Debt Handler ───────────────────────────────────────────────
-
-  const handleSettleDebt = useCallback((player: Player) => {
-    setSettleDebtTarget(player);
-  }, []);
-
-  const handleSettleDebtSubmit = useCallback(
-    async (allocations: Array<{ recipient_token: string; amount: number }>) => {
-      if (!settleDebtTarget) return;
-      setIsSettleDebtProcessing(true);
-      setProcessingId(settleDebtTarget.player_id);
-      try {
-        const result = await settleDebt(
-          gameId,
-          settleDebtTarget.player_id,
-          allocations,
-        );
-        const recipients = result.allocations
-          .map((r) => `${r.recipient_name} (${r.amount.toLocaleString()})`)
-          .join(', ');
-        addToast(
-          createToast(
-            'success',
-            `${result.player_name}'s debt settled → ${recipients}`,
-          ),
-        );
-        setSettleDebtTarget(null);
-        await refreshGame();
-      } catch (err) {
-        addToast(
-          createToast(
-            'error',
-            getErrorMessage(
-              err,
-              `Failed to settle debt for ${settleDebtTarget.name}`,
-            ),
-          ),
-        );
-      } finally {
-        setIsSettleDebtProcessing(false);
-        setProcessingId(null);
-      }
-    },
-    [settleDebtTarget, gameId, addToast, refreshGame],
-  );
-
   const handleManagerBuyIn = useCallback(async () => {
     const amountValue = Number(buyInAmount);
     if (!buyInPlayerToken) {
@@ -484,8 +285,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   const pendingRequestsCount = game.pending_requests ?? 0;
   const creditsOutstanding =
     typeof game.credits_outstanding === 'number' ? game.credits_outstanding : 0;
-  const activePlayers = players.filter((p) => p.is_active && !p.checked_out);
-  const checkedOutCount = players.filter((p) => p.checked_out).length;
   const buyInDisabled = gameStatus !== GameStatus.OPEN;
 
   return (
@@ -645,29 +444,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
           </div>
         </section>
 
-        {/* Settling progress banner */}
-        {gameStatus === GameStatus.SETTLING && (
-          <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
-            <p className="text-sm font-medium text-amber-800">
-              Settling in progress
-            </p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              {checkedOutCount} of {players.length} players checked out
-              {activePlayers.length > 0
-                ? ` \u2014 ${activePlayers.length} remaining`
-                : ' \u2014 all done!'}
-            </p>
-          </div>
-        )}
-
-        {/* Smart Settlement Suggestions -- shown when settling and there are debtors */}
-        {gameStatus === GameStatus.SETTLING && creditsOutstanding > 0 && (
-          <SettlementSuggestionsCard
-            gameId={gameId}
-            hasDebtors={creditsOutstanding > 0}
-          />
-        )}
-
         {/* Pending Requests -- only shown when game is OPEN */}
         {gameStatus === GameStatus.OPEN && (
           <section aria-label="Pending chip requests">
@@ -734,16 +510,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
               )}
             </h2>
 
-            {/* Batch Checkout button -- only when settling and there are active players */}
-            {gameStatus === GameStatus.SETTLING && activePlayers.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setIsBatchCheckoutOpen(true)}
-                className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1 active:bg-primary-800"
-              >
-                Checkout All
-              </button>
-            )}
           </div>
 
           {players.length === 0 ? (
@@ -773,8 +539,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
                 players={players}
                 gameStatus={gameStatus}
                 processingPlayerId={processingId}
-                onCheckout={handleCheckoutClick}
-                onSettleDebt={handleSettleDebt}
               />
             </div>
           )}
@@ -797,27 +561,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             )}
 
             {/* Status-dependent controls */}
-            {gameStatus === GameStatus.OPEN && (
-              <button
-                type="button"
-                onClick={handleStartSettling}
-                disabled={isSettleLoading}
-                className="w-full rounded-xl bg-amber-500 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 active:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSettleLoading ? 'Starting...' : 'Start Settling'}
-              </button>
-            )}
-
-            {gameStatus === GameStatus.SETTLING && (
-              <button
-                type="button"
-                onClick={handleCloseGame}
-                disabled={isCloseLoading}
-                className="w-full rounded-xl bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isCloseLoading ? 'Closing...' : 'Close Game'}
-              </button>
-            )}
+            {/* TODO: Settlement controls will be rebuilt */}
 
             {gameStatus === GameStatus.CLOSED && (
               <div className="rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-center space-y-3">
@@ -853,38 +597,6 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
         isDanger={confirmModal.isDanger}
         onConfirm={confirmModal.onConfirm}
         onCancel={closeModal}
-      />
-
-      {/* Checkout Player Modal */}
-      {checkoutTarget && (
-        <CheckoutPlayerModal
-          player={checkoutTarget}
-          isOpen={true}
-          isProcessing={isCheckoutProcessing}
-          onSubmit={handleCheckoutSubmit}
-          onCancel={handleCheckoutCancel}
-        />
-      )}
-
-      {/* Settle Debt Modal */}
-      {settleDebtTarget && (
-        <SettleDebtModal
-          debtor={settleDebtTarget}
-          recipients={players}
-          isOpen={true}
-          isProcessing={isSettleDebtProcessing}
-          onSubmit={handleSettleDebtSubmit}
-          onCancel={() => setSettleDebtTarget(null)}
-        />
-      )}
-
-      {/* Batch Checkout Modal */}
-      <BatchCheckoutModal
-        players={activePlayers}
-        isOpen={isBatchCheckoutOpen}
-        isProcessing={isBatchCheckoutProcessing}
-        onSubmit={handleBatchCheckoutSubmit}
-        onCancel={() => setIsBatchCheckoutOpen(false)}
       />
 
       {/* Toast Notifications */}
