@@ -9,7 +9,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_serializer
 
-from app.models.common import PyObjectId
+from app.models.common import CheckoutStatus, PyObjectId
 
 
 class Player(BaseModel):
@@ -37,7 +37,7 @@ class Player(BaseModel):
     checked_out_at: Optional[datetime] = None
 
     # -- Checkout state machine fields --
-    checkout_status: Optional[str] = None
+    checkout_status: Optional[CheckoutStatus] = None
     submitted_chip_count: Optional[int] = None
     validated_chip_count: Optional[int] = None
     preferred_cash: Optional[int] = None
