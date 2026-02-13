@@ -14,6 +14,7 @@ from app.dal.games_dal import GameDAL
 from app.dal.notifications_dal import NotificationDAL
 from app.dal.players_dal import PlayerDAL
 from app.models.common import CheckoutStatus, GameStatus, RequestType
+from app.services.checkout_math import compute_credit_deduction
 
 logger = logging.getLogger("chipmate.services.settlement")
 
@@ -148,3 +149,230 @@ class SettlementService:
             "cash_pool": total_cash_pool,
             "player_count": len(players),
         }
+
+    # ------------------------------------------------------------------
+    # Chip submission
+    # ------------------------------------------------------------------
+
+    async def submit_chips(
+        self,
+        game_id: str,
+        player_token: str,
+        chip_count: int,
+        preferred_cash: int,
+        preferred_credit: int,
+    ) -> None:
+        """Player submits their chip count and payout preferences.
+
+        Validates the player is in PENDING status and not input-locked,
+        then saves the submission and transitions to SUBMITTED.
+
+        Args:
+            game_id: The game identifier.
+            player_token: The player's UUID token.
+            chip_count: Number of chips the player is returning.
+            preferred_cash: Preferred cash payout amount.
+            preferred_credit: Preferred credit payout amount.
+
+        Raises:
+            HTTPException 404: Player not found.
+            HTTPException 400: Player not in PENDING state or input is locked.
+        """
+        player = await self._player_dal.get_by_token(game_id, player_token)
+        if player is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Player not found",
+            )
+
+        if player.input_locked:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Player input is locked by manager",
+            )
+
+        if player.checkout_status != CheckoutStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Player must be in PENDING status to submit chips",
+            )
+
+        await self._player_dal.update_by_token(
+            game_id,
+            player_token,
+            {
+                "submitted_chip_count": chip_count,
+                "preferred_cash": preferred_cash,
+                "preferred_credit": preferred_credit,
+                "checkout_status": str(CheckoutStatus.SUBMITTED),
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Chip validation
+    # ------------------------------------------------------------------
+
+    async def validate_chips(
+        self, game_id: str, player_token: str
+    ) -> None:
+        """Manager validates a player's submitted chip count.
+
+        Copies submitted_chip_count to validated_chip_count, runs credit
+        deduction math, and transitions to CREDIT_DEDUCTED.
+
+        Fast path: if the player is cash-only (no credit buy-in) AND
+        preferred_credit == 0, skip directly to DONE with immediate payout.
+
+        Args:
+            game_id: The game identifier.
+            player_token: The player's UUID token.
+
+        Raises:
+            HTTPException 404: Player not found.
+            HTTPException 400: Player not in SUBMITTED state.
+        """
+        player = await self._player_dal.get_by_token(game_id, player_token)
+        if player is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Player not found",
+            )
+
+        if player.checkout_status != CheckoutStatus.SUBMITTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Player must be in SUBMITTED status to validate",
+            )
+
+        validated = player.submitted_chip_count
+        frozen = player.frozen_buy_in
+        total_cash_in = frozen["total_cash_in"]
+        total_credit_in = frozen["total_credit_in"]
+
+        result = compute_credit_deduction(validated, total_cash_in, total_credit_in)
+
+        is_cash_only = total_credit_in == 0 and (player.preferred_credit or 0) == 0
+
+        if is_cash_only:
+            # Fast path: skip to DONE
+            now = datetime.now(timezone.utc)
+            chips_after = result["chips_after_credit"]
+            await self._player_dal.update_by_token(
+                game_id,
+                player_token,
+                {
+                    "validated_chip_count": validated,
+                    "credit_repaid": result["credit_repaid"],
+                    "chips_after_credit": chips_after,
+                    "profit_loss": result["profit_loss"],
+                    "credits_owed": result["credit_owed"],
+                    "checkout_status": str(CheckoutStatus.DONE),
+                    "distribution": {"cash": chips_after, "credit_from": []},
+                    "checked_out": True,
+                    "checked_out_at": now,
+                },
+            )
+            # Decrement cash_pool on the game
+            game = await self._get_game_or_404(game_id)
+            await self._game_dal.update(
+                game_id, {"cash_pool": game.cash_pool - chips_after}
+            )
+        else:
+            # Normal path: transition to CREDIT_DEDUCTED
+            await self._player_dal.update_by_token(
+                game_id,
+                player_token,
+                {
+                    "validated_chip_count": validated,
+                    "credit_repaid": result["credit_repaid"],
+                    "chips_after_credit": result["chips_after_credit"],
+                    "profit_loss": result["profit_loss"],
+                    "credits_owed": result["credit_owed"],
+                    "checkout_status": str(CheckoutStatus.CREDIT_DEDUCTED),
+                },
+            )
+
+    # ------------------------------------------------------------------
+    # Chip rejection
+    # ------------------------------------------------------------------
+
+    async def reject_chips(
+        self, game_id: str, player_token: str
+    ) -> None:
+        """Manager rejects a player's submitted chip count.
+
+        Resets the player back to PENDING and clears submission fields.
+
+        Args:
+            game_id: The game identifier.
+            player_token: The player's UUID token.
+
+        Raises:
+            HTTPException 404: Player not found.
+            HTTPException 400: Player not in SUBMITTED state.
+        """
+        player = await self._player_dal.get_by_token(game_id, player_token)
+        if player is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Player not found",
+            )
+
+        if player.checkout_status != CheckoutStatus.SUBMITTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Player must be in SUBMITTED status to reject",
+            )
+
+        await self._player_dal.update_by_token(
+            game_id,
+            player_token,
+            {
+                "checkout_status": str(CheckoutStatus.PENDING),
+                "submitted_chip_count": None,
+                "preferred_cash": None,
+                "preferred_credit": None,
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Manager input (override)
+    # ------------------------------------------------------------------
+
+    async def manager_input(
+        self,
+        game_id: str,
+        player_token: str,
+        chip_count: int,
+        preferred_cash: int,
+        preferred_credit: int,
+    ) -> None:
+        """Manager directly inputs chip count for a player, locks input, and auto-validates.
+
+        Sets input_locked=True, saves submission fields, transitions to
+        SUBMITTED, then immediately runs validate_chips logic.
+
+        Args:
+            game_id: The game identifier.
+            player_token: The player's UUID token.
+            chip_count: Number of chips the player is returning.
+            preferred_cash: Preferred cash payout amount.
+            preferred_credit: Preferred credit payout amount.
+
+        Raises:
+            HTTPException 404: Player not found.
+        """
+        await self._player_dal.update_by_token(
+            game_id,
+            player_token,
+            {
+                "input_locked": True,
+                "submitted_chip_count": chip_count,
+                "preferred_cash": preferred_cash,
+                "preferred_credit": preferred_credit,
+                "checkout_status": str(CheckoutStatus.SUBMITTED),
+            },
+        )
+
+        # Auto-validate
+        await self.validate_chips(game_id, player_token)
