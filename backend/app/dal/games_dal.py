@@ -223,6 +223,25 @@ class GameDAL:
     # Update
     # ------------------------------------------------------------------
 
+    async def update(self, game_id: str, fields: dict) -> bool:
+        """Update arbitrary fields on a game document.
+
+        Args:
+            game_id: String ObjectId of the game.
+            fields: A dict of field names to new values.
+
+        Returns:
+            True if a document was modified, False otherwise.
+        """
+        if not ObjectId.is_valid(game_id):
+            return False
+
+        result = await self._collection.update_one(
+            {"_id": ObjectId(game_id)},
+            {"$set": fields},
+        )
+        return result.modified_count > 0
+
     async def update_status(
         self,
         game_id: str,
