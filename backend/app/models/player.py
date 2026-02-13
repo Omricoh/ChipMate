@@ -36,6 +36,19 @@ class Player(BaseModel):
     )
     checked_out_at: Optional[datetime] = None
 
+    # -- Checkout state machine fields --
+    checkout_status: Optional[str] = None
+    submitted_chip_count: Optional[int] = None
+    validated_chip_count: Optional[int] = None
+    preferred_cash: Optional[int] = None
+    preferred_credit: Optional[int] = None
+    chips_after_credit: Optional[int] = None
+    credit_repaid: Optional[int] = None
+    distribution: Optional[dict] = None
+    actions: Optional[list] = None
+    input_locked: bool = False
+    frozen_buy_in: Optional[dict] = None
+
     @field_serializer("id")
     def serialize_id(self, value: Optional[str], _info) -> Optional[str]:
         if value is not None:

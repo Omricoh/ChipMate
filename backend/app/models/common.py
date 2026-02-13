@@ -58,3 +58,14 @@ class NotificationType(StrEnum):
     GAME_SETTLING = "GAME_SETTLING"
     GAME_CLOSED = "GAME_CLOSED"
     DEBT_SETTLED = "DEBT_SETTLED"
+
+
+class CheckoutStatus(StrEnum):
+    """Per-player checkout state machine states."""
+    PENDING = "PENDING"
+    SUBMITTED = "SUBMITTED"
+    VALIDATED = "VALIDATED"
+    CREDIT_DEDUCTED = "CREDIT_DEDUCTED"
+    AWAITING_DISTRIBUTION = "AWAITING_DISTRIBUTION"
+    DISTRIBUTED = "DISTRIBUTED"
+    DONE = "DONE"
