@@ -50,13 +50,19 @@ class Game(BaseModel):
     )
     bank: Bank = Field(default_factory=Bank)
 
+    # -- Settlement state fields --
+    settlement_state: Optional[str] = None
+    cash_pool: int = 0
+    credit_pool: int = 0
+    frozen_at: Optional[datetime] = None
+
     @field_serializer("id")
     def serialize_id(self, value: Optional[str], _info) -> Optional[str]:
         if value is not None:
             return str(value)
         return value
 
-    @field_serializer("created_at", "closed_at", "expires_at")
+    @field_serializer("created_at", "closed_at", "expires_at", "frozen_at")
     def serialize_datetime(
         self, value: Optional[datetime], _info
     ) -> Optional[str]:
