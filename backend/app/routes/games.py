@@ -6,6 +6,7 @@ Endpoints:
     GET  /api/games/code/{game_code}          -- Look up game by code (public).
     POST /api/games/{game_id}/join            -- Join a game.
     GET  /api/games/{game_id}/players         -- List all players in a game.
+    GET  /api/games/{game_id}/players/me      -- Get current player details.
     GET  /api/games/{game_id}/players/{player_id} -- Get specific player details.
     POST /api/games/{game_id}/players/me/leave -- Player leaves the game.
     GET  /api/games/{game_id}/status          -- Get game status with bankroll.
@@ -315,6 +316,104 @@ async def list_players(
     return PlayersListResponse(
         players=player_infos,
         total_count=len(player_infos),
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/games/{game_id}/players/me -- Current player details
+# ---------------------------------------------------------------------------
+
+class PlayerMeResponse(BaseModel):
+    """Response for GET /api/games/{game_id}/players/me."""
+    player_id: str
+    name: str
+    is_manager: bool
+    is_active: bool
+    credits_owed: int
+    checked_out: bool
+    joined_at: str
+    total_cash_in: int
+    total_credit_in: int
+    current_chips: int
+    checkout_status: Optional[str] = None
+    submitted_chip_count: Optional[int] = None
+    validated_chip_count: Optional[int] = None
+    preferred_cash: Optional[int] = None
+    preferred_credit: Optional[int] = None
+    chips_after_credit: Optional[int] = None
+    credit_repaid: Optional[int] = None
+    profit_loss: Optional[int] = None
+    distribution: Optional[dict] = None
+    actions: Optional[list] = None
+    input_locked: bool = False
+    frozen_buy_in: Optional[dict] = None
+
+
+@router.get(
+    "/{game_id}/players/me",
+    response_model=PlayerMeResponse,
+    summary="Get current player details including checkout state",
+)
+async def get_player_me(
+    game_id: str = Path(...),
+    player: Player = Depends(get_current_player),
+) -> PlayerMeResponse:
+    """Get the authenticated player's details including checkout state."""
+    service = _get_service()
+
+    # Compute buy-in totals
+    db = get_database()
+    chip_request_dal = ChipRequestDAL(db)
+    requests = await chip_request_dal.get_by_player(
+        game_id, player.player_token, limit=10000
+    )
+    total_cash_in = 0
+    total_credit_in = 0
+    for req in requests:
+        amount = req.effective_amount
+        if amount <= 0:
+            continue
+        if str(req.request_type) == "CASH":
+            total_cash_in += amount
+        else:
+            total_credit_in += amount
+
+    total_buy_in = total_cash_in + total_credit_in
+    current_chips = (
+        player.final_chip_count
+        if player.checked_out and player.final_chip_count is not None
+        else total_buy_in
+    )
+
+    joined_at_str = (
+        player.joined_at.isoformat()
+        if hasattr(player.joined_at, "isoformat")
+        else str(player.joined_at)
+    )
+
+    return PlayerMeResponse(
+        player_id=player.player_token,
+        name=player.display_name,
+        is_manager=player.is_manager,
+        is_active=player.is_active,
+        credits_owed=player.credits_owed,
+        checked_out=player.checked_out,
+        joined_at=joined_at_str,
+        total_cash_in=total_cash_in,
+        total_credit_in=total_credit_in,
+        current_chips=current_chips,
+        checkout_status=str(player.checkout_status) if player.checkout_status else None,
+        submitted_chip_count=player.submitted_chip_count,
+        validated_chip_count=player.validated_chip_count,
+        preferred_cash=player.preferred_cash,
+        preferred_credit=player.preferred_credit,
+        chips_after_credit=player.chips_after_credit,
+        credit_repaid=player.credit_repaid,
+        profit_loss=player.profit_loss,
+        distribution=player.distribution,
+        actions=player.actions,
+        input_locked=player.input_locked,
+        frozen_buy_in=player.frozen_buy_in,
     )
 
 

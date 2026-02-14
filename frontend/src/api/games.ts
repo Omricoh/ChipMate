@@ -4,6 +4,7 @@ import type {
   GameByCodeResponse,
   GameStatusResponse,
   JoinGameResponse,
+  Player,
   PlayersListResponse,
 } from './types';
 
@@ -73,6 +74,17 @@ export async function getGameStatus(gameId: string): Promise<GameStatusResponse>
 export async function getGamePlayers(gameId: string): Promise<PlayersListResponse> {
   const response = await apiClient.get<PlayersListResponse>(
     `/api/games/${gameId}/players`,
+  );
+  return response.data;
+}
+
+/**
+ * Get current player's details including checkout state.
+ * GET /api/games/{gameId}/players/me
+ */
+export async function getPlayerMe(gameId: string): Promise<Player> {
+  const response = await apiClient.get<Player>(
+    `/api/games/${gameId}/players/me`,
   );
   return response.data;
 }

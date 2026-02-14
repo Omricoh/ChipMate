@@ -11,6 +11,7 @@ import {
 import { GameStatusBadge } from '../components/common/Badge';
 import { PlayerStatusCard } from '../components/game/PlayerStatusCard';
 import { ChipRequestForm } from '../components/game/ChipRequestForm';
+import { PlayerCheckoutView } from '../components/game/PlayerCheckoutView';
 import { RequestHistoryList } from '../components/game/RequestHistoryList';
 import { NotificationPanel } from '../components/game/NotificationPanel';
 import { ManagerDashboard } from '../components/game/ManagerDashboard';
@@ -225,11 +226,21 @@ function PlayerView({ gameId }: { gameId: string }) {
           </section>
         )}
 
-        {/* Chip Request Form */}
-        <ChipRequestForm
-          gameStatus={gameStatus}
-          onSubmit={handleChipRequest}
-        />
+        {/* Settlement View (during SETTLING) */}
+        {gameStatus === GameStatus.SETTLING && (
+          <PlayerCheckoutView
+            gameId={gameId}
+            onToast={addToast}
+          />
+        )}
+
+        {/* Chip Request Form (hidden during SETTLING) */}
+        {gameStatus !== GameStatus.SETTLING && (
+          <ChipRequestForm
+            gameStatus={gameStatus}
+            onSubmit={handleChipRequest}
+          />
+        )}
 
         {/* Request History */}
         <section
