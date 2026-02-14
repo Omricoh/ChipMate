@@ -121,8 +121,11 @@ export function SettlementDashboard({
     async (playerToken: string) => {
       setActionLoading(playerToken);
       try {
-        await validateChips(gameId, playerToken);
+        const result = await validateChips(gameId, playerToken);
         onToast(createToast('success', 'Chips approved'));
+        if (result.warning) {
+          onToast(createToast('error', result.warning));
+        }
         refreshGame();
         fetchPool();
       } catch (err) {

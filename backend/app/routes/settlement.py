@@ -158,8 +158,11 @@ async def validate_chips(
 ) -> dict:
     """Manager validates a player's submitted chip count."""
     service = _get_service()
-    await service.validate_chips(game_id, player_token)
-    return {"status": "validated"}
+    result = await service.validate_chips(game_id, player_token)
+    response = {"status": "validated"}
+    if result.get("warning"):
+        response["warning"] = result["warning"]
+    return response
 
 
 # ---------------------------------------------------------------------------

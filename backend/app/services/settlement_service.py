@@ -266,7 +266,7 @@ class SettlementService:
 
     async def validate_chips(
         self, game_id: str, player_token: str
-    ) -> None:
+    ) -> dict:
         """Manager validates a player's submitted chip count.
 
         Copies submitted_chip_count to validated_chip_count, runs credit
@@ -274,6 +274,9 @@ class SettlementService:
 
         Fast path: if the player is cash-only (no credit buy-in) AND
         preferred_credit == 0, skip directly to DONE with immediate payout.
+
+        Returns a dict with an optional "warning" if the total validated
+        chips exceed the total chips issued in the game.
 
         Args:
             game_id: The game identifier.
@@ -343,6 +346,24 @@ class SettlementService:
                     "checkout_status": str(CheckoutStatus.CREDIT_DEDUCTED),
                 },
             )
+
+        # Check if total validated chips exceed total chips issued
+        warning = None
+        all_players = await self._player_dal.get_by_game(game_id)
+        total_validated = sum(
+            p.validated_chip_count or 0
+            for p in all_players
+            if p.validated_chip_count is not None
+        )
+        game = await self._get_game_or_404(game_id)
+        total_issued = game.bank.total_chips_issued
+        if total_validated > total_issued:
+            warning = (
+                f"Total validated chips ({total_validated}) "
+                f"exceeds total chips issued ({total_issued})"
+            )
+
+        return {"warning": warning}
 
     # ------------------------------------------------------------------
     # Chip rejection

@@ -323,6 +323,54 @@ class TestValidateChips:
         assert player.credits_owed == 0
 
 
+class TestChipTotalWarning:
+
+    async def test_no_warning_when_total_within_limit(
+        self, settlement_service, game_dal, settling_game
+    ):
+        """No warning when submitted chips <= total chips issued."""
+        game_id = settling_game["game_id"]
+        bob_token = settling_game["bob_token"]
+
+        # Bob submits 200 chips (total issued = 300, so 200 <= 300)
+        await settlement_service.submit_chips(
+            game_id=game_id, player_token=bob_token,
+            chip_count=200, preferred_cash=100, preferred_credit=100,
+        )
+
+        result = await settlement_service.validate_chips(game_id, bob_token)
+        assert result.get("warning") is None
+
+    async def test_warning_when_total_exceeds_chips_issued(
+        self, settlement_service, game_dal, settling_game
+    ):
+        """Warning when sum of validated chips > total chips issued.
+
+        Settling game: Alice 200 cash + Bob 100 cash + 100 credit = 400 total issued.
+        """
+        game_id = settling_game["game_id"]
+        manager_token = settling_game["manager_token"]
+        bob_token = settling_game["bob_token"]
+
+        # Alice submits 250 chips
+        await settlement_service.submit_chips(
+            game_id=game_id, player_token=manager_token,
+            chip_count=250, preferred_cash=250, preferred_credit=0,
+        )
+        result1 = await settlement_service.validate_chips(game_id, manager_token)
+        assert result1.get("warning") is None  # 250 <= 400
+
+        # Bob submits 200 chips — total now 450 > 400
+        await settlement_service.submit_chips(
+            game_id=game_id, player_token=bob_token,
+            chip_count=200, preferred_cash=100, preferred_credit=100,
+        )
+        result2 = await settlement_service.validate_chips(game_id, bob_token)
+        assert result2["warning"] is not None
+        assert "450" in result2["warning"]
+        assert "400" in result2["warning"]
+
+
 class TestRejectChips:
 
     async def test_manager_rejects_submission(

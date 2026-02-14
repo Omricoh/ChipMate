@@ -33,10 +33,11 @@ export async function submitChips(
 export async function validateChips(
   gameId: string,
   playerToken: string,
-): Promise<void> {
-  await apiClient.post(
+): Promise<{ status: string; warning?: string }> {
+  const res = await apiClient.post<{ status: string; warning?: string }>(
     `/api/games/${gameId}/settlement/validate-chips/${playerToken}`,
   );
+  return res.data;
 }
 
 /** Manager rejects a player's submitted chip count. */
