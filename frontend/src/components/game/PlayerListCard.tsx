@@ -8,6 +8,8 @@ interface PlayerListCardProps {
   gameStatus?: GameStatus;
   /** ID of the player currently being processed */
   processingPlayerId?: string | null;
+  /** Called when a player requests mid-game checkout (OPEN state only) */
+  onCheckoutRequest?: (playerId: string) => void;
 }
 
 /**

@@ -75,6 +75,20 @@ class OverrideDistributionBody(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/games/{game_id}/settlement/checkout-request
+# ---------------------------------------------------------------------------
+
+@router.post("/checkout-request", summary="Player requests mid-game checkout")
+async def request_checkout(
+    game_id: str = Path(...),
+    player: Player = Depends(get_current_player),
+) -> dict:
+    """Player requests mid-game checkout during OPEN state."""
+    service = _get_service()
+    return await service.request_midgame_checkout(game_id, player.player_token)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/games/{game_id}/settlement/start
 # ---------------------------------------------------------------------------
 

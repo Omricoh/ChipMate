@@ -79,6 +79,50 @@ class SettlementService:
         }
 
     # ------------------------------------------------------------------
+    # Mid-game checkout (single player, during OPEN)
+    # ------------------------------------------------------------------
+
+    async def request_midgame_checkout(self, game_id: str, player_token: str) -> dict:
+        """Initiate mid-game checkout for a single player during OPEN state.
+
+        Freezes this player's buy-in data and sets checkout_status to PENDING.
+        The player then goes through the same per-player flow.
+        """
+        game = await self._get_game_or_404(game_id)
+        if game.status != GameStatus.OPEN:
+            raise HTTPException(
+                status_code=400,
+                detail="Game must be OPEN for mid-game checkout",
+            )
+
+        player = await self._player_dal.get_by_token(game_id, player_token)
+        if player is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Player not found",
+            )
+        if player.checkout_status is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Player already in checkout",
+            )
+
+        # Compute and freeze buy-in
+        totals = await self._compute_player_totals(game_id, player_token)
+        frozen = {
+            "total_cash_in": totals["total_cash_in"],
+            "total_credit_in": totals["total_credit_in"],
+            "total_buy_in": totals["total_cash_in"] + totals["total_credit_in"],
+        }
+
+        await self._player_dal.update_by_token(game_id, player_token, {
+            "frozen_buy_in": frozen,
+            "checkout_status": str(CheckoutStatus.PENDING),
+        })
+
+        return {"status": "checkout_initiated", "player_token": player_token}
+
+    # ------------------------------------------------------------------
     # Start settling
     # ------------------------------------------------------------------
 

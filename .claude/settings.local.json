@@ -30,7 +30,12 @@
       "Bash(npx tsc:*)",
       "Bash(npx vite build:*)",
       "Bash(wc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(npx --no-install tsc:*)",
+      "Bash(npx:*)",
+      "Bash(pip3 list:*)",
+      "Bash(pip3 install:*)"
     ],
     "deny": [],
     "ask": []
