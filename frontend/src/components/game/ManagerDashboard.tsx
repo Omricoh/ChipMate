@@ -19,8 +19,10 @@ import { PendingRequestCard } from './PendingRequestCard';
 import { PlayerListCard } from './PlayerListCard';
 import { GameShareSection } from './GameShareSection';
 import { SettlementDashboard } from './SettlementDashboard';
+import { RequestHistoryList } from './RequestHistoryList';
 import { GameStatus, RequestType } from '../../api/types';
-import { createChipRequest } from '../../api/requests';
+import type { ChipRequest } from '../../api/types';
+import { createChipRequest, getMyRequests } from '../../api/requests';
 import { startSettling, managerCheckoutRequest } from '../../api/settlement';
 import axios from 'axios';
 
@@ -77,6 +79,27 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   // ── Processing State ──────────────────────────────────────────────────
 
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // ── Manager's Own Request History ────────────────────────────────────
+
+  const [myRequests, setMyRequests] = useState<ChipRequest[]>([]);
+
+  const refreshMyRequests = useCallback(async () => {
+    try {
+      const list = await getMyRequests(gameId);
+      const sorted = [...list].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+      setMyRequests(sorted);
+    } catch {
+      // Silent fail during polling
+    }
+  }, [gameId]);
+
+  useEffect(() => {
+    refreshMyRequests();
+  }, [refreshMyRequests]);
 
   // ── Confirm Modal State ───────────────────────────────────────────────
 
@@ -231,6 +254,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
       setBuyInAmount('');
       await refreshGame();
       refreshRequests();
+      refreshMyRequests();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to submit purchase';
@@ -576,6 +600,17 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
               />
             </div>
           )}
+        </section>
+
+        {/* Manager's Own Request History */}
+        <section
+          className="rounded-xl bg-white border border-gray-200 shadow-sm p-4"
+          aria-label="Request history"
+        >
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            My Request History
+          </h2>
+          <RequestHistoryList requests={myRequests} />
         </section>
 
         {/* Game Controls */}
