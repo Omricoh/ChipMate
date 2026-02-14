@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../common/Badge';
 import {
+  validateChips,
   rejectChips,
   managerInput,
   getPoolState,
@@ -115,6 +116,23 @@ export function SettlementDashboard({
   );
 
   // ── Action Handlers ─────────────────────────────────────────────────────
+
+  const handleValidate = useCallback(
+    async (playerToken: string) => {
+      setActionLoading(playerToken);
+      try {
+        await validateChips(gameId, playerToken);
+        onToast(createToast('success', 'Chips approved'));
+        refreshGame();
+        fetchPool();
+      } catch (err) {
+        onToast(createToast('error', getErrorMessage(err, 'Failed to approve')));
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [gameId, onToast, refreshGame, fetchPool],
+  );
 
   const handleReject = useCallback(
     async (playerToken: string) => {
@@ -263,6 +281,36 @@ export function SettlementDashboard({
                 </span>
                 {checkoutStatusBadge(player.checkout_status as CheckoutStatus | null)}
               </div>
+
+              {/* SUBMITTED: manager approves or rejects */}
+              {player.checkout_status === 'SUBMITTED' && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-gray-600">
+                    Submitted chips:{' '}
+                    <span className="font-semibold">
+                      {player.submitted_chip_count?.toLocaleString() ?? '—'}
+                    </span>
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleValidate(player.player_id)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReject(player.player_id)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* CREDIT_DEDUCTED: show credit math + reject */}
               {player.checkout_status === 'CREDIT_DEDUCTED' && (

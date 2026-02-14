@@ -260,9 +260,6 @@ class SettlementService:
             },
         )
 
-        # Auto-validate: run credit deduction and advance state immediately
-        await self.validate_chips(game_id, player_token)
-
     # ------------------------------------------------------------------
     # Chip validation
     # ------------------------------------------------------------------
