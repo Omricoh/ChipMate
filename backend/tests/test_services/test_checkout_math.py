@@ -70,6 +70,25 @@ class TestComputeCreditDeduction:
         assert result["chips_after_credit"] == 0
 
 
+    def test_high_credit_low_chips_200_cash_400_credit_300_chips(self):
+        """Player with 200 cash + 400 credit returning 300 chips gets 0 after credit."""
+        result = compute_credit_deduction(final_chips=300, total_cash_in=200, total_credit_in=400)
+        assert result["total_buy_in"] == 600
+        assert result["profit_loss"] == -300
+        assert result["credit_repaid"] == 300  # all chips go to credit
+        assert result["credit_owed"] == 100  # still owes 100
+        assert result["chips_after_credit"] == 0  # nothing left for cash
+
+    def test_high_credit_low_chips_200_cash_400_credit_500_chips(self):
+        """Player with 200 cash + 400 credit returning 500 chips gets 100 after credit."""
+        result = compute_credit_deduction(final_chips=500, total_cash_in=200, total_credit_in=400)
+        assert result["total_buy_in"] == 600
+        assert result["profit_loss"] == -100
+        assert result["credit_repaid"] == 400  # all credit repaid
+        assert result["credit_owed"] == 0
+        assert result["chips_after_credit"] == 100  # 500 - 400 = 100 for cash
+
+
 class TestComputeDistributionSuggestion:
     """Tests for the distribution algorithm."""
 
@@ -93,6 +112,21 @@ class TestComputeDistributionSuggestion:
         assert result["winner1"]["credit_from"] == [{"from": "debtor", "amount": 100}]
         assert result["winner1"]["cash"] == 100
         assert result["winner2"]["cash"] == 50
+
+    def test_high_credit_player_gets_zero_cash(self):
+        """Player with more credit than chips should get 0 cash in distribution."""
+        players = [
+            # This player had 200 cash + 400 credit, returned 300 chips
+            # chips_after_credit = 0, credit_owed = 100
+            {"player_token": "debtor", "chips_after_credit": 0, "preferred_cash": 0, "preferred_credit": 0, "credit_owed": 100},
+            # Winner: 500 cash only, returned 800, chips_after_credit = 800
+            {"player_token": "winner", "chips_after_credit": 800, "preferred_cash": 700, "preferred_credit": 100, "credit_owed": 0},
+        ]
+        result = compute_distribution_suggestion(players, cash_pool=700, credit_pool=0)
+        assert result["debtor"]["cash"] == 0
+        assert result["debtor"]["credit_from"] == []
+        # Winner gets cash (credit not available yet since debtor not confirmed)
+        assert result["winner"]["cash"] == 800
 
     def test_no_chips_after_credit(self):
         players = [

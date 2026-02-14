@@ -78,16 +78,21 @@ function ChipSubmissionForm({
   const chipCountNum = parseInt(chipCount, 10) || 0;
   const cashNum = parseInt(preferredCash, 10) || 0;
   const creditNum = parseInt(preferredCredit, 10) || 0;
-  const splitValid = cashNum + creditNum === chipCountNum;
+  const creditIn = frozenBuyIn?.total_credit_in ?? 0;
+  const chipsAfterCredit = Math.max(0, chipCountNum - creditIn);
+  const splitValid = cashNum + creditNum === chipsAfterCredit;
 
-  // Auto-fill: when chip count changes, default all to cash
+  // Auto-fill: when chip count changes, compute how much goes to credit
+  // repayment first, then default the remainder to cash
   useEffect(() => {
     const count = parseInt(chipCount, 10) || 0;
     if (count > 0) {
-      setPreferredCash(String(count));
+      const creditIn = frozenBuyIn?.total_credit_in ?? 0;
+      const afterCredit = Math.max(0, count - creditIn);
+      setPreferredCash(String(afterCredit));
       setPreferredCredit('0');
     }
-  }, [chipCount]);
+  }, [chipCount, frozenBuyIn]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -97,7 +102,7 @@ function ChipSubmissionForm({
         return;
       }
       if (!splitValid) {
-        onToast('error', 'Cash + Credit must equal your chip count');
+        onToast('error', `Cash + Credit must equal ${chipsAfterCredit} (chips after credit deduction)`);
         return;
       }
       setSubmitting(true);
@@ -140,6 +145,18 @@ function ChipSubmissionForm({
         />
       </div>
 
+      {chipCountNum > 0 && creditIn > 0 && (
+        <div className="rounded-lg bg-blue-50 border border-blue-200 p-2.5 text-xs text-blue-700 space-y-0.5">
+          <p>
+            Credit deduction: <span className="font-semibold">{Math.min(chipCountNum, creditIn).toLocaleString()}</span> of {creditIn.toLocaleString()} credit repaid
+          </p>
+          <p>
+            Available for payout: <span className="font-semibold">{chipsAfterCredit.toLocaleString()}</span>
+            {chipsAfterCredit === 0 && ' (all chips go to credit repayment)'}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label
@@ -179,8 +196,8 @@ function ChipSubmissionForm({
 
       {chipCountNum > 0 && !splitValid && (
         <p className="text-xs text-red-500">
-          Cash ({cashNum}) + Credit ({creditNum}) must equal chip count (
-          {chipCountNum})
+          Cash ({cashNum}) + Credit ({creditNum}) must equal {chipsAfterCredit}
+          {creditIn > 0 && ` (${chipCountNum} chips - ${Math.min(chipCountNum, creditIn)} credit deduction)`}
         </p>
       )}
 
