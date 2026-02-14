@@ -29,16 +29,6 @@ export async function submitChips(
   });
 }
 
-/** Manager validates a player's submitted chip count. */
-export async function validateChips(
-  gameId: string,
-  playerToken: string,
-): Promise<void> {
-  await apiClient.post(
-    `/api/games/${gameId}/settlement/validate-chips/${playerToken}`,
-  );
-}
-
 /** Manager rejects a player's submitted chip count. */
 export async function rejectChips(
   gameId: string,

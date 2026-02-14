@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../common/Badge';
 import {
-  validateChips,
   rejectChips,
   managerInput,
   getPoolState,
@@ -43,8 +42,7 @@ function checkoutStatusBadge(status: CheckoutStatus | null | undefined) {
   const map: Record<string, { label: string; color: 'gray' | 'amber' | 'sky' | 'purple' | 'green' }> = {
     PENDING: { label: 'Waiting for input', color: 'gray' },
     SUBMITTED: { label: 'Submitted', color: 'amber' },
-    VALIDATED: { label: 'Validated', color: 'sky' },
-    CREDIT_DEDUCTED: { label: 'Credit Deducted', color: 'purple' },
+    CREDIT_DEDUCTED: { label: 'Needs Distribution', color: 'purple' },
     AWAITING_DISTRIBUTION: { label: 'Awaiting Distribution', color: 'amber' },
     DISTRIBUTED: { label: 'Distribution Assigned', color: 'sky' },
     DONE: { label: 'Done', color: 'green' },
@@ -81,6 +79,8 @@ export function SettlementDashboard({
 
   useEffect(() => {
     fetchPool();
+    const interval = setInterval(fetchPool, 5_000);
+    return () => clearInterval(interval);
   }, [fetchPool]);
 
   // ── Manager Input Form State ────────────────────────────────────────────
@@ -115,23 +115,6 @@ export function SettlementDashboard({
   );
 
   // ── Action Handlers ─────────────────────────────────────────────────────
-
-  const handleValidate = useCallback(
-    async (playerToken: string) => {
-      setActionLoading(playerToken);
-      try {
-        await validateChips(gameId, playerToken);
-        onToast(createToast('success', 'Chips validated'));
-        refreshGame();
-        fetchPool();
-      } catch (err) {
-        onToast(createToast('error', getErrorMessage(err, 'Failed to validate')));
-      } finally {
-        setActionLoading(null);
-      }
-    },
-    [gameId, onToast, refreshGame, fetchPool],
-  );
 
   const handleReject = useCallback(
     async (playerToken: string) => {
@@ -281,62 +264,48 @@ export function SettlementDashboard({
                 {checkoutStatusBadge(player.checkout_status as CheckoutStatus | null)}
               </div>
 
-              {/* SUBMITTED: show chip count and validate/reject */}
-              {player.checkout_status === 'SUBMITTED' && (
-                <div className="mt-2 space-y-2">
-                  <p className="text-xs text-gray-600">
-                    Submitted chips:{' '}
-                    <span className="font-semibold">
-                      {player.submitted_chip_count?.toLocaleString() ?? '—'}
-                    </span>
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleValidate(player.player_id)}
-                      disabled={actionLoading === player.player_id}
-                      className="flex-1 rounded-lg bg-green-600 px-3 py-2 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60"
-                    >
-                      Validate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleReject(player.player_id)}
-                      disabled={actionLoading === player.player_id}
-                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* CREDIT_DEDUCTED: show credit math */}
+              {/* CREDIT_DEDUCTED: show credit math + reject */}
               {player.checkout_status === 'CREDIT_DEDUCTED' && (
-                <div className="mt-2 text-xs text-gray-600 space-y-0.5">
-                  <p>
-                    P/L:{' '}
-                    <span
-                      className={`font-semibold ${
-                        (player.profit_loss ?? 0) >= 0 ? 'text-green-700' : 'text-red-700'
-                      }`}
-                    >
-                      {(player.profit_loss ?? 0) >= 0 ? '+' : ''}
-                      {player.profit_loss?.toLocaleString() ?? '0'}
-                    </span>
-                  </p>
-                  <p>
-                    Credit repaid:{' '}
-                    <span className="font-semibold">
-                      {player.credit_repaid?.toLocaleString() ?? '0'}
-                    </span>
-                  </p>
-                  <p>
-                    Chips after credit:{' '}
-                    <span className="font-semibold">
-                      {player.chips_after_credit?.toLocaleString() ?? '0'}
-                    </span>
-                  </p>
+                <div className="mt-2 space-y-2">
+                  <div className="text-xs text-gray-600 space-y-0.5">
+                    <p>
+                      Chips submitted:{' '}
+                      <span className="font-semibold">
+                        {player.submitted_chip_count?.toLocaleString() ?? '—'}
+                      </span>
+                    </p>
+                    <p>
+                      P/L:{' '}
+                      <span
+                        className={`font-semibold ${
+                          (player.profit_loss ?? 0) >= 0 ? 'text-green-700' : 'text-red-700'
+                        }`}
+                      >
+                        {(player.profit_loss ?? 0) >= 0 ? '+' : ''}
+                        {player.profit_loss?.toLocaleString() ?? '0'}
+                      </span>
+                    </p>
+                    <p>
+                      Credit repaid:{' '}
+                      <span className="font-semibold">
+                        {player.credit_repaid?.toLocaleString() ?? '0'}
+                      </span>
+                    </p>
+                    <p>
+                      Chips after credit:{' '}
+                      <span className="font-semibold">
+                        {player.chips_after_credit?.toLocaleString() ?? '0'}
+                      </span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReject(player.player_id)}
+                    disabled={actionLoading === player.player_id}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  >
+                    Reject
+                  </button>
                 </div>
               )}
 
@@ -357,30 +326,42 @@ export function SettlementDashboard({
 
               {/* DONE */}
               {player.checkout_status === 'DONE' && (
-                <div className="mt-2 flex items-center gap-2">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-4 w-4 text-green-600"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="text-xs text-gray-600">
-                    P/L:{' '}
-                    <span
-                      className={`font-semibold ${
-                        (player.profit_loss ?? 0) >= 0 ? 'text-green-700' : 'text-red-700'
-                      }`}
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="h-4 w-4 text-green-600"
                     >
-                      {(player.profit_loss ?? 0) >= 0 ? '+' : ''}
-                      {player.profit_loss?.toLocaleString() ?? '0'}
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span className="text-xs text-gray-600">
+                      Chips: {player.submitted_chip_count?.toLocaleString() ?? '—'}
+                      {' · '}
+                      P/L:{' '}
+                      <span
+                        className={`font-semibold ${
+                          (player.profit_loss ?? 0) >= 0 ? 'text-green-700' : 'text-red-700'
+                        }`}
+                      >
+                        {(player.profit_loss ?? 0) >= 0 ? '+' : ''}
+                        {player.profit_loss?.toLocaleString() ?? '0'}
+                      </span>
                     </span>
-                  </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReject(player.player_id)}
+                    disabled={actionLoading === player.player_id}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  >
+                    Reject
+                  </button>
                 </div>
               )}
             </div>
