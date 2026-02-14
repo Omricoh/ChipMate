@@ -35,7 +35,8 @@
       "Bash(npx --no-install tsc:*)",
       "Bash(npx:*)",
       "Bash(pip3 list:*)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(npm ci:*)"
     ],
     "deny": [],
     "ask": []
