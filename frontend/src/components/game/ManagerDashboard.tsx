@@ -21,7 +21,7 @@ import { GameShareSection } from './GameShareSection';
 import { SettlementDashboard } from './SettlementDashboard';
 import { GameStatus, RequestType } from '../../api/types';
 import { createChipRequest } from '../../api/requests';
-import { startSettling } from '../../api/settlement';
+import { startSettling, managerCheckoutRequest } from '../../api/settlement';
 import axios from 'axios';
 
 interface ManagerDashboardProps {
@@ -249,6 +249,24 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
     refreshGame,
     refreshRequests,
   ]);
+
+  // ── Checkout Handler ─────────────────────────────────────────────────
+
+  const handleCheckoutRequest = useCallback(
+    async (playerId: string) => {
+      setProcessingId(playerId);
+      try {
+        await managerCheckoutRequest(gameId, playerId);
+        addToast(createToast('success', 'Checkout initiated'));
+        refreshGame();
+      } catch (err) {
+        addToast(createToast('error', getErrorMessage(err, 'Failed to request checkout')));
+      } finally {
+        setProcessingId(null);
+      }
+    },
+    [gameId, addToast, refreshGame],
+  );
 
   // ── Loading State ─────────────────────────────────────────────────────
 
@@ -553,6 +571,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
                 players={players}
                 gameStatus={gameStatus}
                 processingPlayerId={processingId}
+                onCheckoutRequest={handleCheckoutRequest}
               />
             </div>
           )}

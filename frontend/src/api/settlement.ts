@@ -122,6 +122,16 @@ export async function requestCheckout(gameId: string): Promise<void> {
   await apiClient.post(`/api/games/${gameId}/settlement/checkout-request`);
 }
 
+/** Manager initiates mid-game checkout for a player. */
+export async function managerCheckoutRequest(
+  gameId: string,
+  playerToken: string,
+): Promise<void> {
+  await apiClient.post(
+    `/api/games/${gameId}/settlement/checkout-request/${playerToken}`,
+  );
+}
+
 /** Close the game after all players are DONE. */
 export async function closeGame(gameId: string): Promise<void> {
   await apiClient.post(`/api/games/${gameId}/settlement/close`);

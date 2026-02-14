@@ -89,6 +89,24 @@ async def request_checkout(
 
 
 # ---------------------------------------------------------------------------
+# POST /api/games/{game_id}/settlement/checkout-request/{player_token}
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/checkout-request/{player_token}",
+    summary="Manager initiates mid-game checkout for a player",
+)
+async def manager_checkout_request(
+    game_id: str = Path(...),
+    player_token: str = Path(...),
+    manager: Player = Depends(get_current_manager),
+) -> dict:
+    """Manager initiates mid-game checkout for a player during OPEN state."""
+    service = _get_service()
+    return await service.request_midgame_checkout(game_id, player_token)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/games/{game_id}/settlement/start
 # ---------------------------------------------------------------------------
 

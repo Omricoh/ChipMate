@@ -1,6 +1,6 @@
 import { Badge } from '../common/Badge';
 import type { Player } from '../../api/types';
-import { GameStatus } from '../../api/types';
+import { CheckoutStatus, GameStatus } from '../../api/types';
 
 interface PlayerListCardProps {
   players: Player[];
@@ -9,7 +9,7 @@ interface PlayerListCardProps {
   /** ID of the player currently being processed */
   processingPlayerId?: string | null;
   /** Called when a player requests mid-game checkout (OPEN state only) */
-  onCheckoutRequest?: (playerId: string) => void;
+  onCheckoutRequest?: (playerToken: string) => void;
 }
 
 /**
@@ -20,6 +20,7 @@ export function PlayerListCard({
   players,
   gameStatus,
   processingPlayerId,
+  onCheckoutRequest,
 }: PlayerListCardProps) {
   // Sort: manager first, then alphabetical by name
   const sorted = [...players].sort((a, b) => {
@@ -28,6 +29,7 @@ export function PlayerListCard({
     return a.name.localeCompare(b.name);
   });
 
+  const isOpen = gameStatus === GameStatus.OPEN;
   const isClosed = gameStatus === GameStatus.CLOSED;
 
   return (
@@ -38,6 +40,8 @@ export function PlayerListCard({
           player={player}
           isClosed={isClosed}
           isProcessing={processingPlayerId === player.player_id}
+          showCheckout={isOpen && !!onCheckoutRequest && !player.checked_out && !player.checkout_status}
+          onCheckoutRequest={onCheckoutRequest}
         />
       ))}
     </div>
@@ -50,18 +54,29 @@ interface PlayerRowProps {
   player: Player;
   isClosed: boolean;
   isProcessing: boolean;
+  showCheckout: boolean;
+  onCheckoutRequest?: (playerToken: string) => void;
 }
 
 function PlayerRow({
   player,
   isClosed,
   isProcessing,
+  showCheckout,
+  onCheckoutRequest,
 }: PlayerRowProps) {
   const totalCashIn = player.total_cash_in ?? 0;
   const totalCreditIn = player.total_credit_in ?? 0;
   const creditsOwed = player.credits_owed ?? 0;
   const currentChips = player.current_chips ?? 0;
   const totalBuyIn = totalCashIn + totalCreditIn;
+
+  const checkoutBadge = player.checkout_status ? (
+    <Badge
+      label={player.checkout_status === CheckoutStatus.DONE ? 'Checked Out' : 'Checking Out'}
+      color={player.checkout_status === CheckoutStatus.DONE ? 'green' : 'purple'}
+    />
+  ) : null;
 
   return (
     <div className="py-3 first:pt-0 last:pb-0">
@@ -76,6 +91,7 @@ function PlayerRow({
             {!player.is_active && (
               <Badge label="Inactive" color="red" />
             )}
+            {checkoutBadge}
           </div>
 
           {/* Secondary stats */}
@@ -97,14 +113,26 @@ function PlayerRow({
           </div>
         </div>
 
-        {/* Right: Chip balance */}
-        <div className="text-right shrink-0">
-          <span className="text-sm font-bold text-gray-900 tabular-nums">
-            {currentChips.toLocaleString()}
-          </span>
-          <span className="block text-[10px] uppercase tracking-wide text-gray-400 font-medium">
-            chips
-          </span>
+        {/* Right: Chip balance or checkout button */}
+        <div className="flex items-center gap-2 shrink-0">
+          {showCheckout && onCheckoutRequest && (
+            <button
+              type="button"
+              onClick={() => onCheckoutRequest(player.player_id)}
+              disabled={isProcessing}
+              className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+            >
+              Checkout
+            </button>
+          )}
+          <div className="text-right">
+            <span className="text-sm font-bold text-gray-900 tabular-nums">
+              {currentChips.toLocaleString()}
+            </span>
+            <span className="block text-[10px] uppercase tracking-wide text-gray-400 font-medium">
+              chips
+            </span>
+          </div>
         </div>
       </div>
     </div>
