@@ -428,6 +428,7 @@ export function SettlementDashboard({
               <input
                 id="settlement-input-chips"
                 type="number"
+                onWheel={(e) => (e.target as HTMLElement).blur()}
                 inputMode="numeric"
                 min={0}
                 step={1}
@@ -450,6 +451,7 @@ export function SettlementDashboard({
                 <input
                   id="settlement-input-cash"
                   type="number"
+                  onWheel={(e) => (e.target as HTMLElement).blur()}
                   inputMode="numeric"
                   min={0}
                   step={1}
@@ -470,6 +472,7 @@ export function SettlementDashboard({
                 <input
                   id="settlement-input-credit"
                   type="number"
+                  onWheel={(e) => (e.target as HTMLElement).blur()}
                   inputMode="numeric"
                   min={0}
                   step={1}

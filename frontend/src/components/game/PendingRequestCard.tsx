@@ -118,6 +118,7 @@ export function PendingRequestCard({
             <input
               id={`edit-amount-${request.request_id}`}
               type="number"
+              onWheel={(e) => (e.target as HTMLElement).blur()}
               min={1}
               value={editAmount}
               onChange={(e) => {

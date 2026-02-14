@@ -435,6 +435,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
               <input
                 id="manager-buyin-amount"
                 type="number"
+                onWheel={(e) => (e.target as HTMLElement).blur()}
                 inputMode="numeric"
                 min={1}
                 step={1}

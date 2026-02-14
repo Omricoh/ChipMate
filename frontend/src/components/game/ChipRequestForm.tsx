@@ -125,6 +125,7 @@ export function ChipRequestForm({ gameStatus, onSubmit }: ChipRequestFormProps) 
         <input
           id="chip-amount"
           type="number"
+          onWheel={(e) => (e.target as HTMLElement).blur()}
           inputMode="numeric"
           min={1}
           step={1}

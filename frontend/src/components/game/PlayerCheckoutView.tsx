@@ -130,6 +130,7 @@ function ChipSubmissionForm({
         <input
           id="chipCount"
           type="number"
+          onWheel={(e) => (e.target as HTMLElement).blur()}
           min="0"
           value={chipCount}
           onChange={(e) => setChipCount(e.target.value)}
@@ -150,6 +151,7 @@ function ChipSubmissionForm({
           <input
             id="preferredCash"
             type="number"
+            onWheel={(e) => (e.target as HTMLElement).blur()}
             min="0"
             value={preferredCash}
             onChange={(e) => setPreferredCash(e.target.value)}
@@ -166,6 +168,7 @@ function ChipSubmissionForm({
           <input
             id="preferredCredit"
             type="number"
+            onWheel={(e) => (e.target as HTMLElement).blur()}
             min="0"
             value={preferredCredit}
             onChange={(e) => setPreferredCredit(e.target.value)}
