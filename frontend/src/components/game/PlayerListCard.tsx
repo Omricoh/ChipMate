@@ -30,7 +30,6 @@ export function PlayerListCard({
   });
 
   const isOpen = gameStatus === GameStatus.OPEN;
-  const isClosed = gameStatus === GameStatus.CLOSED;
 
   return (
     <div className="divide-y divide-gray-100">
@@ -38,7 +37,6 @@ export function PlayerListCard({
         <PlayerRow
           key={player.player_id}
           player={player}
-          isClosed={isClosed}
           isProcessing={processingPlayerId === player.player_id}
           showCheckout={isOpen && !!onCheckoutRequest && !player.checked_out && !player.checkout_status}
           onCheckoutRequest={onCheckoutRequest}
@@ -52,7 +50,6 @@ export function PlayerListCard({
 
 interface PlayerRowProps {
   player: Player;
-  isClosed: boolean;
   isProcessing: boolean;
   showCheckout: boolean;
   onCheckoutRequest?: (playerToken: string) => void;
@@ -60,7 +57,6 @@ interface PlayerRowProps {
 
 function PlayerRow({
   player,
-  isClosed,
   isProcessing,
   showCheckout,
   onCheckoutRequest,
