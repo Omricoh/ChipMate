@@ -359,3 +359,130 @@ class TestCheckoutEndToEnd:
         for p in all_players:
             assert p.checkout_status == CheckoutStatus.DONE
             assert p.checked_out is True
+
+    async def test_midgame_checkout_then_settle_remaining(
+        self,
+        game_service,
+        request_service,
+        settlement_service,
+        game_dal,
+        player_dal,
+    ):
+        """Mid-game checkout for one player, then settle remaining players."""
+
+        # ── Setup: 3 players ─────────────────────────────────────────────
+        game_data = await game_service.create_game(manager_name="Alice")
+        game_id = game_data["game_id"]
+        alice_token = game_data["player_token"]
+
+        bob_data = await game_service.join_game(game_id, player_name="Bob")
+        bob_token = bob_data["player_token"]
+
+        charlie_data = await game_service.join_game(game_id, player_name="Charlie")
+        charlie_token = charlie_data["player_token"]
+
+        # Alice: 200 cash
+        alice_req = await request_service.create_request(
+            game_id=game_id, player_token=alice_token,
+            request_type=RequestType.CASH, amount=200,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(alice_req.id),
+            manager_token=alice_token,
+        )
+
+        # Bob: 100 cash (will checkout mid-game)
+        bob_req = await request_service.create_request(
+            game_id=game_id, player_token=bob_token,
+            request_type=RequestType.CASH, amount=100,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(bob_req.id),
+            manager_token=alice_token,
+        )
+
+        # Charlie: 100 cash
+        charlie_req = await request_service.create_request(
+            game_id=game_id, player_token=charlie_token,
+            request_type=RequestType.CASH, amount=100,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(charlie_req.id),
+            manager_token=alice_token,
+        )
+
+        # ── Mid-game checkout for Bob ────────────────────────────────────
+
+        result = await settlement_service.request_midgame_checkout(game_id, bob_token)
+        assert result["status"] == "checkout_initiated"
+
+        bob = await player_dal.get_by_token(game_id, bob_token)
+        assert bob.checkout_status == CheckoutStatus.PENDING
+        assert bob.frozen_buy_in["total_cash_in"] == 100
+
+        # Bob submits 120 chips (cash-only fast path)
+        await settlement_service.submit_chips(
+            game_id, bob_token,
+            chip_count=120, preferred_cash=120, preferred_credit=0,
+        )
+        await settlement_service.validate_chips(game_id, bob_token)
+
+        bob = await player_dal.get_by_token(game_id, bob_token)
+        assert bob.checkout_status == CheckoutStatus.DONE
+        assert bob.checked_out is True
+        assert bob.distribution == {"cash": 120, "credit_from": []}
+
+        # Game is still OPEN
+        game = await game_dal.get_by_id(game_id)
+        assert game.status == GameStatus.OPEN
+
+        # ── Now settle remaining players ─────────────────────────────────
+
+        await settlement_service.start_settling(game_id)
+
+        game = await game_dal.get_by_id(game_id)
+        assert game.status == GameStatus.SETTLING
+
+        # Alice and Charlie should be PENDING, Bob should remain DONE
+        alice = await player_dal.get_by_token(game_id, alice_token)
+        assert alice.checkout_status == CheckoutStatus.PENDING
+
+        bob = await player_dal.get_by_token(game_id, bob_token)
+        assert bob.checkout_status == CheckoutStatus.DONE
+
+        charlie = await player_dal.get_by_token(game_id, charlie_token)
+        assert charlie.checkout_status == CheckoutStatus.PENDING
+
+        # Alice submits 180, cash-only fast path
+        await settlement_service.submit_chips(
+            game_id, alice_token,
+            chip_count=180, preferred_cash=180, preferred_credit=0,
+        )
+        await settlement_service.validate_chips(game_id, alice_token)
+
+        alice = await player_dal.get_by_token(game_id, alice_token)
+        assert alice.checkout_status == CheckoutStatus.DONE
+
+        # Charlie submits 100, cash-only fast path
+        await settlement_service.submit_chips(
+            game_id, charlie_token,
+            chip_count=100, preferred_cash=100, preferred_credit=0,
+        )
+        await settlement_service.validate_chips(game_id, charlie_token)
+
+        charlie = await player_dal.get_by_token(game_id, charlie_token)
+        assert charlie.checkout_status == CheckoutStatus.DONE
+
+        # ── Close game ───────────────────────────────────────────────────
+
+        result = await settlement_service.close_game(game_id)
+        assert result["status"] == "CLOSED"
+
+        game = await game_dal.get_by_id(game_id)
+        assert game.status == GameStatus.CLOSED
+
+        # All players are DONE
+        for token in [alice_token, bob_token, charlie_token]:
+            player = await player_dal.get_by_token(game_id, token)
+            assert player.checkout_status == CheckoutStatus.DONE
+            assert player.checked_out is True
