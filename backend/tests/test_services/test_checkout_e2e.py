@@ -203,39 +203,15 @@ class TestCheckoutEndToEnd:
         assert dave.frozen_buy_in["total_buy_in"] == 100
 
         # ==================================================================
-        # Step 6: Players submit chip counts
+        # Step 6: Players submit chip counts (auto-validates on submit)
         # ==================================================================
 
-        # Alice: 300 chips (profit), wants all cash
+        # Alice: 300 chips (profit), wants all cash → auto-validates to DONE
         await settlement_service.submit_chips(
             game_id=game_id, player_token=alice_token,
             chip_count=300, preferred_cash=300, preferred_credit=0,
         )
 
-        # Bob: 150 chips (loss), wants 100 cash + 50 credit
-        await settlement_service.submit_chips(
-            game_id=game_id, player_token=bob_token,
-            chip_count=150, preferred_cash=100, preferred_credit=50,
-        )
-
-        # Charlie: 100 chips (loss), wants all cash
-        await settlement_service.submit_chips(
-            game_id=game_id, player_token=charlie_token,
-            chip_count=100, preferred_cash=100, preferred_credit=0,
-        )
-
-        # Dave: 0 chips (total loss)
-        await settlement_service.submit_chips(
-            game_id=game_id, player_token=dave_token,
-            chip_count=0, preferred_cash=0, preferred_credit=0,
-        )
-
-        # ==================================================================
-        # Step 7: Manager validates all
-        # ==================================================================
-
-        # Alice is cash-only with preferred_credit=0 -> fast path to DONE
-        await settlement_service.validate_chips(game_id, alice_token)
         alice = await player_dal.get_by_token(game_id, alice_token)
         assert alice.checkout_status == CheckoutStatus.DONE
         assert alice.profit_loss == 100  # 300 - 200
@@ -249,8 +225,12 @@ class TestCheckoutEndToEnd:
         game = await game_dal.get_by_id(game_id)
         assert game.cash_pool == 150
 
-        # Bob: has credit, goes to CREDIT_DEDUCTED
-        await settlement_service.validate_chips(game_id, bob_token)
+        # Bob: 150 chips (loss), wants 100 cash + 50 credit → auto-validates to CREDIT_DEDUCTED
+        await settlement_service.submit_chips(
+            game_id=game_id, player_token=bob_token,
+            chip_count=150, preferred_cash=100, preferred_credit=50,
+        )
+
         bob = await player_dal.get_by_token(game_id, bob_token)
         assert bob.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
         assert bob.profit_loss == -50  # 150 - 200
@@ -258,8 +238,12 @@ class TestCheckoutEndToEnd:
         assert bob.chips_after_credit == 50  # max(0, 150 - 100)
         assert bob.credits_owed == 0  # max(0, 100 - 150)
 
-        # Charlie is cash-only with preferred_credit=0 -> fast path to DONE
-        await settlement_service.validate_chips(game_id, charlie_token)
+        # Charlie: 100 chips (loss), wants all cash → auto-validates to DONE
+        await settlement_service.submit_chips(
+            game_id=game_id, player_token=charlie_token,
+            chip_count=100, preferred_cash=100, preferred_credit=0,
+        )
+
         charlie = await player_dal.get_by_token(game_id, charlie_token)
         assert charlie.checkout_status == CheckoutStatus.DONE
         assert charlie.profit_loss == -50  # 100 - 150
@@ -273,8 +257,12 @@ class TestCheckoutEndToEnd:
         game = await game_dal.get_by_id(game_id)
         assert game.cash_pool == 50
 
-        # Dave: has credit, goes to CREDIT_DEDUCTED
-        await settlement_service.validate_chips(game_id, dave_token)
+        # Dave: 0 chips (total loss) → auto-validates to CREDIT_DEDUCTED
+        await settlement_service.submit_chips(
+            game_id=game_id, player_token=dave_token,
+            chip_count=0, preferred_cash=0, preferred_credit=0,
+        )
+
         dave = await player_dal.get_by_token(game_id, dave_token)
         assert dave.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
         assert dave.profit_loss == -100  # 0 - 100
@@ -420,12 +408,11 @@ class TestCheckoutEndToEnd:
         assert bob.checkout_status == CheckoutStatus.PENDING
         assert bob.frozen_buy_in["total_cash_in"] == 100
 
-        # Bob submits 120 chips (cash-only fast path)
+        # Bob submits 120 chips (cash-only fast path, auto-validates to DONE)
         await settlement_service.submit_chips(
             game_id, bob_token,
             chip_count=120, preferred_cash=120, preferred_credit=0,
         )
-        await settlement_service.validate_chips(game_id, bob_token)
 
         bob = await player_dal.get_by_token(game_id, bob_token)
         assert bob.checkout_status == CheckoutStatus.DONE
@@ -453,22 +440,20 @@ class TestCheckoutEndToEnd:
         charlie = await player_dal.get_by_token(game_id, charlie_token)
         assert charlie.checkout_status == CheckoutStatus.PENDING
 
-        # Alice submits 180, cash-only fast path
+        # Alice submits 180, cash-only fast path (auto-validates to DONE)
         await settlement_service.submit_chips(
             game_id, alice_token,
             chip_count=180, preferred_cash=180, preferred_credit=0,
         )
-        await settlement_service.validate_chips(game_id, alice_token)
 
         alice = await player_dal.get_by_token(game_id, alice_token)
         assert alice.checkout_status == CheckoutStatus.DONE
 
-        # Charlie submits 100, cash-only fast path
+        # Charlie submits 100, cash-only fast path (auto-validates to DONE)
         await settlement_service.submit_chips(
             game_id, charlie_token,
             chip_count=100, preferred_cash=100, preferred_credit=0,
         )
-        await settlement_service.validate_chips(game_id, charlie_token)
 
         charlie = await player_dal.get_by_token(game_id, charlie_token)
         assert charlie.checkout_status == CheckoutStatus.DONE

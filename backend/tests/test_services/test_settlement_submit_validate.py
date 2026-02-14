@@ -128,7 +128,7 @@ class TestSubmitChips:
     async def test_player_submits_chips(
         self, settlement_service, player_dal, settling_game
     ):
-        """Status goes to SUBMITTED, fields saved."""
+        """Submit auto-validates: Bob (credit player) goes to CREDIT_DEDUCTED, fields saved."""
         game_id = settling_game["game_id"]
         bob_token = settling_game["bob_token"]
 
@@ -141,10 +141,11 @@ class TestSubmitChips:
         )
 
         player = await player_dal.get_by_token(game_id, bob_token)
-        assert player.checkout_status == CheckoutStatus.SUBMITTED
+        assert player.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
         assert player.submitted_chip_count == 200
         assert player.preferred_cash == 100
         assert player.preferred_credit == 100
+        assert player.validated_chip_count == 200
 
     async def test_submit_fails_if_locked(
         self, settlement_service, player_dal, settling_game
@@ -195,16 +196,110 @@ class TestSubmitChips:
         assert exc_info.value.status_code == 400
 
 
-class TestValidateChips:
+class TestSubmitAutoValidates:
 
-    async def test_manager_validates_submission(
+    async def test_cash_only_submit_goes_straight_to_done(
+        self, settlement_service, player_dal, game_dal, settling_game
+    ):
+        """Cash-only player submitting chips should auto-validate to DONE."""
+        game_id = settling_game["game_id"]
+        manager_token = settling_game["manager_token"]
+
+        await settlement_service.submit_chips(
+            game_id=game_id,
+            player_token=manager_token,
+            chip_count=250,
+            preferred_cash=250,
+            preferred_credit=0,
+        )
+
+        player = await player_dal.get_by_token(game_id, manager_token)
+        assert player.checkout_status == CheckoutStatus.DONE
+        assert player.checked_out is True
+        assert player.validated_chip_count == 250
+        assert player.distribution == {"cash": 250, "credit_from": []}
+
+    async def test_credit_player_submit_goes_to_credit_deducted(
         self, settlement_service, player_dal, settling_game
     ):
-        """Credit deducted, correct math for Bob (100 cash + 100 credit, returning 200 chips)."""
+        """Player with credit submitting chips should auto-validate to CREDIT_DEDUCTED."""
         game_id = settling_game["game_id"]
         bob_token = settling_game["bob_token"]
 
-        # Bob submits 200 chips
+        await settlement_service.submit_chips(
+            game_id=game_id,
+            player_token=bob_token,
+            chip_count=200,
+            preferred_cash=100,
+            preferred_credit=0,
+        )
+
+        player = await player_dal.get_by_token(game_id, bob_token)
+        assert player.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
+        assert player.validated_chip_count == 200
+        assert player.credit_repaid == 100
+        assert player.chips_after_credit == 100
+
+    async def test_all_players_done_updates_settlement_state(
+        self, settlement_service, player_dal, game_dal, settling_game
+    ):
+        """When all players reach DONE after submit, settlement_state should update."""
+        game_id = settling_game["game_id"]
+        manager_token = settling_game["manager_token"]
+        bob_token = settling_game["bob_token"]
+
+        # Alice (cash-only) submits → auto-validates to DONE
+        await settlement_service.submit_chips(
+            game_id=game_id,
+            player_token=manager_token,
+            chip_count=250,
+            preferred_cash=250,
+            preferred_credit=0,
+        )
+
+        # Bob (has credit) submits → auto-validates to CREDIT_DEDUCTED
+        await settlement_service.submit_chips(
+            game_id=game_id,
+            player_token=bob_token,
+            chip_count=150,
+            preferred_cash=50,
+            preferred_credit=0,
+        )
+
+        # Bob needs distribution, so not all done yet
+        bob = await player_dal.get_by_token(game_id, bob_token)
+        assert bob.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
+
+        # Override distribution for Bob
+        await settlement_service.override_distribution(game_id, {
+            bob_token: {"cash": 50, "credit_from": []},
+        })
+
+        # Confirm Bob
+        await settlement_service.confirm_distribution(game_id, bob_token)
+
+        bob = await player_dal.get_by_token(game_id, bob_token)
+        assert bob.checkout_status == CheckoutStatus.DONE
+
+        # Now all players are DONE — game should be closeable
+        game = await game_dal.get_by_id(game_id)
+        assert game.status == GameStatus.SETTLING
+
+        # Close should succeed
+        result = await settlement_service.close_game(game_id)
+        assert result["status"] == "CLOSED"
+
+
+class TestValidateChips:
+
+    async def test_submit_auto_validates_credit_math(
+        self, settlement_service, player_dal, settling_game
+    ):
+        """Submit auto-validates: correct math for Bob (100 cash + 100 credit, returning 200 chips)."""
+        game_id = settling_game["game_id"]
+        bob_token = settling_game["bob_token"]
+
+        # Bob submits 200 chips — auto-validates
         await settlement_service.submit_chips(
             game_id=game_id,
             player_token=bob_token,
@@ -212,8 +307,6 @@ class TestValidateChips:
             preferred_cash=100,
             preferred_credit=100,
         )
-
-        await settlement_service.validate_chips(game_id, bob_token)
 
         player = await player_dal.get_by_token(game_id, bob_token)
         assert player.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
@@ -230,14 +323,14 @@ class TestValidateChips:
 
 class TestRejectChips:
 
-    async def test_manager_rejects_submission(
+    async def test_manager_rejects_after_auto_validate(
         self, settlement_service, player_dal, settling_game
     ):
-        """Reset to PENDING, fields cleared."""
+        """Reject from CREDIT_DEDUCTED resets to PENDING, all fields cleared."""
         game_id = settling_game["game_id"]
         bob_token = settling_game["bob_token"]
 
-        # Submit first
+        # Submit (auto-validates to CREDIT_DEDUCTED)
         await settlement_service.submit_chips(
             game_id=game_id,
             player_token=bob_token,
@@ -246,6 +339,9 @@ class TestRejectChips:
             preferred_credit=100,
         )
 
+        player = await player_dal.get_by_token(game_id, bob_token)
+        assert player.checkout_status == CheckoutStatus.CREDIT_DEDUCTED
+
         await settlement_service.reject_chips(game_id, bob_token)
 
         player = await player_dal.get_by_token(game_id, bob_token)
@@ -253,6 +349,7 @@ class TestRejectChips:
         assert player.submitted_chip_count is None
         assert player.preferred_cash is None
         assert player.preferred_credit is None
+        assert player.validated_chip_count is None
 
 
 class TestManagerInput:
@@ -282,10 +379,10 @@ class TestManagerInput:
 
 class TestCashOnlyFastPath:
 
-    async def test_cash_only_player_validated_goes_to_done(
+    async def test_cash_only_player_submit_goes_to_done(
         self, settlement_service, player_dal, game_dal, settling_game
     ):
-        """Alice (cash only) validated -> DONE, cash_pool decremented."""
+        """Alice (cash only) submit auto-validates -> DONE, cash_pool decremented."""
         game_id = settling_game["game_id"]
         manager_token = settling_game["manager_token"]
 
@@ -293,7 +390,7 @@ class TestCashOnlyFastPath:
         game_before = await game_dal.get_by_id(game_id)
         initial_cash_pool = game_before.cash_pool
 
-        # Alice submits 250 chips (cash-only player, preferred_credit=0)
+        # Alice submits 250 chips (cash-only player, preferred_credit=0) — auto-validates to DONE
         await settlement_service.submit_chips(
             game_id=game_id,
             player_token=manager_token,
@@ -301,8 +398,6 @@ class TestCashOnlyFastPath:
             preferred_cash=250,
             preferred_credit=0,
         )
-
-        await settlement_service.validate_chips(game_id, manager_token)
 
         player = await player_dal.get_by_token(game_id, manager_token)
         assert player.checkout_status == CheckoutStatus.DONE

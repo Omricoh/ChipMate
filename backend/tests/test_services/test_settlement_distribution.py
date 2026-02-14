@@ -140,25 +140,24 @@ async def credit_deducted_game(game_service, request_service, settlement_service
     await settlement_service.start_settling(game_id)
 
     # Alice submits 250 chips (cash-only, preferred_credit > 0 so NOT fast path)
+    # Auto-validates to CREDIT_DEDUCTED
     await settlement_service.submit_chips(
         game_id=game_id, player_token=manager_token,
         chip_count=250, preferred_cash=150, preferred_credit=100,
     )
-    await settlement_service.validate_chips(game_id, manager_token)
 
-    # Bob submits 150 chips
+    # Bob submits 150 chips — auto-validates to CREDIT_DEDUCTED
     await settlement_service.submit_chips(
         game_id=game_id, player_token=bob_token,
         chip_count=150, preferred_cash=50, preferred_credit=0,
     )
-    await settlement_service.validate_chips(game_id, bob_token)
 
     # Charlie submits 100 chips (debtor: credit_owed=50, chips_after_credit=0)
+    # Auto-validates to CREDIT_DEDUCTED
     await settlement_service.submit_chips(
         game_id=game_id, player_token=charlie_token,
         chip_count=100, preferred_cash=0, preferred_credit=0,
     )
-    await settlement_service.validate_chips(game_id, charlie_token)
 
     return {
         "game_id": game_id,

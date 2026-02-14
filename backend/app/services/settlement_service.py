@@ -260,6 +260,9 @@ class SettlementService:
             },
         )
 
+        # Auto-validate: run credit deduction and advance state immediately
+        await self.validate_chips(game_id, player_token)
+
     # ------------------------------------------------------------------
     # Chip validation
     # ------------------------------------------------------------------
@@ -370,10 +373,10 @@ class SettlementService:
                 detail="Player not found",
             )
 
-        if player.checkout_status != CheckoutStatus.SUBMITTED:
+        if player.checkout_status == CheckoutStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Player must be in SUBMITTED status to reject",
+                detail="Player is already in PENDING status",
             )
 
         await self._player_dal.update_by_token(
@@ -384,6 +387,14 @@ class SettlementService:
                 "submitted_chip_count": None,
                 "preferred_cash": None,
                 "preferred_credit": None,
+                "validated_chip_count": None,
+                "credit_repaid": None,
+                "chips_after_credit": None,
+                "profit_loss": None,
+                "credits_owed": 0,
+                "distribution": None,
+                "checked_out": False,
+                "checked_out_at": None,
             },
         )
 

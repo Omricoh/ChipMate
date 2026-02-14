@@ -219,16 +219,11 @@ class TestMidgameCheckout:
         assert player.checkout_status == CheckoutStatus.PENDING
 
         # Step 2: Submit chips (Bob has 100 buy-in, submitting 120 = profit of 20)
+        # Auto-validates: cash-only fast path goes straight to DONE
         await settlement_service.submit_chips(
             game_id, bob_token,
             chip_count=120, preferred_cash=120, preferred_credit=0,
         )
-
-        player = await player_dal.get_by_token(game_id, bob_token)
-        assert player.checkout_status == CheckoutStatus.SUBMITTED
-
-        # Step 3: Validate chips — cash-only fast path should go straight to DONE
-        await settlement_service.validate_chips(game_id, bob_token)
 
         player = await player_dal.get_by_token(game_id, bob_token)
         assert player.checkout_status == CheckoutStatus.DONE
