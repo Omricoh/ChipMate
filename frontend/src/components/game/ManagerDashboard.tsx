@@ -18,8 +18,10 @@ import { BankSummaryCard } from './BankSummaryCard';
 import { PendingRequestCard } from './PendingRequestCard';
 import { PlayerListCard } from './PlayerListCard';
 import { GameShareSection } from './GameShareSection';
+import { SettlementDashboard } from './SettlementDashboard';
 import { GameStatus, RequestType } from '../../api/types';
 import { createChipRequest } from '../../api/requests';
+import { startSettling } from '../../api/settlement';
 import axios from 'axios';
 
 interface ManagerDashboardProps {
@@ -311,7 +313,18 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
           creditsOutstanding={creditsOutstanding}
         />
 
+        {/* Settlement Dashboard */}
+        {gameStatus === GameStatus.SETTLING && (
+          <SettlementDashboard
+            gameId={gameId}
+            players={players}
+            onToast={addToast}
+            refreshGame={refreshGame}
+          />
+        )}
+
         {/* Manager Buy-in */}
+        {gameStatus === GameStatus.OPEN && (
         <section
           className="rounded-xl bg-white border border-gray-200 shadow-sm p-4"
           aria-label="Manager buy-in"
@@ -443,6 +456,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             </button>
           </div>
         </section>
+        )}
 
         {/* Pending Requests -- only shown when game is OPEN */}
         {gameStatus === GameStatus.OPEN && (
@@ -561,7 +575,23 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             )}
 
             {/* Status-dependent controls */}
-            {/* TODO: Settlement controls will be rebuilt */}
+            {gameStatus === GameStatus.OPEN && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await startSettling(gameId);
+                    addToast(createToast('success', 'Settlement started'));
+                    refreshGame();
+                  } catch (err) {
+                    addToast(createToast('error', getErrorMessage(err, 'Failed to start settling')));
+                  }
+                }}
+                className="w-full rounded-xl bg-amber-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 active:bg-amber-800"
+              >
+                Start Settling
+              </button>
+            )}
 
             {gameStatus === GameStatus.CLOSED && (
               <div className="rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-center space-y-3">
