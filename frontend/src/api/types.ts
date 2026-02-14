@@ -18,6 +18,16 @@ export enum RequestStatus {
   EDITED = 'EDITED',
 }
 
+export enum CheckoutStatus {
+  PENDING = 'PENDING',
+  SUBMITTED = 'SUBMITTED',
+  VALIDATED = 'VALIDATED',
+  CREDIT_DEDUCTED = 'CREDIT_DEDUCTED',
+  AWAITING_DISTRIBUTION = 'AWAITING_DISTRIBUTION',
+  DISTRIBUTED = 'DISTRIBUTED',
+  DONE = 'DONE',
+}
+
 export enum NotificationType {
   REQUEST_CREATED = 'REQUEST_CREATED',
   REQUEST_APPROVED = 'REQUEST_APPROVED',
@@ -51,6 +61,18 @@ export interface Player {
   is_active: boolean;
   checked_out: boolean;
   joined_at: string;
+  checkout_status?: CheckoutStatus | null;
+  submitted_chip_count?: number | null;
+  validated_chip_count?: number | null;
+  preferred_cash?: number | null;
+  preferred_credit?: number | null;
+  chips_after_credit?: number | null;
+  credit_repaid?: number | null;
+  profit_loss?: number | null;
+  distribution?: PlayerDistribution | null;
+  actions?: PlayerAction[] | null;
+  input_locked?: boolean;
+  frozen_buy_in?: FrozenBuyIn | null;
 }
 
 export interface ChipRequest {
@@ -327,4 +349,46 @@ export interface AdminGameDetail {
     approved: number;
     declined: number;
   };
+}
+
+// ── Settlement Types ────────────────────────────────────────────────────────
+
+export interface FrozenBuyIn {
+  total_cash_in: number;
+  total_credit_in: number;
+  total_buy_in: number;
+}
+
+export interface CreditAssignment {
+  from: string;
+  amount: number;
+}
+
+export interface PlayerDistribution {
+  cash: number;
+  credit_from: CreditAssignment[];
+}
+
+export interface PlayerAction {
+  type: 'receive_cash' | 'receive_credit' | 'pay_credit';
+  amount: number;
+  from?: string;
+  to?: string;
+}
+
+export interface StartSettlingResponse {
+  game_id: string;
+  status: string;
+  cash_pool: number;
+  player_count: number;
+}
+
+export interface PoolStateResponse {
+  cash_pool: number;
+  credit_pool: number;
+  settlement_state: string;
+}
+
+export interface DistributionSuggestion {
+  [playerToken: string]: PlayerDistribution;
 }
