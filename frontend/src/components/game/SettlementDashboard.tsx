@@ -6,9 +6,7 @@ import {
   managerInput,
   getPoolState,
   getDistribution,
-  overrideDistribution,
-  confirmDistribution,
-  closeGame,
+  finalizeSettlement,
 } from '../../api/settlement';
 import type {
   CheckoutStatus,
@@ -116,9 +114,6 @@ export function SettlementDashboard({
       p.checkout_status === 'AWAITING_DISTRIBUTION' ||
       p.checkout_status === 'DISTRIBUTED' ||
       p.checkout_status === 'DONE',
-  );
-  const allDone = sortedPlayers.length > 0 && sortedPlayers.every(
-    (p) => p.checkout_status === 'DONE',
   );
 
   // ── Action Handlers ─────────────────────────────────────────────────────
@@ -258,44 +253,18 @@ export function SettlementDashboard({
           credit_from: dist.credit_from,
         };
       }
-      await overrideDistribution(gameId, distribution);
-      onToast(createToast('success', 'Distribution applied'));
+      await finalizeSettlement(gameId, distribution);
+      onToast(createToast('success', 'Settlement finalized — game closed'));
       setApplied(true);
       refreshGame();
       fetchPool();
     } catch (err) {
-      onToast(createToast('error', getErrorMessage(err, 'Failed to apply distribution')));
+      onToast(createToast('error', getErrorMessage(err, 'Failed to finalize settlement')));
     } finally {
       setDistLoading(false);
     }
   }, [gameId, suggestion, distEdits, onToast, refreshGame, fetchPool]);
 
-  const handleConfirm = useCallback(
-    async (playerToken: string) => {
-      setActionLoading(playerToken);
-      try {
-        await confirmDistribution(gameId, playerToken);
-        onToast(createToast('success', 'Player confirmed'));
-        refreshGame();
-        fetchPool();
-      } catch (err) {
-        onToast(createToast('error', getErrorMessage(err, 'Failed to confirm')));
-      } finally {
-        setActionLoading(null);
-      }
-    },
-    [gameId, onToast, refreshGame, fetchPool],
-  );
-
-  const handleCloseGame = useCallback(async () => {
-    try {
-      await closeGame(gameId);
-      onToast(createToast('success', 'Game closed'));
-      refreshGame();
-    } catch (err) {
-      onToast(createToast('error', getErrorMessage(err, 'Failed to close game')));
-    }
-  }, [gameId, onToast, refreshGame]);
 
   // Set default player for input form
   useEffect(() => {
@@ -516,16 +485,8 @@ export function SettlementDashboard({
 
               {/* DISTRIBUTED */}
               {player.checkout_status === 'DISTRIBUTED' && (
-                <div className="mt-2 flex items-center justify-between">
+                <div className="mt-2">
                   <p className="text-xs text-gray-500">Distribution assigned</p>
-                  <button
-                    type="button"
-                    onClick={() => handleConfirm(player.player_id)}
-                    disabled={actionLoading === player.player_id}
-                    className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
-                  >
-                    Confirm
-                  </button>
                 </div>
               )}
 
@@ -777,7 +738,7 @@ export function SettlementDashboard({
                     disabled={distLoading}
                     className="w-full rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:opacity-60"
                   >
-                    {distLoading ? 'Applying...' : 'Apply Distribution'}
+                    {distLoading ? 'Finalizing...' : 'Finalize & Close Game'}
                   </button>
                 )}
               </div>
@@ -786,16 +747,6 @@ export function SettlementDashboard({
         </section>
       )}
 
-      {/* Close Game */}
-      {allDone && (
-        <button
-          type="button"
-          onClick={handleCloseGame}
-          className="w-full rounded-xl bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 active:bg-red-800"
-        >
-          Close Game
-        </button>
-      )}
     </div>
   );
 }

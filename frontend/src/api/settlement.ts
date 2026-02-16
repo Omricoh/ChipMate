@@ -133,6 +133,16 @@ export async function managerCheckoutRequest(
   );
 }
 
+/** Apply distribution, confirm all players, and close the game in one step. */
+export async function finalizeSettlement(
+  gameId: string,
+  distribution: Record<string, PlayerDistribution>,
+): Promise<void> {
+  await apiClient.post(`/api/games/${gameId}/settlement/finalize`, {
+    distribution,
+  });
+}
+
 /** Close the game after all players are DONE. */
 export async function closeGame(gameId: string): Promise<void> {
   await apiClient.post(`/api/games/${gameId}/settlement/close`);

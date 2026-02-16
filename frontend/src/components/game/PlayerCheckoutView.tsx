@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { submitChips, getPlayerActions } from '../../api/settlement';
-import { getPlayerMe } from '../../api/games';
+import { getPlayerMe, getGamePlayers } from '../../api/games';
 import { usePolling } from '../../hooks/usePolling';
 import {
   CheckoutStatus,
@@ -239,8 +239,17 @@ function ChipSubmissionForm({
   );
 }
 
-function ActionsList({ actions }: { actions: PlayerAction[] }) {
+function ActionsList({
+  actions,
+  nameMap,
+}: {
+  actions: PlayerAction[];
+  nameMap: Record<string, string>;
+}) {
   if (actions.length === 0) return null;
+
+  const resolveName = (token: string | undefined) =>
+    token ? nameMap[token] ?? token.slice(0, 8) : 'unknown';
 
   return (
     <div className="space-y-2">
@@ -253,9 +262,9 @@ function ActionsList({ actions }: { actions: PlayerAction[] }) {
           if (action.type === 'receive_cash') {
             text = `Receive ${formatChips(action.amount)} cash`;
           } else if (action.type === 'receive_credit') {
-            text = `Receive ${formatChips(action.amount)} credit from ${action.from ?? 'unknown'}`;
+            text = `${resolveName(action.from)} owes you ${formatChips(action.amount)}`;
           } else if (action.type === 'pay_credit') {
-            text = `Pay ${formatChips(action.amount)} to ${action.to ?? 'unknown'}`;
+            text = `You owe ${resolveName(action.to)} ${formatChips(action.amount)}`;
           }
           return (
             <li
@@ -283,6 +292,7 @@ function ActionsList({ actions }: { actions: PlayerAction[] }) {
 export function PlayerCheckoutView({ gameId, onToast }: PlayerCheckoutViewProps) {
   const [playerData, setPlayerData] = useState<Player | null>(null);
   const [actions, setActions] = useState<PlayerAction[]>([]);
+  const [nameMap, setNameMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const refreshPlayerData = useCallback(async () => {
@@ -290,11 +300,19 @@ export function PlayerCheckoutView({ gameId, onToast }: PlayerCheckoutViewProps)
       const data = await getPlayerMe(gameId);
       setPlayerData(data);
 
-      // Fetch actions when player is DONE
+      // Fetch actions and player names when player is DONE
       if (data.checkout_status === CheckoutStatus.DONE) {
         try {
-          const playerActions = await getPlayerActions(gameId);
+          const [playerActions, playersRes] = await Promise.all([
+            getPlayerActions(gameId),
+            getGamePlayers(gameId),
+          ]);
           setActions(playerActions);
+          const map: Record<string, string> = {};
+          for (const p of playersRes.players) {
+            map[p.player_id] = p.name;
+          }
+          setNameMap(map);
         } catch {
           // Actions may not be available yet
         }
@@ -481,7 +499,7 @@ export function PlayerCheckoutView({ gameId, onToast }: PlayerCheckoutViewProps)
               </span>
             </div>
           </div>
-          <ActionsList actions={actions} />
+          <ActionsList actions={actions} nameMap={nameMap} />
         </div>
       )}
     </section>

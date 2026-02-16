@@ -365,6 +365,78 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
           />
         )}
 
+        {/* Settlement Results (after game closed) */}
+        {gameStatus === GameStatus.CLOSED && players.length > 0 && (
+          <section className="rounded-xl bg-white border border-gray-200 shadow-sm p-4">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Settlement Results</h2>
+            <div className="space-y-3">
+              {[...players]
+                .sort((a, b) => {
+                  if (a.is_manager && !b.is_manager) return -1;
+                  if (!a.is_manager && b.is_manager) return 1;
+                  return a.name.localeCompare(b.name);
+                })
+                .map((player) => {
+                  const dist = player.distribution;
+                  const creditFromTotal = dist?.credit_from?.reduce((s: number, c: { amount: number }) => s + c.amount, 0) ?? 0;
+                  const nameMap: Record<string, string> = {};
+                  for (const p of players) {
+                    nameMap[p.player_id] = p.name;
+                  }
+                  return (
+                    <div
+                      key={player.player_id}
+                      className="rounded-lg border border-gray-100 bg-gray-50 p-3 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-900">
+                          {player.name}
+                          {player.is_manager && (
+                            <span className="ml-1 text-xs text-gray-400">(Manager)</span>
+                          )}
+                        </span>
+                        <span
+                          className={`text-sm font-bold tabular-nums ${
+                            (player.profit_loss ?? 0) >= 0
+                              ? 'text-green-700'
+                              : 'text-red-700'
+                          }`}
+                        >
+                          {(player.profit_loss ?? 0) >= 0 ? '+' : ''}
+                          {(player.profit_loss ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-0.5">
+                        {(dist?.cash ?? 0) > 0 && (
+                          <p>Cash: <span className="font-medium text-gray-700">{(dist?.cash ?? 0).toLocaleString()}</span></p>
+                        )}
+                        {creditFromTotal > 0 && (
+                          <p>
+                            Credit received:{' '}
+                            <span className="font-medium text-gray-700">{creditFromTotal.toLocaleString()}</span>
+                            <span className="text-gray-400 ml-1">
+                              ({dist?.credit_from?.map((c: { from: string; amount: number }) =>
+                                `${nameMap[c.from] ?? c.from.slice(0, 8)} owes ${c.amount.toLocaleString()}`
+                              ).join(', ')})
+                            </span>
+                          </p>
+                        )}
+                        {(player.credits_owed ?? 0) > 0 && (
+                          <p>
+                            Credit owed:{' '}
+                            <span className="font-medium text-red-600">
+                              {(player.credits_owed ?? 0).toLocaleString()}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
+        )}
+
         {/* Manager Buy-in */}
         {gameStatus === GameStatus.OPEN && (
         <section
@@ -649,20 +721,17 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             )}
 
             {gameStatus === GameStatus.CLOSED && (
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-center space-y-3">
-                <p className="text-sm font-medium text-gray-600">
-                  This game has been closed
-                </p>
+              <div className="space-y-3">
                 <div className="flex flex-col gap-2">
                   <Link
                     to="/create"
-                    className="rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+                    className="rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm text-center hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
                   >
                     Create New Game
                   </Link>
                   <Link
                     to="/join"
-                    className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 text-center hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
                   >
                     Join a Game
                   </Link>

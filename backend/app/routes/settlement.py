@@ -11,6 +11,7 @@ Endpoints:
     PUT  /api/games/{game_id}/settlement/distribution                   -- Override distribution.
     POST /api/games/{game_id}/settlement/confirm/{player_token}         -- Confirm distribution.
     GET  /api/games/{game_id}/settlement/actions                        -- Get player actions.
+    POST /api/games/{game_id}/settlement/finalize                       -- Apply distribution, confirm all, close.
     POST /api/games/{game_id}/settlement/close                          -- Close game.
 """
 
@@ -299,6 +300,29 @@ async def get_actions(
     service = _get_service()
     actions = await service.get_player_actions(game_id, player.player_token)
     return actions
+
+
+# ---------------------------------------------------------------------------
+# POST /api/games/{game_id}/settlement/finalize
+# ---------------------------------------------------------------------------
+
+class FinalizeBody(BaseModel):
+    """Request body for POST .../settlement/finalize."""
+    distribution: dict[str, Any] = Field(
+        ..., description="Distribution dict keyed by player_token."
+    )
+
+
+@router.post("/finalize", summary="Apply distribution, confirm all, and close game")
+async def finalize_settlement(
+    body: FinalizeBody,
+    game_id: str = Path(...),
+    manager: Player = Depends(get_current_manager),
+) -> dict:
+    """Apply distribution, confirm all players, and close the game in one step."""
+    service = _get_service()
+    result = await service.finalize_settlement(game_id, body.distribution)
+    return result
 
 
 # ---------------------------------------------------------------------------

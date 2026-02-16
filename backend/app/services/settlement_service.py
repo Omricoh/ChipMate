@@ -749,3 +749,34 @@ class SettlementService:
             "status": "CLOSED",
             "closed_at": now.isoformat(),
         }
+
+    # ------------------------------------------------------------------
+    # Finalize settlement (apply + confirm all + close)
+    # ------------------------------------------------------------------
+
+    async def finalize_settlement(
+        self, game_id: str, distribution: dict[str, dict]
+    ) -> dict:
+        """Apply distribution, confirm all players, and close the game.
+
+        Single-step finalization: validates distribution, saves it on each
+        player, transitions all to DONE with actions, and closes the game.
+
+        Args:
+            game_id: The game identifier.
+            distribution: Dict keyed by player_token with cash and credit_from.
+
+        Returns:
+            Dict with game_id, status, and closed_at.
+        """
+        # Step 1: Apply distribution (validates and sets DISTRIBUTED)
+        await self.override_distribution(game_id, distribution)
+
+        # Step 2: Confirm every distributed player
+        players = await self._player_dal.get_by_game(game_id, include_inactive=False)
+        for p in players:
+            if p.checkout_status == CheckoutStatus.DISTRIBUTED:
+                await self.confirm_distribution(game_id, p.player_token)
+
+        # Step 3: Close the game
+        return await self.close_game(game_id)
