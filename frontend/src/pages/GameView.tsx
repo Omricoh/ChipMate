@@ -16,6 +16,7 @@ import { RequestHistoryList } from '../components/game/RequestHistoryList';
 import { NotificationPanel } from '../components/game/NotificationPanel';
 import { ManagerDashboard } from '../components/game/ManagerDashboard';
 import { BankSummaryCard } from '../components/game/BankSummaryCard';
+import { QRCode } from '../components/game/QRCode';
 import { GameProvider } from '../context/GameContext';
 import { useGame } from '../hooks/useGame';
 import { useAuth } from '../hooks/useAuth';
@@ -266,6 +267,12 @@ function PlayerView({ gameId }: { gameId: string }) {
             <h2 className="text-sm font-semibold text-gray-700 mb-3">
               Game Info
             </h2>
+
+            {/* QR Code */}
+            <div className="flex justify-center mb-4">
+              <QRCode gameCode={game.game.game_code} size={160} />
+            </div>
+
             <dl className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
                 <dt className="text-gray-500">Game Code</dt>
