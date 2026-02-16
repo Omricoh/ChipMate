@@ -92,14 +92,20 @@ function ChipSubmissionForm({
   }, [chipCount, frozenBuyIn, onRefresh]);
 
   // Auto-fill: when chip count changes, compute how much goes to credit
-  // repayment first, then default the remainder to cash
+  // repayment first, then default the remainder to the dominant buy-in type
   useEffect(() => {
     const count = parseInt(chipCount, 10) || 0;
     if (count > 0) {
+      const cashIn = frozenBuyIn?.total_cash_in ?? 0;
       const creditIn = frozenBuyIn?.total_credit_in ?? 0;
       const afterCredit = Math.max(0, count - creditIn);
-      setPreferredCash(String(afterCredit));
-      setPreferredCredit('0');
+      if (creditIn > cashIn) {
+        setPreferredCredit(String(afterCredit));
+        setPreferredCash('0');
+      } else {
+        setPreferredCash(String(afterCredit));
+        setPreferredCredit('0');
+      }
     }
   }, [chipCount, frozenBuyIn]);
 
@@ -180,7 +186,13 @@ function ChipSubmissionForm({
             onWheel={(e) => (e.target as HTMLElement).blur()}
             min="0"
             value={preferredCash}
-            onChange={(e) => setPreferredCash(e.target.value)}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              setPreferredCash(e.target.value);
+              if (!Number.isNaN(val)) {
+                setPreferredCredit(String(Math.max(0, chipsAfterCredit - val)));
+              }
+            }}
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           />
         </div>
@@ -197,7 +209,13 @@ function ChipSubmissionForm({
             onWheel={(e) => (e.target as HTMLElement).blur()}
             min="0"
             value={preferredCredit}
-            onChange={(e) => setPreferredCredit(e.target.value)}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              setPreferredCredit(e.target.value);
+              if (!Number.isNaN(val)) {
+                setPreferredCash(String(Math.max(0, chipsAfterCredit - val)));
+              }
+            }}
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           />
         </div>
