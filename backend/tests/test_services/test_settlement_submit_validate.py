@@ -423,6 +423,137 @@ class TestManagerInput:
         assert player.chips_after_credit == 100
 
 
+class TestHighCreditFrozenBuyIn:
+    """Scenario: Player 1 has 500 credit + 200 cash, Player 2 has 1000 credit,
+    Manager has 200 cash + 200 credit. After settling, Player 1 enters 400 chips.
+
+    Expected: frozen_buy_in shows total_credit_in=500, so credit deduction
+    should repay 400 of the 500 credit → chips_after_credit=0, credits_owed=100.
+    """
+
+    @pytest_asyncio.fixture
+    async def high_credit_game(self, game_service, request_service, settlement_service):
+        """Create a settling game matching the user's exact scenario."""
+        game_data = await game_service.create_game(manager_name="Manager")
+        game_id = game_data["game_id"]
+        manager_token = game_data["player_token"]
+
+        # Player 1 joins
+        p1_data = await game_service.join_game(game_id, player_name="Player1")
+        p1_token = p1_data["player_token"]
+
+        # Player 2 joins
+        p2_data = await game_service.join_game(game_id, player_name="Player2")
+        p2_token = p2_data["player_token"]
+
+        # Player 1: 500 credit (approved)
+        req = await request_service.create_request(
+            game_id=game_id, player_token=p1_token,
+            request_type=RequestType.CREDIT, amount=500,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(req.id),
+            manager_token=manager_token,
+        )
+
+        # Player 1: 200 cash (approved)
+        req = await request_service.create_request(
+            game_id=game_id, player_token=p1_token,
+            request_type=RequestType.CASH, amount=200,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(req.id),
+            manager_token=manager_token,
+        )
+
+        # Player 2: 1000 credit (approved)
+        req = await request_service.create_request(
+            game_id=game_id, player_token=p2_token,
+            request_type=RequestType.CREDIT, amount=1000,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(req.id),
+            manager_token=manager_token,
+        )
+
+        # Manager: 200 cash (approved)
+        req = await request_service.create_request(
+            game_id=game_id, player_token=manager_token,
+            request_type=RequestType.CASH, amount=200,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(req.id),
+            manager_token=manager_token,
+        )
+
+        # Manager: 200 credit (approved)
+        req = await request_service.create_request(
+            game_id=game_id, player_token=manager_token,
+            request_type=RequestType.CREDIT, amount=200,
+        )
+        await request_service.approve_request(
+            game_id=game_id, request_id=str(req.id),
+            manager_token=manager_token,
+        )
+
+        # Start settling
+        await settlement_service.start_settling(game_id)
+
+        return {
+            "game_id": game_id,
+            "manager_token": manager_token,
+            "p1_token": p1_token,
+            "p2_token": p2_token,
+        }
+
+    async def test_frozen_buy_in_reflects_credit(
+        self, settlement_service, player_dal, high_credit_game
+    ):
+        """Player 1 frozen_buy_in should show total_credit_in=500, total_cash_in=200."""
+        game_id = high_credit_game["game_id"]
+        p1_token = high_credit_game["p1_token"]
+
+        player = await player_dal.get_by_token(game_id, p1_token)
+        assert player.frozen_buy_in is not None
+        assert player.frozen_buy_in["total_credit_in"] == 500
+        assert player.frozen_buy_in["total_cash_in"] == 200
+        assert player.frozen_buy_in["total_buy_in"] == 700
+
+    async def test_high_credit_player_submits_400_chips(
+        self, settlement_service, player_dal, high_credit_game
+    ):
+        """Player 1 (500 credit + 200 cash) submits 400 chips.
+
+        After manager approval:
+        - credit_repaid = min(400, 500) = 400
+        - chips_after_credit = max(0, 400 - 500) = 0
+        - credits_owed = 500 - 400 = 100
+        - profit_loss = 400 - 700 = -300
+        """
+        game_id = high_credit_game["game_id"]
+        p1_token = high_credit_game["p1_token"]
+
+        # Player 1 submits 400 chips — preferred_cash should be 0
+        # because credit (500) > chip_count (400)
+        await settlement_service.submit_chips(
+            game_id=game_id,
+            player_token=p1_token,
+            chip_count=400,
+            preferred_cash=0,
+            preferred_credit=0,
+        )
+
+        # Manager approves
+        await settlement_service.validate_chips(game_id, p1_token)
+
+        player = await player_dal.get_by_token(game_id, p1_token)
+        assert player.validated_chip_count == 400
+        assert player.credit_repaid == 400
+        assert player.chips_after_credit == 0
+        assert player.credits_owed == 100
+        assert player.profit_loss == -300
+
+
 class TestCashOnlyFastPath:
 
     async def test_cash_only_player_validated_goes_to_done(

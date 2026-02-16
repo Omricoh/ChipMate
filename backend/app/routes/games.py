@@ -111,6 +111,15 @@ class PlayerInfo(BaseModel):
     total_cash_in: int
     total_credit_in: int
     current_chips: int
+    checkout_status: Optional[str] = None
+    submitted_chip_count: Optional[int] = None
+    validated_chip_count: Optional[int] = None
+    preferred_cash: Optional[int] = None
+    preferred_credit: Optional[int] = None
+    chips_after_credit: Optional[int] = None
+    credit_repaid: Optional[int] = None
+    profit_loss: Optional[int] = None
+    input_locked: bool = False
 
 
 class PlayersListResponse(BaseModel):
@@ -310,6 +319,15 @@ async def list_players(
                 total_cash_in=p["total_cash_in"],
                 total_credit_in=p["total_credit_in"],
                 current_chips=p["current_chips"],
+                checkout_status=p.get("checkout_status"),
+                submitted_chip_count=p.get("submitted_chip_count"),
+                validated_chip_count=p.get("validated_chip_count"),
+                preferred_cash=p.get("preferred_cash"),
+                preferred_credit=p.get("preferred_credit"),
+                chips_after_credit=p.get("chips_after_credit"),
+                credit_repaid=p.get("credit_repaid"),
+                profit_loss=p.get("profit_loss"),
+                input_locked=p.get("input_locked", False),
             )
         )
 

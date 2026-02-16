@@ -64,11 +64,13 @@ function ChipSubmissionForm({
   gameId,
   onToast,
   onSubmitted,
+  onRefresh,
 }: {
   frozenBuyIn: FrozenBuyIn | null;
   gameId: string;
   onToast: (variant: 'success' | 'error' | 'info', message: string) => void;
   onSubmitted: () => void;
+  onRefresh: () => void;
 }) {
   const [chipCount, setChipCount] = useState('');
   const [preferredCash, setPreferredCash] = useState('');
@@ -81,6 +83,13 @@ function ChipSubmissionForm({
   const creditIn = frozenBuyIn?.total_credit_in ?? 0;
   const chipsAfterCredit = Math.max(0, chipCountNum - creditIn);
   const splitValid = cashNum + creditNum === chipsAfterCredit;
+
+  // Refetch player data if frozen buy-in is missing when user starts typing
+  useEffect(() => {
+    if (!frozenBuyIn && chipCount) {
+      onRefresh();
+    }
+  }, [chipCount, frozenBuyIn, onRefresh]);
 
   // Auto-fill: when chip count changes, compute how much goes to credit
   // repayment first, then default the remainder to cash
@@ -319,6 +328,7 @@ export function PlayerCheckoutView({ gameId, onToast }: PlayerCheckoutViewProps)
           gameId={gameId}
           onToast={onToast}
           onSubmitted={handleSubmitted}
+          onRefresh={refreshPlayerData}
         />
       )}
 

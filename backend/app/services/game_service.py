@@ -308,6 +308,15 @@ class GameService:
                     "total_cash_in": totals["total_cash_in"],
                     "total_credit_in": totals["total_credit_in"],
                     "current_chips": current_chips,
+                    "checkout_status": str(p.checkout_status) if p.checkout_status else None,
+                    "submitted_chip_count": p.submitted_chip_count,
+                    "validated_chip_count": p.validated_chip_count,
+                    "preferred_cash": p.preferred_cash,
+                    "preferred_credit": p.preferred_credit,
+                    "chips_after_credit": p.chips_after_credit,
+                    "credit_repaid": p.credit_repaid,
+                    "profit_loss": p.profit_loss,
+                    "input_locked": p.input_locked,
                 }
             )
 
