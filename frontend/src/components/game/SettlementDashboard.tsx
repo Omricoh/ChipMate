@@ -91,6 +91,12 @@ export function SettlementDashboard({
   const [inputCredit, setInputCredit] = useState('');
   const [inputLoading, setInputLoading] = useState(false);
 
+  // ── Inline Edit State ─────────────────────────────────────────────────
+  const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
+  const [editChips, setEditChips] = useState('');
+  const [editCash, setEditCash] = useState('');
+  const [editCredit, setEditCredit] = useState('');
+
   // ── Distribution State ──────────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState<DistributionSuggestion | null>(null);
   const [suggestionText, setSuggestionText] = useState('');
@@ -152,6 +158,50 @@ export function SettlementDashboard({
       }
     },
     [gameId, onToast, refreshGame, fetchPool],
+  );
+
+  const handleStartEdit = useCallback((player: Player) => {
+    setEditingPlayer(player.player_id);
+    setEditChips(String(player.submitted_chip_count ?? ''));
+    setEditCash(String(player.preferred_cash ?? '0'));
+    setEditCredit(String(player.preferred_credit ?? '0'));
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingPlayer(null);
+    setEditChips('');
+    setEditCash('');
+    setEditCredit('');
+  }, []);
+
+  const handleSaveEdit = useCallback(
+    async (playerToken: string) => {
+      const chips = Number(editChips);
+      const cash = Number(editCash);
+      const credit = Number(editCredit);
+      if (!Number.isFinite(chips) || chips < 0) {
+        onToast(createToast('error', 'Enter a valid chip count'));
+        return;
+      }
+      setActionLoading(playerToken);
+      try {
+        // Reject first to reset to PENDING, then re-submit via manager input
+        await rejectChips(gameId, playerToken);
+        await managerInput(gameId, playerToken, chips, cash || 0, credit || 0);
+        onToast(createToast('success', 'Chips updated'));
+        setEditingPlayer(null);
+        setEditChips('');
+        setEditCash('');
+        setEditCredit('');
+        refreshGame();
+        fetchPool();
+      } catch (err) {
+        onToast(createToast('error', getErrorMessage(err, 'Failed to update chips')));
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [gameId, editChips, editCash, editCredit, onToast, refreshGame, fetchPool],
   );
 
   const handleManagerInput = useCallback(async () => {
@@ -243,6 +293,79 @@ export function SettlementDashboard({
     }
   }, [pendingPlayers, inputPlayer]);
 
+  // ── Inline Edit Form (reused for SUBMITTED / CREDIT_DEDUCTED / DONE) ──
+
+  function renderEditForm(player: Player) {
+    if (editingPlayer !== player.player_id) return null;
+    const isLoading = actionLoading === player.player_id;
+    return (
+      <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-0.5">
+            Chip Count
+          </label>
+          <input
+            type="number"
+            onWheel={(e) => (e.target as HTMLElement).blur()}
+            min={0}
+            value={editChips}
+            onChange={(e) => setEditChips(e.target.value)}
+            disabled={isLoading}
+            className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm tabular-nums focus:border-primary-500 focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-0.5">
+              Prefer Cash
+            </label>
+            <input
+              type="number"
+              onWheel={(e) => (e.target as HTMLElement).blur()}
+              min={0}
+              value={editCash}
+              onChange={(e) => setEditCash(e.target.value)}
+              disabled={isLoading}
+              className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm tabular-nums focus:border-primary-500 focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-0.5">
+              Prefer Credit
+            </label>
+            <input
+              type="number"
+              onWheel={(e) => (e.target as HTMLElement).blur()}
+              min={0}
+              value={editCredit}
+              onChange={(e) => setEditCredit(e.target.value)}
+              disabled={isLoading}
+              className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm tabular-nums focus:border-primary-500 focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => handleSaveEdit(player.player_id)}
+            disabled={isLoading}
+            className="flex-1 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
+          >
+            {isLoading ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={handleCancelEdit}
+            disabled={isLoading}
+            className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
@@ -285,8 +408,8 @@ export function SettlementDashboard({
                 {checkoutStatusBadge(player.checkout_status as CheckoutStatus | null)}
               </div>
 
-              {/* SUBMITTED: manager approves or rejects */}
-              {player.checkout_status === 'SUBMITTED' && (
+              {/* SUBMITTED: manager approves, edits, or rejects */}
+              {player.checkout_status === 'SUBMITTED' && editingPlayer !== player.player_id && (
                 <div className="mt-2 space-y-2">
                   <p className="text-xs text-gray-600">
                     Submitted chips:{' '}
@@ -305,6 +428,14 @@ export function SettlementDashboard({
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleStartEdit(player)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleReject(player.player_id)}
                       disabled={actionLoading === player.player_id}
                       className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
@@ -314,9 +445,10 @@ export function SettlementDashboard({
                   </div>
                 </div>
               )}
+              {player.checkout_status === 'SUBMITTED' && renderEditForm(player)}
 
-              {/* CREDIT_DEDUCTED: show credit math + reject */}
-              {player.checkout_status === 'CREDIT_DEDUCTED' && (
+              {/* CREDIT_DEDUCTED: show credit math + edit/reject */}
+              {player.checkout_status === 'CREDIT_DEDUCTED' && editingPlayer !== player.player_id && (
                 <div className="mt-2 space-y-2">
                   <div className="text-xs text-gray-600 space-y-0.5">
                     <p>
@@ -349,16 +481,27 @@ export function SettlementDashboard({
                       </span>
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleReject(player.player_id)}
-                    disabled={actionLoading === player.player_id}
-                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                  >
-                    Reject
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEdit(player)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReject(player.player_id)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      Reject
+                    </button>
+                  </div>
                 </div>
               )}
+              {player.checkout_status === 'CREDIT_DEDUCTED' && renderEditForm(player)}
 
               {/* DISTRIBUTED */}
               {player.checkout_status === 'DISTRIBUTED' && (
@@ -376,7 +519,7 @@ export function SettlementDashboard({
               )}
 
               {/* DONE */}
-              {player.checkout_status === 'DONE' && (
+              {player.checkout_status === 'DONE' && editingPlayer !== player.player_id && (
                 <div className="mt-2 space-y-2">
                   <div className="flex items-center gap-2">
                     <svg
@@ -405,16 +548,27 @@ export function SettlementDashboard({
                       </span>
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleReject(player.player_id)}
-                    disabled={actionLoading === player.player_id}
-                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                  >
-                    Reject
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEdit(player)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReject(player.player_id)}
+                      disabled={actionLoading === player.player_id}
+                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      Reject
+                    </button>
+                  </div>
                 </div>
               )}
+              {player.checkout_status === 'DONE' && renderEditForm(player)}
             </div>
           ))}
         </div>
