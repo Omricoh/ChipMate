@@ -99,7 +99,7 @@ export function SettlementDashboard({
 
   // ── Distribution State ──────────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState<DistributionSuggestion | null>(null);
-  const [suggestionText, setSuggestionText] = useState('');
+  const [distEdits, setDistEdits] = useState<Record<string, number>>({});
   const [distLoading, setDistLoading] = useState(false);
   const [applied, setApplied] = useState(false);
 
@@ -234,7 +234,11 @@ export function SettlementDashboard({
     try {
       const data = await getDistribution(gameId);
       setSuggestion(data);
-      setSuggestionText(JSON.stringify(data, null, 2));
+      const edits: Record<string, number> = {};
+      for (const [token, dist] of Object.entries(data)) {
+        edits[token] = dist.cash;
+      }
+      setDistEdits(edits);
       setApplied(false);
     } catch (err) {
       onToast(createToast('error', getErrorMessage(err, 'Failed to get distribution')));
@@ -244,10 +248,17 @@ export function SettlementDashboard({
   }, [gameId, onToast]);
 
   const handleApplyDistribution = useCallback(async () => {
+    if (!suggestion) return;
     setDistLoading(true);
     try {
-      const parsed = JSON.parse(suggestionText);
-      await overrideDistribution(gameId, parsed);
+      const distribution: Record<string, { cash: number; credit_from: { from: string; amount: number }[] }> = {};
+      for (const [token, dist] of Object.entries(suggestion)) {
+        distribution[token] = {
+          cash: distEdits[token] ?? dist.cash,
+          credit_from: dist.credit_from,
+        };
+      }
+      await overrideDistribution(gameId, distribution);
       onToast(createToast('success', 'Distribution applied'));
       setApplied(true);
       refreshGame();
@@ -257,7 +268,7 @@ export function SettlementDashboard({
     } finally {
       setDistLoading(false);
     }
-  }, [gameId, suggestionText, onToast, refreshGame, fetchPool]);
+  }, [gameId, suggestion, distEdits, onToast, refreshGame, fetchPool]);
 
   const handleConfirm = useCallback(
     async (playerToken: string) => {
@@ -695,25 +706,69 @@ export function SettlementDashboard({
                 disabled={distLoading}
                 className="w-full rounded-xl bg-sky-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:opacity-60"
               >
-                {distLoading ? 'Loading...' : 'Get Suggestion'}
+                {distLoading ? 'Loading...' : 'Calculate Distribution'}
               </button>
             )}
 
             {suggestion && (
-              <>
-                <label
-                  htmlFor="distribution-json"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Distribution JSON
-                </label>
-                <textarea
-                  id="distribution-json"
-                  value={suggestionText}
-                  onChange={(e) => setSuggestionText(e.target.value)}
-                  rows={8}
-                  className="w-full rounded-xl border-2 border-gray-300 px-4 py-3 text-xs font-mono tabular-nums focus:outline-none focus:ring-0 focus:border-primary-500"
-                />
+              <div className="space-y-3">
+                {Object.entries(suggestion).map(([token, dist]) => {
+                  const player = sortedPlayers.find((p) => p.player_id === token);
+                  const name = player?.name ?? token.slice(0, 8);
+                  const isManager = player?.is_manager ?? false;
+                  const creditFromTotal = dist.credit_from.reduce((s, c) => s + c.amount, 0);
+                  return (
+                    <div
+                      key={token}
+                      className="rounded-lg border border-gray-100 bg-gray-50 p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-900">
+                          {name}
+                          {isManager && (
+                            <span className="ml-1 text-xs text-gray-400">(Manager)</span>
+                          )}
+                        </span>
+                        <span className="text-xs text-gray-500 tabular-nums">
+                          Total: {((distEdits[token] ?? dist.cash) + creditFromTotal).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-500 mb-0.5">Cash</label>
+                          <input
+                            type="number"
+                            onWheel={(e) => (e.target as HTMLElement).blur()}
+                            min={0}
+                            value={distEdits[token] ?? dist.cash}
+                            onChange={(e) =>
+                              setDistEdits((prev) => ({
+                                ...prev,
+                                [token]: parseInt(e.target.value, 10) || 0,
+                              }))
+                            }
+                            disabled={applied}
+                            className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm tabular-nums focus:border-primary-500 focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+                          />
+                        </div>
+                        {creditFromTotal > 0 && (
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-500 mb-0.5">Credit</label>
+                            <div className="px-2.5 py-1.5 text-sm tabular-nums text-gray-700">
+                              {creditFromTotal.toLocaleString()}
+                              <span className="text-xs text-gray-400 ml-1">
+                                ({dist.credit_from.map((c) => {
+                                  const from = sortedPlayers.find((p) => p.player_id === c.from);
+                                  return `${from?.name ?? c.from.slice(0, 8)}: ${c.amount.toLocaleString()}`;
+                                }).join(', ')})
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
 
                 {!applied && (
                   <button
@@ -725,7 +780,7 @@ export function SettlementDashboard({
                     {distLoading ? 'Applying...' : 'Apply Distribution'}
                   </button>
                 )}
-              </>
+              </div>
             )}
           </div>
         </section>
