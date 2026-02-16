@@ -114,7 +114,10 @@ class TestComputeDistributionSuggestion:
         assert result["winner2"]["cash"] == 50
 
     def test_high_credit_player_gets_zero_cash(self):
-        """Player with more credit than chips should get 0 cash in distribution."""
+        """Player with more credit than chips should get 0 cash in distribution.
+
+        Winner has 800 chips but only 700 cash available. Gets 700 cash + 100 credit from debtor.
+        """
         players = [
             # This player had 200 cash + 400 credit, returned 300 chips
             # chips_after_credit = 0, credit_owed = 100
@@ -125,8 +128,9 @@ class TestComputeDistributionSuggestion:
         result = compute_distribution_suggestion(players, cash_pool=700, credit_pool=0)
         assert result["debtor"]["cash"] == 0
         assert result["debtor"]["credit_from"] == []
-        # Winner gets cash (credit not available yet since debtor not confirmed)
-        assert result["winner"]["cash"] == 800
+        # Winner gets 700 cash + 100 credit (cash pool capped at 700)
+        assert result["winner"]["cash"] == 700
+        assert result["winner"]["credit_from"] == [{"from": "debtor", "amount": 100}]
 
     def test_no_chips_after_credit(self):
         players = [
@@ -135,3 +139,43 @@ class TestComputeDistributionSuggestion:
         result = compute_distribution_suggestion(players, cash_pool=100, credit_pool=0)
         assert result["a"]["cash"] == 0
         assert result["a"]["credit_from"] == []
+
+    def test_cash_pool_capped(self):
+        """Total cash distributed must not exceed cash_pool.
+
+        Scenario: Manager (300 after credit), p1 (0, owes 100), p2 (200).
+        Cash pool = 400, total needed = 500. Must assign 100 as credit from p1.
+        """
+        players = [
+            {"player_token": "manager", "chips_after_credit": 300, "preferred_cash": 300, "preferred_credit": 0, "credit_owed": 0},
+            {"player_token": "p1", "chips_after_credit": 0, "preferred_cash": 0, "preferred_credit": 0, "credit_owed": 100},
+            {"player_token": "p2", "chips_after_credit": 200, "preferred_cash": 200, "preferred_credit": 0, "credit_owed": 0},
+        ]
+        result = compute_distribution_suggestion(players, cash_pool=400, credit_pool=0)
+        total_cash = sum(r["cash"] for r in result.values())
+        assert total_cash <= 400, f"Total cash {total_cash} exceeds pool of 400"
+        # Someone must receive 100 credit from p1
+        total_credit = sum(
+            sum(c["amount"] for c in r["credit_from"])
+            for r in result.values()
+        )
+        assert total_credit == 100
+        # Each player still gets their full chips_after_credit
+        for token, chips in [("manager", 300), ("p1", 0), ("p2", 200)]:
+            player_total = result[token]["cash"] + sum(
+                c["amount"] for c in result[token]["credit_from"]
+            )
+            assert player_total == chips, f"{token}: expected {chips}, got {player_total}"
+
+    def test_cash_pool_capped_prefers_credit_requesters(self):
+        """When cash is short, players who preferred credit absorb it first."""
+        players = [
+            {"player_token": "a", "chips_after_credit": 200, "preferred_cash": 200, "preferred_credit": 0, "credit_owed": 0},
+            {"player_token": "b", "chips_after_credit": 200, "preferred_cash": 100, "preferred_credit": 100, "credit_owed": 0},
+            {"player_token": "debtor", "chips_after_credit": 0, "preferred_cash": 0, "preferred_credit": 0, "credit_owed": 150},
+        ]
+        result = compute_distribution_suggestion(players, cash_pool=300, credit_pool=0)
+        total_cash = sum(r["cash"] for r in result.values())
+        assert total_cash <= 300
+        # b preferred credit, so b should get credit assignment before a
+        assert len(result["b"]["credit_from"]) > 0
