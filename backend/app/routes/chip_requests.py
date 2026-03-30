@@ -1,12 +1,16 @@
 """Chip request route handlers.
 
 Endpoints:
-    POST /api/games/{game_id}/requests                        -- Create chip request.
-    GET  /api/games/{game_id}/requests/pending                -- Get pending requests (manager).
-    GET  /api/games/{game_id}/requests/mine                   -- Get player's request history.
-    POST /api/games/{game_id}/requests/{request_id}/approve   -- Approve request (manager).
-    POST /api/games/{game_id}/requests/{request_id}/decline   -- Decline request (manager).
-    POST /api/games/{game_id}/requests/{request_id}/edit      -- Edit and approve (manager).
+    POST   /api/games/{game_id}/requests                      -- Create chip request.
+    GET    /api/games/{game_id}/requests/pending              -- Get pending requests (manager).
+    GET    /api/games/{game_id}/requests/mine                 -- Get player's request history.
+    GET    /api/games/{game_id}/requests/history              -- Get request history.
+    GET    /api/games/{game_id}/requests/{request_id}         -- Get single request.
+    POST   /api/games/{game_id}/requests/{request_id}/approve -- Approve request (manager).
+    POST   /api/games/{game_id}/requests/{request_id}/decline -- Decline request (manager).
+    POST   /api/games/{game_id}/requests/{request_id}/edit    -- Edit and approve pending request.
+    PUT    /api/games/{game_id}/requests/{request_id}         -- Update transaction (manager).
+    DELETE /api/games/{game_id}/requests/{request_id}         -- Delete transaction (manager).
 """
 
 import logging
@@ -76,6 +80,12 @@ class EditRequestBody(BaseModel):
     )
 
 
+class UpdateTransactionBody(BaseModel):
+    """Request body for PUT .../requests/{request_id}."""
+    new_amount: int = Field(..., gt=0, description="Updated chip amount.")
+    new_type: RequestType = Field(..., description="Updated transaction type.")
+
+
 class ChipRequestOut(BaseModel):
     """Response model for a single chip request."""
     id: str
@@ -90,6 +100,12 @@ class ChipRequestOut(BaseModel):
     created_at: str
     resolved_at: Optional[str] = None
     resolved_by: Optional[str] = None
+
+
+class DeleteTransactionResponse(BaseModel):
+    """Response model for DELETE .../requests/{request_id}."""
+    deleted: bool
+    request_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -357,3 +373,42 @@ async def edit_and_approve_request(
         manager_token=manager.player_token,
     )
     return _to_response(chip_request)
+
+
+@router.put(
+    "/{request_id}",
+    response_model=ChipRequestOut,
+    summary="Update an approved transaction (manager only)",
+)
+async def update_transaction(
+    body: UpdateTransactionBody,
+    game_id: str = Path(...),
+    request_id: str = Path(...),
+    manager: Player = Depends(get_current_manager),
+) -> ChipRequestOut:
+    """Update a processed transaction while the game is OPEN."""
+    service = _get_service()
+    chip_request = await service.update_transaction(
+        game_id=game_id,
+        request_id=request_id,
+        new_amount=body.new_amount,
+        new_type=body.new_type,
+        manager_token=manager.player_token,
+    )
+    return _to_response(chip_request)
+
+
+@router.delete(
+    "/{request_id}",
+    response_model=DeleteTransactionResponse,
+    summary="Delete an approved transaction (manager only)",
+)
+async def delete_transaction(
+    game_id: str = Path(...),
+    request_id: str = Path(...),
+    manager: Player = Depends(get_current_manager),
+) -> DeleteTransactionResponse:
+    """Delete a processed transaction while the game is OPEN."""
+    service = _get_service()
+    await service.delete_transaction(game_id=game_id, request_id=request_id)
+    return DeleteTransactionResponse(deleted=True, request_id=request_id)

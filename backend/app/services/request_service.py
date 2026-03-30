@@ -94,6 +94,22 @@ class RequestService:
                 detail=f"Chip request already processed (status: {chip_request.status})",
             )
 
+    def _validate_game_open_for_transaction_mutation(self, game) -> None:
+        """Only allow host transaction mutations while the game is OPEN."""
+        if game.status != GameStatus.OPEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transactions can only be edited while the game is OPEN",
+            )
+
+    def _validate_request_is_transaction(self, chip_request: ChipRequest) -> None:
+        """Ensure the request represents an applied transaction."""
+        if chip_request.status not in (RequestStatus.APPROVED, RequestStatus.EDITED):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only approved transactions can be edited or removed",
+            )
+
     async def _apply_bank_and_player_updates(
         self,
         game_id: str,
@@ -150,6 +166,49 @@ class RequestService:
             related_id=related_id,
         )
         await self._notification_dal.create(notification)
+
+    async def _rebuild_financial_state(self, game_id: str) -> None:
+        """Recalculate bank totals and player credit balances from requests."""
+        game = await self._get_game_or_404(game_id)
+        requests = await self._chip_request_dal.get_by_game(game_id, limit=10000)
+        players = await self._player_dal.get_by_game(game_id, include_inactive=True)
+
+        total_cash_in = 0
+        total_credit_in = 0
+        total_chips_issued = 0
+        credit_by_player = {player.player_token: 0 for player in players}
+
+        for chip_request in requests:
+            amount = chip_request.effective_amount
+            if amount <= 0:
+                continue
+
+            total_chips_issued += amount
+            if chip_request.request_type == RequestType.CASH:
+                total_cash_in += amount
+            elif chip_request.request_type == RequestType.CREDIT:
+                total_credit_in += amount
+                credit_by_player[chip_request.player_token] = (
+                    credit_by_player.get(chip_request.player_token, 0) + amount
+                )
+
+        await self._game_dal.update(
+            game_id,
+            {
+                "bank.cash_balance": total_cash_in - game.bank.total_cash_out,
+                "bank.total_cash_in": total_cash_in,
+                "bank.total_credits_issued": total_credit_in,
+                "bank.total_chips_issued": total_chips_issued,
+                "bank.chips_in_play": total_chips_issued - game.bank.total_chips_returned,
+            },
+        )
+
+        for player in players:
+            await self._player_dal.update_by_token(
+                game_id,
+                player.player_token,
+                {"credits_owed": credit_by_player.get(player.player_token, 0)},
+            )
 
     # ------------------------------------------------------------------
     # Create request
@@ -529,3 +588,80 @@ class RequestService:
             )
         else:
             return await self._chip_request_dal.get_by_game(game_id)
+
+    async def update_transaction(
+        self,
+        game_id: str,
+        request_id: str,
+        new_amount: int,
+        new_type: RequestType,
+        manager_token: str,
+    ) -> ChipRequest:
+        """Update an already-approved transaction and rebuild totals."""
+        if new_amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Amount must be a positive integer",
+            )
+
+        game = await self._get_game_or_404(game_id)
+        self._validate_game_open_for_transaction_mutation(game)
+
+        chip_request = await self._get_request_or_404(request_id)
+        self._validate_request_belongs_to_game(chip_request, game_id)
+        self._validate_request_is_transaction(chip_request)
+
+        updated = await self._chip_request_dal.update_processed_request(
+            request_id,
+            {
+                "request_type": str(new_type),
+                "edited_amount": (
+                    new_amount
+                    if chip_request.amount != new_amount
+                    or chip_request.request_type != new_type
+                    else None
+                ),
+                "status": (
+                    str(RequestStatus.EDITED)
+                    if chip_request.amount != new_amount or chip_request.request_type != new_type
+                    else str(RequestStatus.APPROVED)
+                ),
+                "resolved_at": datetime.now(timezone.utc),
+                "resolved_by": manager_token,
+            },
+            allowed_statuses=[RequestStatus.APPROVED, RequestStatus.EDITED],
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transaction could not be updated",
+            )
+
+        await self._rebuild_financial_state(game_id)
+        updated_request = await self._chip_request_dal.get_by_id(request_id)
+        return updated_request  # type: ignore[return-value]
+
+    async def delete_transaction(
+        self,
+        game_id: str,
+        request_id: str,
+    ) -> None:
+        """Delete an already-approved transaction and rebuild totals."""
+        game = await self._get_game_or_404(game_id)
+        self._validate_game_open_for_transaction_mutation(game)
+
+        chip_request = await self._get_request_or_404(request_id)
+        self._validate_request_belongs_to_game(chip_request, game_id)
+        self._validate_request_is_transaction(chip_request)
+
+        deleted = await self._chip_request_dal.delete_by_id(
+            request_id,
+            allowed_statuses=[RequestStatus.APPROVED, RequestStatus.EDITED],
+        )
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transaction could not be removed",
+            )
+
+        await self._rebuild_financial_state(game_id)

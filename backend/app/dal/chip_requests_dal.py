@@ -223,6 +223,27 @@ class ChipRequestDAL:
             )
         return result.modified_count > 0
 
+    async def update_processed_request(
+        self,
+        request_id: str,
+        fields: dict,
+        allowed_statuses: list[RequestStatus],
+    ) -> bool:
+        """Update an already-processed chip request."""
+        if not ObjectId.is_valid(request_id):
+            return False
+
+        result = await self._collection.update_one(
+            {
+                "_id": ObjectId(request_id),
+                "status": {"$in": [str(status) for status in allowed_statuses]},
+            },
+            {"$set": fields},
+        )
+        if result.modified_count > 0:
+            logger.info("Updated processed chip request %s", request_id)
+        return result.modified_count > 0
+
     async def decline_all_pending(self, game_id: str) -> int:
         """Bulk-decline all pending chip requests for a game.
 
@@ -302,3 +323,21 @@ class ChipRequestDAL:
                 game_id,
             )
         return result.deleted_count
+
+    async def delete_by_id(
+        self,
+        request_id: str,
+        allowed_statuses: Optional[list[RequestStatus]] = None,
+    ) -> bool:
+        """Delete a chip request by id, optionally restricted by status."""
+        if not ObjectId.is_valid(request_id):
+            return False
+
+        query: dict = {"_id": ObjectId(request_id)}
+        if allowed_statuses is not None:
+            query["status"] = {"$in": [str(status) for status in allowed_statuses]}
+
+        result = await self._collection.delete_one(query)
+        if result.deleted_count > 0:
+            logger.info("Deleted chip request %s", request_id)
+        return result.deleted_count > 0

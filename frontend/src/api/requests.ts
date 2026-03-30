@@ -137,3 +137,44 @@ export async function getMyRequests(
   );
   return response.data.map(toChipRequest);
 }
+
+/**
+ * Get full request history for the current game.
+ * GET /api/games/{gameId}/requests/history
+ */
+export async function getRequestHistory(
+  gameId: string,
+): Promise<ChipRequest[]> {
+  const response = await apiClient.get<ChipRequestRaw[]>(
+    `/api/games/${gameId}/requests/history`,
+  );
+  return response.data.map(toChipRequest);
+}
+
+/**
+ * Update an approved transaction (manager only).
+ * PUT /api/games/{gameId}/requests/{requestId}
+ */
+export async function updateTransaction(
+  gameId: string,
+  requestId: string,
+  newAmount: number,
+  newType: RequestType,
+): Promise<ChipRequest> {
+  const response = await apiClient.put<ChipRequestRaw>(
+    `/api/games/${gameId}/requests/${requestId}`,
+    { new_amount: newAmount, new_type: newType },
+  );
+  return toChipRequest(response.data);
+}
+
+/**
+ * Delete an approved transaction (manager only).
+ * DELETE /api/games/{gameId}/requests/{requestId}
+ */
+export async function deleteTransaction(
+  gameId: string,
+  requestId: string,
+): Promise<void> {
+  await apiClient.delete(`/api/games/${gameId}/requests/${requestId}`);
+}

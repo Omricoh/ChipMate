@@ -400,3 +400,53 @@ class TestEditAndApproveRequest:
             headers={"X-Player-Token": game["player_token"]},
         )
         assert resp.status_code == 400
+
+
+class TestTransactionMutationRoutes:
+
+    @pytest.mark.asyncio
+    async def test_put_transaction_updates_processed_request(self, test_client):
+        game = await _create_game(test_client)
+        bob = await _join_game(test_client, game["game_id"], "Bob")
+        req = await _create_request(
+            test_client, game["game_id"], bob["player_token"], request_type="CREDIT", amount=75
+        )
+        await test_client.post(
+            f"/api/games/{game['game_id']}/requests/{req['id']}/approve",
+            headers={"X-Player-Token": game["player_token"]},
+        )
+
+        resp = await test_client.put(
+            f"/api/games/{game['game_id']}/requests/{req['id']}",
+            json={"new_amount": 120, "new_type": "CASH"},
+            headers={"X-Player-Token": game["player_token"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "EDITED"
+        assert data["request_type"] == "CASH"
+        assert data["edited_amount"] == 120
+
+    @pytest.mark.asyncio
+    async def test_delete_transaction_removes_processed_request(self, test_client):
+        game = await _create_game(test_client)
+        bob = await _join_game(test_client, game["game_id"], "Bob")
+        req = await _create_request(test_client, game["game_id"], bob["player_token"], amount=75)
+        await test_client.post(
+            f"/api/games/{game['game_id']}/requests/{req['id']}/approve",
+            headers={"X-Player-Token": game["player_token"]},
+        )
+
+        resp = await test_client.delete(
+            f"/api/games/{game['game_id']}/requests/{req['id']}",
+            headers={"X-Player-Token": game["player_token"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": True, "request_id": req["id"]}
+
+        history_resp = await test_client.get(
+            f"/api/games/{game['game_id']}/requests/history",
+            headers={"X-Player-Token": game["player_token"]},
+        )
+        assert history_resp.status_code == 200
+        assert history_resp.json() == []

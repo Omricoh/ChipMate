@@ -265,6 +265,87 @@ class TestApproveRequest:
         )
         assert player.credits_owed == 75
 
+
+class TestTransactionMutation:
+
+    @pytest.mark.asyncio
+    async def test_update_transaction_rebuilds_bank_and_player_totals(
+        self, request_service, game_dal, player_dal, open_game, player_bob
+    ):
+        req = await request_service.create_request(
+            open_game["game_id"],
+            player_bob["player_token"],
+            RequestType.CREDIT,
+            75,
+        )
+        await request_service.approve_request(
+            open_game["game_id"], req.id, open_game["player_token"]
+        )
+
+        updated = await request_service.update_transaction(
+            open_game["game_id"],
+            req.id,
+            new_amount=120,
+            new_type=RequestType.CASH,
+            manager_token=open_game["player_token"],
+        )
+
+        assert updated.status == RequestStatus.EDITED
+        assert updated.request_type == RequestType.CASH
+        assert updated.edited_amount == 120
+
+        game = await game_dal.get_by_id(open_game["game_id"])
+        assert game.bank.total_cash_in == 120
+        assert game.bank.total_credits_issued == 0
+        assert game.bank.cash_balance == 120
+        assert game.bank.total_chips_issued == 120
+        assert game.bank.chips_in_play == 120
+
+        player = await player_dal.get_by_token(
+            open_game["game_id"], player_bob["player_token"]
+        )
+        assert player.credits_owed == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_transaction_rebuilds_bank_and_player_totals(
+        self, request_service, game_dal, player_dal, open_game, player_bob
+    ):
+        cash_req = await request_service.create_request(
+            open_game["game_id"],
+            player_bob["player_token"],
+            RequestType.CASH,
+            100,
+        )
+        credit_req = await request_service.create_request(
+            open_game["game_id"],
+            player_bob["player_token"],
+            RequestType.CREDIT,
+            50,
+        )
+        await request_service.approve_request(
+            open_game["game_id"], cash_req.id, open_game["player_token"]
+        )
+        await request_service.approve_request(
+            open_game["game_id"], credit_req.id, open_game["player_token"]
+        )
+
+        await request_service.delete_transaction(
+            open_game["game_id"],
+            credit_req.id,
+        )
+
+        game = await game_dal.get_by_id(open_game["game_id"])
+        assert game.bank.total_cash_in == 100
+        assert game.bank.total_credits_issued == 0
+        assert game.bank.cash_balance == 100
+        assert game.bank.total_chips_issued == 100
+        assert game.bank.chips_in_play == 100
+
+        player = await player_dal.get_by_token(
+            open_game["game_id"], player_bob["player_token"]
+        )
+        assert player.credits_owed == 0
+
     @pytest.mark.asyncio
     async def test_approve_nonexistent_request_raises_404(
         self, request_service, open_game

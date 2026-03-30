@@ -20,9 +20,16 @@ import { PlayerListCard } from './PlayerListCard';
 import { GameShareSection } from './GameShareSection';
 import { SettlementDashboard } from './SettlementDashboard';
 import { RequestHistoryList } from './RequestHistoryList';
-import { GameStatus, RequestType } from '../../api/types';
+import { HostTransactionList } from './HostTransactionList';
+import { GameStatus, RequestStatus, RequestType } from '../../api/types';
 import type { ChipRequest } from '../../api/types';
-import { createChipRequest, getMyRequests } from '../../api/requests';
+import {
+  createChipRequest,
+  deleteTransaction,
+  getMyRequests,
+  getRequestHistory,
+  updateTransaction,
+} from '../../api/requests';
 import { startSettling, managerCheckoutRequest } from '../../api/settlement';
 import axios from 'axios';
 
@@ -83,6 +90,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
   // ── Manager's Own Request History ────────────────────────────────────
 
   const [myRequests, setMyRequests] = useState<ChipRequest[]>([]);
+  const [transactions, setTransactions] = useState<ChipRequest[]>([]);
 
   const refreshMyRequests = useCallback(async () => {
     try {
@@ -97,9 +105,29 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
     }
   }, [gameId]);
 
+  const refreshTransactions = useCallback(async () => {
+    try {
+      const history = await getRequestHistory(gameId);
+      const nextTransactions = history
+        .filter(
+          (request) =>
+            request.status === RequestStatus.APPROVED
+            || request.status === RequestStatus.EDITED,
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+      setTransactions(nextTransactions);
+    } catch {
+      // Silent fail during polling
+    }
+  }, [gameId]);
+
   useEffect(() => {
     refreshMyRequests();
-  }, [refreshMyRequests]);
+    refreshTransactions();
+  }, [refreshMyRequests, refreshTransactions]);
 
   // ── Confirm Modal State ───────────────────────────────────────────────
 
@@ -156,6 +184,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
         await approve(requestId);
         addToast(createToast('success', 'Request approved'));
         refreshGame();
+        refreshTransactions();
       } catch {
         addToast(createToast('error', 'Failed to approve request'));
         refreshRequests();
@@ -184,6 +213,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             await decline(requestId);
             addToast(createToast('info', 'Request declined'));
             refreshGame();
+            refreshTransactions();
           } catch {
             addToast(createToast('error', 'Failed to decline request'));
             refreshRequests();
@@ -208,6 +238,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
           ),
         );
         refreshGame();
+        refreshTransactions();
       } catch {
         addToast(createToast('error', 'Failed to edit and approve request'));
         refreshRequests();
@@ -255,6 +286,7 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
       await refreshGame();
       refreshRequests();
       refreshMyRequests();
+      refreshTransactions();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to submit purchase';
@@ -290,6 +322,55 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
       }
     },
     [gameId, addToast, refreshGame],
+  );
+
+  const handleTransactionUpdate = useCallback(
+    async (requestId: string, newAmount: number, newType: RequestType) => {
+      setProcessingId(requestId);
+      try {
+        await updateTransaction(gameId, requestId, newAmount, newType);
+        addToast(createToast('success', 'Transaction updated'));
+        await refreshGame();
+        refreshTransactions();
+      } catch (err) {
+        addToast(createToast('error', getErrorMessage(err, 'Failed to update transaction')));
+        refreshTransactions();
+      } finally {
+        setProcessingId(null);
+      }
+    },
+    [gameId, addToast, refreshGame, refreshTransactions],
+  );
+
+  const handleTransactionDelete = useCallback(
+    (requestId: string) => {
+      const request = transactions.find((entry) => entry.request_id === requestId);
+      const playerName = request?.player_name ?? 'this player';
+
+      setConfirmModal({
+        isOpen: true,
+        title: 'Remove Transaction',
+        message: `Remove the transaction for ${playerName}? This updates the real game totals.`,
+        confirmLabel: 'Remove',
+        isDanger: true,
+        onConfirm: async () => {
+          closeModal();
+          setProcessingId(requestId);
+          try {
+            await deleteTransaction(gameId, requestId);
+            addToast(createToast('info', 'Transaction removed'));
+            await refreshGame();
+            refreshTransactions();
+          } catch (err) {
+            addToast(createToast('error', getErrorMessage(err, 'Failed to remove transaction')));
+            refreshTransactions();
+          } finally {
+            setProcessingId(null);
+          }
+        },
+      });
+    },
+    [transactions, closeModal, gameId, addToast, refreshGame, refreshTransactions],
   );
 
   // ── Loading State ─────────────────────────────────────────────────────
@@ -683,6 +764,25 @@ export function ManagerDashboard({ gameId, gameCode }: ManagerDashboardProps) {
             My Request History
           </h2>
           <RequestHistoryList requests={myRequests} />
+        </section>
+
+        <section
+          className="rounded-xl bg-white border border-gray-200 shadow-sm p-4"
+          aria-label="Transactions"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-700">Transactions</h2>
+            <span className="text-xs text-gray-400">
+              Ordered by time
+            </span>
+          </div>
+          <HostTransactionList
+            requests={transactions}
+            canManage={gameStatus === GameStatus.OPEN}
+            processingId={processingId}
+            onUpdate={handleTransactionUpdate}
+            onDelete={handleTransactionDelete}
+          />
         </section>
 
         {/* Game Controls */}
